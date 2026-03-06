@@ -27,7 +27,7 @@ media/
 uploads/
 
 # Static collected files
-staticfiles/
+# staticfiles/
 static_root/
 
 # Logs
