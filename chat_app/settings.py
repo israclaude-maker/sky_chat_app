@@ -20,10 +20,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-1-#o5cmxwt@idwn@-@95zdap5mf4we#(cjwt3jb0g0m8&s@&-w'
+import os
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-1-#o5cmxwt@idwn@-@95zdap5mf4we#(cjwt3jb0g0m8&s@&-w')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = ['*']
 
@@ -48,6 +49,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -134,6 +136,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 CSRF_TRUSTED_ORIGINS = [
     "https://*.ngrok-free.dev",
+    "https://*.onrender.com",
 ]
 # File Upload Settings
 DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
@@ -141,13 +144,8 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# CORS Configuration
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:8000",
-]
+
+CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -195,3 +193,4 @@ CHANNEL_LAYERS = {
 # Custom User Model
 AUTH_USER_MODEL = 'accounts.CustomUser'
 
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
