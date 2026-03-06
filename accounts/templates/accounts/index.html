@@ -1,0 +1,224 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SkyChat - Connect & Chat</title>
+  
+  <!-- PWA Meta Tags -->
+  <meta name="theme-color" content="#25d366">
+  <meta name="description" content="SkyChat - Real-time messaging app">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="SkyChat">
+  
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/manifest.json">
+  
+  <!-- Icons -->
+  <link rel="icon" href="{% static 'icons/icon-72x72.png' %}" type="image/png">
+  <link rel="apple-touch-icon" href="{% static 'icons/icon-192x192.png' %}">
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous">
+  <link rel="stylesheet" href="{% static 'css/login.css' %}">
+</head>
+<body>
+  <div class="container">
+    <!-- LEFT SECTION - AUTH FORMS -->
+    <div class="left-section">
+      <!-- Logo -->
+      <div class="logo">
+        <div class="logo-icon">
+          <i class="fa-solid fa-comments"></i>
+        </div>
+        <span class="logo-text">SkyChat</span>
+      </div>
+
+      <!-- Auth Box -->
+      <div class="auth-box">
+        <div class="auth-header">
+          <h1 id="auth-title">Welcome Back</h1>
+          <p id="auth-subtitle">Sign in to continue to SkyChat</p>
+        </div>
+
+        <div class="form-container">
+          <!-- Login Form -->
+          <form id="login-form" onsubmit="handleLogin(event)">
+            <div id="login-message" class="message"></div>
+            
+            <div class="form-group">
+              <label for="login-username">Username</label>
+              <div class="input-icon-wrap">
+                <i class="fa-solid fa-user"></i>
+                <input type="text" id="login-username" placeholder="Enter your username" autocomplete="username">
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="login-password">Password</label>
+              <div class="input-icon-wrap">
+                <i class="fa-solid fa-lock"></i>
+                <input type="password" id="login-password" placeholder="Enter your password" autocomplete="current-password">
+                <button type="button" class="eye-btn" onclick="togglePassword('login-password', this)">
+                  <i class="fa-solid fa-eye"></i>
+                </button>
+              </div>
+            </div>
+            
+            <button type="submit" class="submit-btn">
+              <i class="fa-solid fa-arrow-right-to-bracket"></i>
+              Sign In
+            </button>
+            
+            <div class="form-toggle">
+              <p>Don't have an account? <button type="button" onclick="toggleForms('signup')">Create Account</button></p>
+            </div>
+          </form>
+
+          <!-- Signup Form -->
+          <form id="signup-form" onsubmit="handleSignup(event)" autocomplete="off">
+            <div id="signup-message" class="message"></div>
+            
+            <div class="form-group">
+              <label for="signup-firstname">First Name *</label>
+              <div class="input-icon-wrap">
+                <i class="fa-solid fa-user"></i>
+                <input type="text" id="signup-firstname" placeholder="Enter your first name" autocomplete="off">
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="signup-lastname">Last Name</label>
+              <div class="input-icon-wrap">
+                <i class="fa-solid fa-user"></i>
+                <input type="text" id="signup-lastname" placeholder="Enter your last name (optional)" autocomplete="off">
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="signup-username">Username *</label>
+              <div class="input-icon-wrap">
+                <i class="fa-solid fa-at"></i>
+                <input type="text" id="signup-username" placeholder="Choose a username" autocomplete="new-username">
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="signup-password">Password *</label>
+              <div class="input-icon-wrap">
+                <i class="fa-solid fa-lock"></i>
+                <input type="password" id="signup-password" placeholder="Create a strong password" oninput="checkPasswordMatch()" autocomplete="new-password">
+                <button type="button" class="eye-btn" onclick="togglePassword('signup-password', this)">
+                  <i class="fa-solid fa-eye"></i>
+                </button>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="signup-password2">Confirm Password *</label>
+              <div class="input-icon-wrap">
+                <i class="fa-solid fa-lock"></i>
+                <input type="password" id="signup-password2" placeholder="Confirm your password" oninput="checkPasswordMatch()" autocomplete="new-password">
+                <button type="button" class="eye-btn" onclick="togglePassword('signup-password2', this)">
+                  <i class="fa-solid fa-eye"></i>
+                </button>
+              </div>
+              <small id="pwd-match" class="pwd-match-hint"></small>
+            </div>
+            
+            <button type="submit" class="submit-btn">
+              <i class="fa-solid fa-user-plus"></i>
+              Create Account
+            </button>
+            
+            <div class="form-toggle">
+              <p>Already have an account? <button type="button" onclick="toggleForms('login')">Sign In</button></p>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT SECTION - FEATURES -->
+    <div class="right-section">
+      <!-- Floating bubbles -->
+      <div class="bubble-1"></div>
+      <div class="bubble-2"></div>
+      <div class="bubble-3"></div>
+      
+      <div class="features-content">
+        <h2>Connect with Everyone</h2>
+        <p>Experience seamless communication with real-time messaging, voice calls, and much more.</p>
+        
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="feature-icon">
+              <i class="fa-solid fa-comments"></i>
+            </div>
+            <h3>Real-time Chat</h3>
+            <p>Instant messaging with typing indicators</p>
+          </div>
+          
+          <div class="feature-card">
+            <div class="feature-icon">
+              <i class="fa-solid fa-phone"></i>
+            </div>
+            <h3>Voice Calls</h3>
+            <p>Crystal clear audio calls</p>
+          </div>
+          
+          <div class="feature-card">
+            <div class="feature-icon">
+              <i class="fa-solid fa-video"></i>
+            </div>
+            <h3>Video Calls</h3>
+            <p>Face-to-face conversations</p>
+          </div>
+          
+          <div class="feature-card">
+            <div class="feature-icon">
+              <i class="fa-solid fa-shield-halved"></i>
+            </div>
+            <h3>Secure</h3>
+            <p>End-to-end encryption</p>
+          </div>
+        </div>
+        
+        <div class="stats">
+          <div class="stat">
+            <span class="stat-num">10K+</span>
+            <span class="stat-label">Users</span>
+          </div>
+          <div class="stat">
+            <span class="stat-num">1M+</span>
+            <span class="stat-label">Messages</span>
+          </div>
+          <div class="stat">
+            <span class="stat-num">99.9%</span>
+            <span class="stat-label">Uptime</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="{% static 'js/login.js' %}"></script>
+  
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/sw.js')
+          .then(function(registration) {
+            console.log('ServiceWorker registered:', registration.scope);
+          })
+          .catch(function(err) {
+            console.log('ServiceWorker registration failed:', err);
+          });
+      });
+    }
+  </script>
+</body>
+</html>

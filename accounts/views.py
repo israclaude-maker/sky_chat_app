@@ -1,0 +1,914 @@
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from django.contrib.auth import authenticate
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.shortcuts import render
+from django.db.models import Q
+from django.utils import timezone
+
+from accounts.models import CustomUser
+from accounts.serializers import UserSerializer, RegisterSerializer, LoginSerializer
+from chat.models import Conversation, Message, Group, Reaction
+
+class UserViewSet(viewsets.ModelViewSet):
+    queryset = CustomUser.objects.all()
+    serializer_class = UserSerializer
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def register(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            return Response({
+                'user': UserSerializer(user).data,
+                'message': 'User registered successfully'
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def login(self, request):
+        serializer = LoginSerializer(data=request.data)
+        if serializer.is_valid():
+            username = serializer.validated_data.get('username')
+            password = serializer.validated_data.get('password')
+
+            user = authenticate(username=username, password=password)
+
+            if user is not None:
+                refresh = RefreshToken.for_user(user)
+                return Response({
+                    'user': UserSerializer(user).data,
+                    'refresh': str(refresh),
+                    'access': str(refresh.access_token),
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def me(self, request):
+        return Response(UserSerializer(request.user).data)
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def all_users(self, request):
+        users = CustomUser.objects.exclude(id=request.user.id)
+        serializer = UserSerializer(users, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def conversations(self, request):
+        """Get all conversations for current user"""
+        user = request.user
+        conversations = Conversation.objects.filter(
+            Q(participant1=user) | Q(participant2=user)
+        ).order_by('-updated_at')
+        
+        result = []
+        for conv in conversations:
+            other_user = conv.participant2 if conv.participant1 == user else conv.participant1
+            last_message = conv.messages.last()
+            result.append({
+                'id': conv.id,
+                'user': UserSerializer(other_user).data,
+                'last_message': last_message.content if last_message else None,
+                'last_message_time': last_message.timestamp.isoformat() if last_message else conv.updated_at.isoformat(),
+                'updated_at': conv.updated_at.isoformat()
+            })
+        return Response(result)
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def start_conversation(self, request):
+        """Create or get existing conversation with a user"""
+        other_user_id = request.data.get('user_id')
+        if not other_user_id:
+            return Response({'error': 'user_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            other_user = CustomUser.objects.get(id=other_user_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        user = request.user
+        
+        # Sort participants by ID for consistent ordering
+        participants = sorted([user.id, other_user.id])
+        
+        # Check if conversation already exists or create new
+        conversation, created = Conversation.objects.get_or_create(
+            participant1_id=participants[0],
+            participant2_id=participants[1]
+        )
+        
+        return Response({
+            'id': conversation.id,
+            'user': UserSerializer(other_user).data,
+            'created': conversation.created_at.isoformat()
+        })
+
+    @action(detail=False, methods=['get'], url_path='messages/(?P<user_id>\d+)', permission_classes=[IsAuthenticated])
+    def get_messages(self, request, user_id=None):
+        """Get message history with a user"""
+        try:
+            other_user = CustomUser.objects.get(id=user_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        user = request.user
+        participants = sorted([user.id, other_user.id])
+        
+        try:
+            conversation = Conversation.objects.get(
+                participant1_id=participants[0],
+                participant2_id=participants[1]
+            )
+            messages = conversation.messages.select_related('sender', 'reply_to', 'reply_to__sender').order_by('timestamp')[:100]
+            result = []
+            for msg in messages:
+                # Get reactions
+                reactions = msg.reactions.all()
+                reaction_data = {}
+                for r in reactions:
+                    if r.emoji not in reaction_data:
+                        reaction_data[r.emoji] = {'count': 0, 'users': []}
+                    reaction_data[r.emoji]['count'] += 1
+                    reaction_data[r.emoji]['users'].append(r.user.username)
+                
+                # Get reply data if this message is a reply
+                reply_data = None
+                if msg.reply_to:
+                    reply_sender = f"{msg.reply_to.sender.first_name} {msg.reply_to.sender.last_name}".strip() or msg.reply_to.sender.username
+                    reply_data = {
+                        'text': msg.reply_to.content or '',
+                        'sender': reply_sender
+                    }
+                
+                result.append({
+                    'id': msg.id,
+                    'message': msg.content,
+                    'message_type': msg.message_type,
+                    'file_url': msg.file.url if msg.file else None,
+                    'file_name': msg.file_name,
+                    'file_size': msg.file_size,
+                    'username': msg.sender.username,
+                    'display_name': f"{msg.sender.first_name} {msg.sender.last_name}".strip() or msg.sender.username,
+                    'timestamp': msg.timestamp.isoformat(),
+                    'is_read': msg.is_read,
+                    'read_at': msg.read_at.isoformat() if msg.read_at else None,
+                    'reactions': reaction_data,
+                    'reply_data': reply_data
+                })
+            return Response(result)
+        except Conversation.DoesNotExist:
+            return Response([])
+
+    # ================= GROUP ENDPOINTS =================
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def groups(self, request):
+        """Get all groups for current user"""
+        user = request.user
+        groups = Group.objects.filter(members=user).order_by('-updated_at')
+        
+        result = []
+        for group in groups:
+            last_message = group.messages.last()
+            result.append({
+                'id': group.id,
+                'name': group.name,
+                'description': group.description,
+                'members': UserSerializer(group.members.all(), many=True).data,
+                'admins': [a.id for a in group.admins.all()],
+                'created_by': group.created_by.id,
+                'last_message': last_message.content if last_message else None,
+                'last_message_time': last_message.timestamp.isoformat() if last_message else None,
+                'created_at': group.created_at.isoformat(),
+                'updated_at': group.updated_at.isoformat()
+            })
+        return Response(result)
+
+    @action(detail=False, methods=['post'], url_path='groups/create', permission_classes=[IsAuthenticated])
+    def create_group(self, request):
+        """Create a new group"""
+        name = request.data.get('name')
+        member_ids = request.data.get('members', [])
+        description = request.data.get('description', '')
+        
+        if not name:
+            return Response({'error': 'Group name is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = request.user
+        
+        # Create group
+        group = Group.objects.create(
+            name=name,
+            description=description,
+            created_by=user
+        )
+        
+        # Add creator as member and admin
+        group.members.add(user)
+        group.admins.add(user)
+        
+        # Add other members
+        for member_id in member_ids:
+            try:
+                member = CustomUser.objects.get(id=member_id)
+                group.members.add(member)
+            except CustomUser.DoesNotExist:
+                pass
+        
+        return Response({
+            'id': group.id,
+            'name': group.name,
+            'description': group.description,
+            'members': UserSerializer(group.members.all(), many=True).data,
+            'created_at': group.created_at.isoformat()
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='groups/(?P<group_id>[^/.]+)/add_member', permission_classes=[IsAuthenticated])
+    def add_group_member(self, request, group_id=None):
+        """Add a member to a group"""
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if request.user not in group.admins.all():
+            return Response({'error': 'Only admins can add members'}, status=status.HTTP_403_FORBIDDEN)
+        
+        member_id = request.data.get('user_id')
+        try:
+            member = CustomUser.objects.get(id=member_id)
+            group.members.add(member)
+            return Response({'message': 'Member added successfully'})
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'], url_path='groups/(?P<group_id>[^/.]+)/leave', permission_classes=[IsAuthenticated])
+    def leave_group(self, request, group_id=None):
+        """Leave a group"""
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        user = request.user
+        if user not in group.members.all():
+            return Response({'error': 'You are not a member of this group'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        group.members.remove(user)
+        if user in group.admins.all():
+            group.admins.remove(user)
+        
+        return Response({'message': 'Left group successfully'})
+
+    @action(detail=False, methods=['get'], url_path='groups/(?P<group_id>[^/.]+)/messages', permission_classes=[IsAuthenticated])
+    def group_messages(self, request, group_id=None):
+        """Get message history for a group"""
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if request.user not in group.members.all():
+            return Response({'error': 'You are not a member of this group'}, status=status.HTTP_403_FORBIDDEN)
+        
+        messages = Message.objects.filter(group=group).order_by('timestamp')[:100]
+        result = []
+        for msg in messages:
+            # Get reactions
+            reactions = msg.reactions.all()
+            reaction_data = {}
+            for r in reactions:
+                if r.emoji not in reaction_data:
+                    reaction_data[r.emoji] = {'count': 0, 'users': []}
+                reaction_data[r.emoji]['count'] += 1
+                reaction_data[r.emoji]['users'].append(r.user.username)
+            
+            result.append({
+                'id': msg.id,
+                'message': msg.content,
+                'message_type': msg.message_type,
+                'file_url': msg.file.url if msg.file else None,
+                'file_name': msg.file_name,
+                'file_size': msg.file_size,
+                'username': msg.sender.username,
+                'display_name': f"{msg.sender.first_name} {msg.sender.last_name}".strip() or msg.sender.username,
+                'timestamp': msg.timestamp.isoformat(),
+                'is_read': msg.is_read,
+                'read_at': msg.read_at.isoformat() if msg.read_at else None,
+                'reactions': reaction_data
+            })
+        return Response(result)
+
+    # ================= MESSAGE ENDPOINTS =================
+
+    @action(detail=False, methods=['post'], url_path='messages/upload', permission_classes=[IsAuthenticated])
+    def upload_file(self, request):
+        """Upload a file message"""
+        file = request.FILES.get('file')
+        receiver_id = request.data.get('receiver_id')
+        message_type = request.data.get('message_type', 'file')
+        
+        if not file:
+            return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not receiver_id:
+            return Response({'error': 'receiver_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            receiver = CustomUser.objects.get(id=receiver_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        user = request.user
+        participants = sorted([user.id, receiver.id])
+        
+        conversation, _ = Conversation.objects.get_or_create(
+            participant1_id=participants[0],
+            participant2_id=participants[1]
+        )
+        
+        # Determine message type from file
+        ext = file.name.lower().split('.')[-1] if '.' in file.name else ''
+        if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+            message_type = 'image'
+        elif ext in ['mp4', 'webm', 'mov', 'avi']:
+            message_type = 'video'
+        elif ext in ['mp3', 'wav', 'ogg', 'm4a']:
+            message_type = 'audio'
+        
+        msg = Message.objects.create(
+            conversation=conversation,
+            sender=user,
+            message_type=message_type,
+            file=file,
+            file_name=file.name,
+            file_size=file.size,
+            content=file.name
+        )
+        
+        return Response({
+            'id': msg.id,
+            'message_type': msg.message_type,
+            'file_url': msg.file.url,
+            'file_name': msg.file_name,
+            'file_size': msg.file_size,
+            'timestamp': msg.timestamp.isoformat(),
+            'sender': UserSerializer(user).data
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='messages/voice', permission_classes=[IsAuthenticated])
+    def upload_voice(self, request):
+        """Upload a voice message"""
+        file = request.FILES.get('file')
+        receiver_id = request.data.get('receiver_id')
+        duration = request.data.get('duration', 0)
+        
+        if not file:
+            return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not receiver_id:
+            return Response({'error': 'receiver_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            receiver = CustomUser.objects.get(id=receiver_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        user = request.user
+        participants = sorted([user.id, receiver.id])
+        
+        conversation, _ = Conversation.objects.get_or_create(
+            participant1_id=participants[0],
+            participant2_id=participants[1]
+        )
+        
+        import time
+        filename = f'voice_{int(time.time())}.webm'
+        
+        msg = Message.objects.create(
+            conversation=conversation,
+            sender=user,
+            message_type='voice',
+            file=file,
+            file_name=filename,
+            file_size=file.size,
+            content=f'Voice message ({duration}s)'
+        )
+        
+        # Broadcast via WebSocket
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        
+        msg_data = {
+            'type': 'voice_message',
+            'id': msg.id,
+            'message_id': msg.id,
+            'message': msg.content,
+            'message_type': 'voice',
+            'file_url': msg.file.url,
+            'file_name': msg.file_name,
+            'duration': duration,
+            'sender_id': user.id,
+            'username': user.username,
+            'display_name': user.first_name or user.username,
+            'timestamp': msg.timestamp.isoformat(),
+            'status': 'sent'
+        }
+        
+        async_to_sync(channel_layer.group_send)(f'user_{receiver.id}', msg_data)
+        async_to_sync(channel_layer.group_send)(f'user_{user.id}', msg_data)
+        
+        return Response({
+            'id': msg.id,
+            'message_type': 'voice',
+            'file_url': msg.file.url,
+            'duration': duration,
+            'timestamp': msg.timestamp.isoformat(),
+            'sender': UserSerializer(user).data
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='messages/(?P<message_id>\d+)/react', permission_classes=[IsAuthenticated])
+    def react_to_message(self, request, message_id=None):
+        """Add or update reaction to a message"""
+        emoji = request.data.get('emoji')
+        
+        if not emoji:
+            return Response({'error': 'emoji is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            message = Message.objects.get(id=message_id)
+        except Message.DoesNotExist:
+            return Response({'error': 'Message not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Update or create reaction
+        reaction, created = Reaction.objects.update_or_create(
+            message=message,
+            user=request.user,
+            defaults={'emoji': emoji}
+        )
+        
+        # Get all reactions for this message
+        reactions = message.reactions.all()
+        reaction_data = {}
+        for r in reactions:
+            if r.emoji not in reaction_data:
+                reaction_data[r.emoji] = {'count': 0, 'users': []}
+            reaction_data[r.emoji]['count'] += 1
+            reaction_data[r.emoji]['users'].append(r.user.username)
+        
+        return Response({
+            'message_id': message_id,
+            'reactions': reaction_data
+        })
+
+    @action(detail=False, methods=['delete'], url_path='messages/(?P<message_id>\d+)/unreact', permission_classes=[IsAuthenticated])
+    def remove_reaction(self, request, message_id=None):
+        """Remove reaction from a message"""
+        try:
+            message = Message.objects.get(id=message_id)
+            Reaction.objects.filter(message=message, user=request.user).delete()
+            return Response({'message': 'Reaction removed'})
+        except Message.DoesNotExist:
+            return Response({'error': 'Message not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'], url_path='messages/(?P<message_id>\d+)/read', permission_classes=[IsAuthenticated])
+    def mark_message_read(self, request, message_id=None):
+        """Mark a message as read"""
+        try:
+            message = Message.objects.get(id=message_id)
+            if message.sender != request.user and not message.is_read:
+                message.is_read = True
+                message.read_at = timezone.now()
+                message.save()
+            return Response({
+                'message_id': message_id,
+                'is_read': message.is_read,
+                'read_at': message.read_at.isoformat() if message.read_at else None
+            })
+        except Message.DoesNotExist:
+            return Response({'error': 'Message not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'], url_path=r'messages/(?P<message_id>\d+)/edit', permission_classes=[IsAuthenticated])
+    def edit_message(self, request, message_id=None):
+        """Edit a message (only by sender)"""
+        try:
+            message = Message.objects.get(id=message_id)
+            
+            # Only sender can edit
+            if message.sender != request.user:
+                return Response({'error': 'You can only edit your own messages'}, status=status.HTTP_403_FORBIDDEN)
+            
+            # Only text messages can be edited
+            if message.message_type != 'text':
+                return Response({'error': 'Only text messages can be edited'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            new_content = request.data.get('message', '').strip()
+            if not new_content:
+                return Response({'error': 'Message cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            message.content = new_content
+            message.save()
+            
+            return Response({
+                'success': True,
+                'message_id': message_id,
+                'content': message.content
+            })
+        except Message.DoesNotExist:
+            return Response({'error': 'Message not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'], url_path='messages/mark_read', permission_classes=[IsAuthenticated])
+    def mark_conversation_read(self, request):
+        """Mark all messages in a conversation as read"""
+        user_id = request.data.get('user_id')
+        
+        if not user_id:
+            return Response({'error': 'user_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            other_user = CustomUser.objects.get(id=user_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        participants = sorted([request.user.id, other_user.id])
+        
+        try:
+            conversation = Conversation.objects.get(
+                participant1_id=participants[0],
+                participant2_id=participants[1]
+            )
+            # Mark all unread messages from other user as read
+            now = timezone.now()
+            updated = conversation.messages.filter(
+                sender=other_user,
+                is_read=False
+            ).update(is_read=True, read_at=now)
+            
+            return Response({'marked_read': updated})
+        except Conversation.DoesNotExist:
+            return Response({'marked_read': 0})
+
+    @action(detail=False, methods=['get'], url_path='messages/(?P<message_id>\d+)/info', permission_classes=[IsAuthenticated])
+    def message_info(self, request, message_id=None):
+        """Get message info including delivery and read status"""
+        try:
+            message = Message.objects.get(id=message_id)
+            
+            # Get reactions
+            reactions = message.reactions.all()
+            reaction_data = {}
+            for r in reactions:
+                if r.emoji not in reaction_data:
+                    reaction_data[r.emoji] = {'count': 0, 'users': []}
+                reaction_data[r.emoji]['count'] += 1
+                reaction_data[r.emoji]['users'].append(r.user.username)
+            
+            return Response({
+                'id': message.id,
+                'content': message.content,
+                'message_type': message.message_type,
+                'file_url': message.file.url if message.file else None,
+                'file_name': message.file_name,
+                'sender': UserSerializer(message.sender).data,
+                'timestamp': message.timestamp.isoformat(),
+                'delivered_at': message.delivered_at.isoformat() if message.delivered_at else None,
+                'read_at': message.read_at.isoformat() if message.read_at else None,
+                'is_read': message.is_read,
+                'reactions': reaction_data
+            })
+        except Message.DoesNotExist:
+            return Response({'error': 'Message not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    # ================= CALL HISTORY =================
+
+    @action(detail=False, methods=['get'], url_path='call_history', permission_classes=[IsAuthenticated])
+    def call_history(self, request):
+        """Get call history for current user - both made and received calls"""
+        from calls.models import Call
+        
+        user = request.user
+        calls = Call.objects.filter(
+            Q(caller=user) | Q(receiver=user)
+        ).order_by('-created_at')[:50]
+        
+        result = []
+        for call in calls:
+            is_outgoing = call.caller == user
+            other_user = call.receiver if is_outgoing else call.caller
+            
+            result.append({
+                'id': call.id,
+                'is_outgoing': is_outgoing,
+                'call_type': call.call_type,
+                'status': call.status,
+                'other_user': {
+                    'id': other_user.id,
+                    'username': other_user.username,
+                    'first_name': other_user.first_name,
+                    'last_name': other_user.last_name,
+                    'profile_picture': other_user.profile_picture.url if other_user.profile_picture else None,
+                },
+                'duration': call.duration,
+                'created_at': call.created_at.isoformat(),
+                'started_at': call.started_at.isoformat() if call.started_at else None,
+                'ended_at': call.ended_at.isoformat() if call.ended_at else None,
+            })
+        
+        return Response(result)
+
+    # ================= PROFILE UPDATE =================
+
+    @action(detail=False, methods=['get', 'post', 'put'], url_path='profile', permission_classes=[IsAuthenticated])
+    def profile(self, request):
+        """Get or update current user's profile"""
+        user = request.user
+        
+        if request.method == 'GET':
+            return Response({
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'profile_picture': user.profile_picture.url if user.profile_picture else None,
+                'is_online': user.is_online,
+                'last_seen': user.last_seen.isoformat() if user.last_seen else None,
+                'created_at': user.created_at.isoformat() if user.created_at else None,
+            })
+        
+        # POST/PUT - update profile
+        first_name = request.data.get('first_name')
+        last_name = request.data.get('last_name')
+        email = request.data.get('email')
+        
+        if first_name is not None:
+            user.first_name = first_name
+        if last_name is not None:
+            user.last_name = last_name
+        if email is not None:
+            user.email = email
+        
+        user.save()
+        
+        return Response({
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'profile_picture': user.profile_picture.url if user.profile_picture else None,
+            'message': 'Profile updated successfully'
+        })
+
+    @action(detail=False, methods=['post'], url_path='profile_picture', permission_classes=[IsAuthenticated])
+    def update_profile_picture(self, request):
+        """Update profile picture"""
+        user = request.user
+        
+        if 'picture' not in request.FILES:
+            return Response({'error': 'No picture file provided'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        picture = request.FILES['picture']
+        
+        # Validate file size (max 5MB)
+        if picture.size > 5 * 1024 * 1024:
+            return Response({'error': 'File size must be less than 5MB'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate file type
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+        if picture.content_type not in allowed_types:
+            return Response({'error': 'Invalid file type. Use JPEG, PNG, GIF or WebP'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Delete old picture if exists
+        if user.profile_picture:
+            user.profile_picture.delete(save=False)
+        
+        user.profile_picture = picture
+        user.save()
+        
+        return Response({
+            'profile_picture': user.profile_picture.url,
+            'message': 'Profile picture updated successfully'
+        })
+
+    @action(detail=False, methods=['post'], url_path='remove_picture', permission_classes=[IsAuthenticated])
+    def remove_profile_picture(self, request):
+        """Remove profile picture - revert to default letter avatar"""
+        try:
+            user = request.user
+            if user.profile_picture:
+                try:
+                    user.profile_picture.delete(save=False)
+                except Exception:
+                    pass  # File already deleted or doesn't exist
+                user.profile_picture = None
+                user.save()
+            return Response({'success': True})
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+
+def index(request):
+    return render(request, 'accounts/index.html')
+
+
+class MessageViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['post'], url_path='upload')
+    def upload_file(self, request):
+        """Upload file message"""
+        file = request.FILES.get('file')
+        receiver_id = request.data.get('receiver_id')
+        
+        if not file or not receiver_id:
+            return Response({'error': 'File and receiver_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            receiver = CustomUser.objects.get(id=receiver_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        user = request.user
+        participants = sorted([user.id, receiver.id])
+        conversation, _ = Conversation.objects.get_or_create(
+            participant1_id=participants[0],
+            participant2_id=participants[1]
+        )
+        
+        # Determine message type
+        ext = file.name.split('.')[-1].lower()
+        if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']:
+            msg_type = 'image'
+        elif ext in ['mp4', 'webm', 'mov', 'avi', 'mkv']:
+            msg_type = 'video'
+        elif ext in ['mp3', 'wav', 'ogg', 'm4a']:
+            msg_type = 'audio'
+        else:
+            msg_type = 'file'
+        
+        msg = Message.objects.create(
+            conversation=conversation,
+            sender=user,
+            message_type=msg_type,
+            file=file,
+            file_name=file.name,
+            file_size=file.size
+        )
+        
+        return Response({
+            'id': msg.id,
+            'message_type': msg_type,
+            'file_url': msg.file.url,
+            'file_name': msg.file_name,
+            'file_size': msg.file_size,
+            'timestamp': msg.timestamp.isoformat()
+        })
+    
+    @action(detail=False, methods=['post'], url_path='voice')
+    def upload_voice(self, request):
+        """Upload voice message"""
+        file = request.FILES.get('file')
+        receiver_id = request.data.get('receiver_id')
+        duration = request.data.get('duration', 0)
+        
+        if not file or not receiver_id:
+            return Response({'error': 'File and receiver_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            receiver = CustomUser.objects.get(id=receiver_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        user = request.user
+        participants = sorted([user.id, receiver.id])
+        conversation, _ = Conversation.objects.get_or_create(
+            participant1_id=participants[0],
+            participant2_id=participants[1]
+        )
+        
+        msg = Message.objects.create(
+            conversation=conversation,
+            sender=user,
+            message_type='voice',
+            file=file,
+            file_name=file.name,
+            file_size=file.size,
+            content=str(duration)  # Store duration in content
+        )
+        
+        return Response({
+            'id': msg.id,
+            'message_type': 'voice',
+            'file_url': msg.file.url,
+            'duration': duration,
+            'timestamp': msg.timestamp.isoformat()
+        })
+    
+    @action(detail=True, methods=['post'], url_path='read')
+    def mark_read(self, request, pk=None):
+        """Mark message as read"""
+        try:
+            msg = Message.objects.get(id=pk)
+            if msg.sender != request.user and not msg.is_read:
+                msg.is_read = True
+                msg.read_at = timezone.now()
+                msg.save()
+            return Response({
+                'is_read': msg.is_read,
+                'read_at': msg.read_at.isoformat() if msg.read_at else None
+            })
+        except Message.DoesNotExist:
+            return Response({'error': 'Message not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    @action(detail=True, methods=['post'], url_path='react')
+    def react(self, request, pk=None):
+        """Add/toggle reaction to message"""
+        emoji = request.data.get('emoji')
+        if not emoji:
+            return Response({'error': 'Emoji required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            msg = Message.objects.get(id=pk)
+        except Message.DoesNotExist:
+            return Response({'error': 'Message not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Toggle reaction
+        existing = Reaction.objects.filter(message=msg, user=request.user).first()
+        if existing:
+            if existing.emoji == emoji:
+                existing.delete()
+            else:
+                existing.emoji = emoji
+                existing.save()
+        else:
+            Reaction.objects.create(message=msg, user=request.user, emoji=emoji)
+        
+        # Return updated reactions
+        reactions = {}
+        for r in msg.reactions.all():
+            if r.emoji not in reactions:
+                reactions[r.emoji] = {'count': 0, 'users': []}
+            reactions[r.emoji]['count'] += 1
+            reactions[r.emoji]['users'].append(r.user.username)
+        
+        return Response({'reactions': reactions})
+    
+    @action(detail=True, methods=['get'], url_path='info')
+    def info(self, request, pk=None):
+        """Get message info including reactions and read status"""
+        try:
+            msg = Message.objects.get(id=pk)
+        except Message.DoesNotExist:
+            return Response({'error': 'Message not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        reactions = {}
+        for r in msg.reactions.all():
+            if r.emoji not in reactions:
+                reactions[r.emoji] = {'count': 0, 'users': []}
+            reactions[r.emoji]['count'] += 1
+            reactions[r.emoji]['users'].append(r.user.username)
+        
+        return Response({
+            'id': msg.id,
+            'content': msg.content,
+            'sent_at': msg.timestamp.isoformat(),
+            'delivered_at': msg.delivered_at.isoformat() if msg.delivered_at else None,
+            'read_at': msg.read_at.isoformat() if msg.read_at else None,
+            'is_read': msg.is_read,
+            'reactions': reactions
+        })
+
+    @action(detail=True, methods=['post'], url_path='edit')
+    def edit(self, request, pk=None):
+        """Edit a message (only by sender)"""
+        try:
+            msg = Message.objects.get(id=pk)
+            
+            # Only sender can edit
+            if msg.sender != request.user:
+                return Response({'error': 'You can only edit your own messages'}, status=status.HTTP_403_FORBIDDEN)
+            
+            # Only text messages can be edited
+            if msg.message_type != 'text':
+                return Response({'error': 'Only text messages can be edited'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            new_content = request.data.get('message', '').strip()
+            if not new_content:
+                return Response({'error': 'Message cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            msg.content = new_content
+            msg.save()
+            
+            return Response({
+                'success': True,
+                'message_id': pk,
+                'content': msg.content
+            })
+        except Message.DoesNotExist:
+            return Response({'error': 'Message not found'}, status=status.HTTP_404_NOT_FOUND)
