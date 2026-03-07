@@ -14,9 +14,3 @@ class MessageAdmin(admin.ModelAdmin):
     list_filter = ('is_read', 'timestamp')
     search_fields = ('sender__username',)
     ordering = ('-timestamp',)
-    
-    def content_preview(self, obj):
-        if obj.content and len(obj.content) > 0:
-            return obj.content[:50] + '...' if len(obj.content) > 50 else obj.content
-        return '(No text content)'
-    content_preview.short_description = 'Content'
