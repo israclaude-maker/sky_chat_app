@@ -620,6 +620,11 @@ function openChat(userId) {
   S.activeGroup = null;
   S.isGroup = false;
 
+  if (window.innerWidth <= 768) {
+    document.getElementById('sidebar').style.display = 'none';
+    document.getElementById('chat-panel').style.display = 'flex';
+  }
+
   // Pehle WS connect karo
   connectWS(user.id);  // ← ORDER CHANGE KARO - pehle yeh
 
@@ -689,6 +694,12 @@ function loadGroupMessages(groupId) {
 function showChatView(user) {
   $('empty-state').style.display = 'none';
   $('chat-view').classList.add('active');
+
+  // Mobile view fix
+  if (window.innerWidth <= 768) {
+    document.getElementById('sidebar').style.display = 'none';
+    document.getElementById('chat-panel').style.display = 'flex';
+  }
   var name = dname(user);
   $('tb-name').textContent = name;
   if (user.profile_picture) {
@@ -714,6 +725,11 @@ function showChatView(user) {
     dot.className = 'sdot off';
     sub.textContent = lastSeenStr(user.last_seen);
     sub.className = 'tb-sub';
+  }
+
+  // Mobile back button show karo
+  if (window.innerWidth <= 768) {
+    $('back-btn').style.display = 'flex';
   }
   $('msg-area').innerHTML = '';
   updateSendBtn();
@@ -2368,6 +2384,13 @@ function removeProfilePicture() {
   });
 }
 
+// Mobile back button
+function goBack() {
+  document.getElementById('sidebar').style.display = 'flex';
+  document.getElementById('chat-panel').style.display = 'none';
+  S.activeUser = null;
+  S.activeGroup = null;
+}
 // Modal management
 function openM(id) { $(id).classList.add('open'); }
 function closeM(id) { $(id).classList.remove('open'); }

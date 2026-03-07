@@ -84,6 +84,10 @@
       </div>
       <div id="chat-view">
         <div id="chat-topbar">
+
+          <button class="icon-btn" id="back-btn" onclick="goBack()" style="display:none;">
+            <i class="fa-solid fa-arrow-left"></i>
+          </button>
           <div class="av-wrap">
             <img class="av-img av-42" id="tb-av" src="" alt="">
             <div class="sdot off" id="tb-dot"></div>
@@ -237,24 +241,24 @@
     <div class="modal" style="max-width:400px;">
       <div class="modal-title"><i class="fa-solid fa-circle-user"></i>My Profile</div>
       <div style="text-align:center;margin-bottom:16px;position:relative;">
-<div class="pf-av-wrap" style="position:relative;display:inline-block;">
-  <img id="pf-av"
-    style="width:100px;height:100px;border-radius:50%;border:3px solid var(--blue);object-fit:cover;display:none;" 
-    src="" alt="">
-  <div id="pf-av-init"
-    style="width:100px;height:100px;border-radius:50%;border:3px solid var(--blue);background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:36px;">
-    U
-  </div>
-  <label class="pf-av-edit" for="pf-pic-input" title="Change photo">
-    <i class="fa-solid fa-camera"></i>
-  </label>
-  <button id="remove-photo-btn" onclick="removeProfilePicture()"
-    style="display:none;position:absolute;top:0;right:0;width:28px;height:28px;border-radius:50%;background:#f15c6d;border:none;color:#fff;cursor:pointer;font-size:12px;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.3);"
-    title="Remove photo">
-    <i class="fa-solid fa-xmark"></i>
-  </button>
-</div>
-<input type="file" id="pf-pic-input" hidden accept="image/*" onchange="uploadProfilePicture(this)">
+        <div class="pf-av-wrap" style="position:relative;display:inline-block;">
+          <img id="pf-av"
+            style="width:100px;height:100px;border-radius:50%;border:3px solid var(--blue);object-fit:cover;display:none;"
+            src="" alt="">
+          <div id="pf-av-init"
+            style="width:100px;height:100px;border-radius:50%;border:3px solid var(--blue);background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:36px;">
+            U
+          </div>
+          <label class="pf-av-edit" for="pf-pic-input" title="Change photo">
+            <i class="fa-solid fa-camera"></i>
+          </label>
+          <button id="remove-photo-btn" onclick="removeProfilePicture()"
+            style="display:none;position:absolute;top:0;right:0;width:28px;height:28px;border-radius:50%;background:#f15c6d;border:none;color:#fff;cursor:pointer;font-size:12px;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.3);"
+            title="Remove photo">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <input type="file" id="pf-pic-input" hidden accept="image/*" onchange="uploadProfilePicture(this)">
         <div id="pf-un" style="margin-top:8px;font-size:14px;color:var(--sub);"></div>
       </div>
       <div style="padding:0 4px;">
@@ -413,7 +417,7 @@
   <!-- TOASTS -->
   <div id="toasts"></div>
 
-<script src="{% static 'js/chat.js' %}?v=20260304"></script>
+  <script src="{% static 'js/chat.js' %}?v=20260304"></script>
 
   <!-- Service Worker Registration -->
   <script>
