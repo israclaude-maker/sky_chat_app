@@ -571,7 +571,18 @@ function renderConvList(items) {
       </div>
     </div>`;
   }).join('');
+   
+   el.querySelectorAll('.conv-item[data-uid]').forEach(function(item) {
+    item.addEventListener('click', function() {
+      openChat(parseInt(this.dataset.uid));
+    });
+    item.addEventListener('touchend', function(e) {
+      e.preventDefault();
+      openChat(parseInt(this.dataset.uid));
+    });
+  });
 }
+  
 
 // Render group list
 function renderGroupList(groups) {
@@ -598,6 +609,16 @@ function renderGroupList(groups) {
       </div>
     </div>`;
   }).join('');
+
+  el.querySelectorAll('.conv-item[data-gid]').forEach(function(item) {
+    item.addEventListener('click', function() {
+      openGroup(parseInt(this.dataset.gid));
+    });
+    item.addEventListener('touchend', function(e) {
+      e.preventDefault();
+      openGroup(parseInt(this.dataset.gid));
+    });
+  });
 }
 
 function openChat(userId) {

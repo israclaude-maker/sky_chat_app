@@ -1127,14 +1127,21 @@ body {
   color: #53bdeb;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   RESPONSIVE
-═══════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
   #sidebar { width: 100%; max-width: none; display: flex; }
-  #chat-panel { display: none !important; }
-  #chat-panel.active { display: flex !important; position: fixed; inset: 0; z-index: 100; }
+  #chat-panel { display: none; }
+  #chat-panel.active { 
+    display: flex !important; 
+    position: fixed; 
+    inset: 0; 
+    z-index: 100;
+    flex-direction: column;
+  }
   #back-btn { display: none; }
+  .conv-item {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(0,0,0,0.1);
+  }
 }
 /* ═══════════════════════════════════════════════════════════════
    PROFILE MODAL STYLES
@@ -1527,28 +1534,3 @@ body {
 .empty-calls h4 { font-size: 18px; margin: 0; }
 .empty-calls p  { font-size: 13px; margin: 0; }
 
-#chat-panel.active { 
-  display: flex !important; 
-  position: fixed; 
-  inset: 0; 
-  z-index: 100; 
-  flex-direction: column;
-}
-
-/* Mobile click fix */
-@media (max-width: 768px) {
-  .conv-list {
-    position: relative;
-    z-index: 1;
-  }
-  .conv-item {
-    position: relative;
-    z-index: 2;
-    pointer-events: auto !important;
-    -webkit-tap-highlight-color: rgba(0,0,0,0.1);
-    touch-action: manipulation;
-  }
-  .fab {
-    z-index: 50;
-  }
-}
