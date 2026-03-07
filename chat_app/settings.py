@@ -137,6 +137,8 @@ MEDIA_ROOT = BASE_DIR / 'media'
 CSRF_TRUSTED_ORIGINS = [
     "https://*.ngrok-free.dev",
     "https://*.onrender.com",
+    "https://*.railway.app",
+    "https://web-production-cef22.up.railway.app",
 ]
 # File Upload Settings
 DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
