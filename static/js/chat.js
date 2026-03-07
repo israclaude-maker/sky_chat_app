@@ -724,11 +724,7 @@ function showChatView(user) {
     sub.className = 'tb-sub';
   }
 
-  // Mobile back button show karo
-if (window.innerWidth <= 768) {
-  document.getElementById('sidebar').style.display = 'none';
-  document.getElementById('chat-panel').classList.add('active'); // ← yeh
-}
+
   $('msg-area').innerHTML = '';
   updateSendBtn();
 }
