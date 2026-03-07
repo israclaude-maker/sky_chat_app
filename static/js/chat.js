@@ -754,6 +754,13 @@ function showChatView(user) {
 function showGroupView(group) {
   $('empty-state').style.display = 'none';
   $('chat-view').classList.add('active');
+
+  if (window.innerWidth <= 768) {
+    document.getElementById('sidebar').style.display = 'none';
+    document.getElementById('chat-panel').style.display = 'flex';
+    document.getElementById('chat-panel').classList.add('active');
+    document.getElementById('back-btn').style.display = 'flex';
+  }
   $('tb-name').textContent = group.name;
   $('tb-av').src = seed(group.name);
   $('tb-dot').style.display = 'none';
@@ -2404,6 +2411,7 @@ function goBack() {
   document.getElementById('chat-panel').style.display = '';
   document.getElementById('chat-panel').classList.remove('active');
   document.getElementById('back-btn').style.display = 'none';
+  document.getElementById('chat-panel').style.display = '';
   S.activeUser = null;
   S.activeGroup = null;
 }
