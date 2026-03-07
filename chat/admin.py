@@ -10,9 +10,9 @@ class ConversationAdmin(admin.ModelAdmin):
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
-    list_display = ('id', 'sender', 'conversation', 'content_preview', 'timestamp', 'is_read')
+    list_display = ('id', 'sender', 'conversation', 'timestamp', 'is_read')
     list_filter = ('is_read', 'timestamp')
-    search_fields = ('sender__username', 'content')
+    search_fields = ('sender__username',)
     ordering = ('-timestamp',)
     
     def content_preview(self, obj):
