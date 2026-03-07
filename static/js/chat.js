@@ -600,7 +600,6 @@ function renderGroupList(groups) {
   }).join('');
 }
 
-// Open chat with user
 function openChat(userId) {
   var user = null;
   for (var i = 0; i < S.convs.length; i++) {
@@ -620,14 +619,7 @@ function openChat(userId) {
   S.activeGroup = null;
   S.isGroup = false;
 
-if (window.innerWidth <= 768) {
-  document.getElementById('sidebar').style.display = 'none';
-  document.getElementById('chat-panel').classList.add('active'); // ← yeh
-}
-
-  // Pehle WS connect karo
-  connectWS(user.id);  // ← ORDER CHANGE KARO - pehle yeh
-
+  connectWS(user.id);
   showChatView(user);
   loadMessages(userId);
   hlActive(userId, 'user');
@@ -695,10 +687,15 @@ function showChatView(user) {
   $('empty-state').style.display = 'none';
   $('chat-view').classList.add('active');
 
-  // Mobile view fix
+  
+
   if (window.innerWidth <= 768) {
     document.getElementById('sidebar').style.display = 'none';
+    document.getElementById('chat-panel').style.display = 'flex';
     document.getElementById('chat-panel').classList.add('active');
+    document.getElementById('back-btn').style.display = 'flex';
+  } else {
+    document.getElementById('back-btn').style.display = 'none';
   }
   var name = dname(user);
   $('tb-name').textContent = name;
@@ -2385,10 +2382,11 @@ function removeProfilePicture() {
   });
 }
 
-// Mobile back button
 function goBack() {
   document.getElementById('sidebar').style.display = '';
-  document.getElementById('chat-panel').classList.remove('active'); // ← yeh
+  document.getElementById('chat-panel').style.display = '';
+  document.getElementById('chat-panel').classList.remove('active');
+  document.getElementById('back-btn').style.display = 'none';
   S.activeUser = null;
   S.activeGroup = null;
 }

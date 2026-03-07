@@ -1131,12 +1131,11 @@ body {
    RESPONSIVE
 ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
-  #sidebar { width: 100%; max-width: none; }
-  #chat-panel { display: none; }
-  #chat-panel.active { display: flex; position: fixed; inset: 0; z-index: 100; }
-  .fab { bottom: 16px; right: 16px; width: 52px; height: 52px; }
+  #sidebar { width: 100%; max-width: none; display: flex; }
+  #chat-panel { display: none !important; }
+  #chat-panel.active { display: flex !important; position: fixed; inset: 0; z-index: 100; }
+  #back-btn { display: none; }
 }
-
 /* ═══════════════════════════════════════════════════════════════
    PROFILE MODAL STYLES
 ═══════════════════════════════════════════════════════════════ */
@@ -1527,7 +1526,6 @@ body {
 .empty-calls i  { font-size: 48px; opacity: 0.3; }
 .empty-calls h4 { font-size: 18px; margin: 0; }
 .empty-calls p  { font-size: 13px; margin: 0; }
-
 
 
 
