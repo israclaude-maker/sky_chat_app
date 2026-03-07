@@ -620,10 +620,10 @@ function openChat(userId) {
   S.activeGroup = null;
   S.isGroup = false;
 
-  if (window.innerWidth <= 768) {
-    document.getElementById('sidebar').style.display = 'none';
-    document.getElementById('chat-panel').style.display = 'flex';
-  }
+if (window.innerWidth <= 768) {
+  document.getElementById('sidebar').style.display = 'none';
+  document.getElementById('chat-panel').classList.add('active'); // ← yeh
+}
 
   // Pehle WS connect karo
   connectWS(user.id);  // ← ORDER CHANGE KARO - pehle yeh
@@ -698,7 +698,7 @@ function showChatView(user) {
   // Mobile view fix
   if (window.innerWidth <= 768) {
     document.getElementById('sidebar').style.display = 'none';
-    document.getElementById('chat-panel').style.display = 'flex';
+    document.getElementById('chat-panel').classList.add('active');
   }
   var name = dname(user);
   $('tb-name').textContent = name;
@@ -728,9 +728,10 @@ function showChatView(user) {
   }
 
   // Mobile back button show karo
-  if (window.innerWidth <= 768) {
-    $('back-btn').style.display = 'flex';
-  }
+if (window.innerWidth <= 768) {
+  document.getElementById('sidebar').style.display = 'none';
+  document.getElementById('chat-panel').classList.add('active'); // ← yeh
+}
   $('msg-area').innerHTML = '';
   updateSendBtn();
 }
@@ -2386,8 +2387,8 @@ function removeProfilePicture() {
 
 // Mobile back button
 function goBack() {
-  document.getElementById('sidebar').style.display = 'flex';
-  document.getElementById('chat-panel').style.display = 'none';
+  document.getElementById('sidebar').style.display = '';
+  document.getElementById('chat-panel').classList.remove('active'); // ← yeh
   S.activeUser = null;
   S.activeGroup = null;
 }
