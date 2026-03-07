@@ -1535,3 +1535,20 @@ body {
   flex-direction: column;
 }
 
+/* Mobile click fix */
+@media (max-width: 768px) {
+  .conv-list {
+    position: relative;
+    z-index: 1;
+  }
+  .conv-item {
+    position: relative;
+    z-index: 2;
+    pointer-events: auto !important;
+    -webkit-tap-highlight-color: rgba(0,0,0,0.1);
+    touch-action: manipulation;
+  }
+  .fab {
+    z-index: 50;
+  }
+}
