@@ -2452,8 +2452,8 @@ var rtcConfig = {
     { urls: 'stun:stun.l.google.com:19302' },
     {
       urls: 'turn:a.relay.metered.ca:80',
-      username: '6e99594fed47ef8450f2abf2',  // ← naya username
-      credential: 'IQidZHGlk9URTmiD'          // ← naya password
+      username: '6e99594fed47ef8450f2abf2',
+      credential: 'IQidZHGlk9URTmiD'
     },
     {
       urls: 'turn:a.relay.metered.ca:80?transport=tcp',
