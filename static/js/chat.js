@@ -2447,33 +2447,20 @@ var CallState = {
   isSpeakerOff: false
 };
 
-var rtcConfig = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    {
-      urls: 'turn:a.relay.metered.ca:80',
-      username: '6e99594fed47ef8450f2abf2',
-      credential: 'IQidZHGlk9URTmiD'
-    },
-    {
-      urls: 'turn:a.relay.metered.ca:80?transport=tcp',
-      username: '6e99594fed47ef8450f2abf2',
-      credential: 'IQidZHGlk9URTmiD'
-    },
-    {
-      urls: 'turn:a.relay.metered.ca:443',
-      username: '6e99594fed47ef8450f2abf2',
-      credential: 'IQidZHGlk9URTmiD'
-    },
-    {
-      urls: 'turns:a.relay.metered.ca:443?transport=tcp',
-      username: '6e99594fed47ef8450f2abf2',
-      credential: 'IQidZHGlk9URTmiD'
-    }
-  ],
-  iceCandidatePoolSize: 10
-};
+var rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+// TURN credentials dynamically load
+(function loadTURN() {
+  fetch('https://skyightchat_app.metered.live/api/v1/turn/credentials?apiKey=81c8c65b552199965818eae2c6927b1c8e29')
+    .then(function(r){ return r.json(); })
+    .then(function(servers){
+      rtcConfig.iceServers = servers;
+      console.log('✅ TURN loaded:', servers.length, 'servers');
+    })
+    .catch(function(e){ 
+      console.warn('TURN fetch failed:', e); 
+    });
+})();
 // Check media permissions before call
 async function checkMediaPermissions(type) {
   try {
