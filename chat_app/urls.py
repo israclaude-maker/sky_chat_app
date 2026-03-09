@@ -21,7 +21,6 @@ from django.conf.urls.static import static
 from django.views.generic import TemplateView
 from django.http import HttpResponse
 from accounts.views import index as accounts_index
-from chat.views import chat
 import os
 from chat.views import chat, get_turn_credentials
 
