@@ -2459,7 +2459,7 @@ var rtcConfig = {
 
 // TURN credentials dynamically load
 (function loadTURN() {
-  fetch('https://skyightchat_app.metered.live/api/v1/turn/credentials?apiKey=81c8c65b552199965818eae2c6927b1c8e29')
+  fetch('https://skyightchat-app.metered.live/api/v1/turn/credentials?apiKey=81c8c65b552199965818eae2c6927b1c8e29')
     .then(function (r) { return r.json(); })
     .then(function (servers) {
       rtcConfig.iceServers = servers;
@@ -2659,7 +2659,16 @@ function doInitWebRTC(isInitiator, callback) {
         remoteAudio.srcObject = e.streams[0];
         remoteAudio.muted = false;
         remoteAudio.volume = 1.0;
-        remoteAudio.play().catch(function (err) { console.log('Audio play error:', err); });
+        var playPromise = remoteAudio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(function (err) {
+            console.warn('Autoplay blocked, retrying...', err);
+            document.addEventListener('click', function retry() {
+              remoteAudio.play().catch(console.error);
+              document.removeEventListener('click', retry);
+            }, { once: true });
+          });
+        }
       }
     }
 
@@ -2670,7 +2679,7 @@ function doInitWebRTC(isInitiator, callback) {
         remoteVideo.play().catch(function (err) { console.log('Video play error:', err); });
       }
     }
-  };
+  };;
 
   if (isInitiator) {
 
@@ -2981,6 +2990,8 @@ function toggleCam() {
 
 function toggleSpeaker() {
   CallState.isSpeakerOff = !CallState.isSpeakerOff;
+  var remoteAudio = $('remote-audio');
+  if (remoteAudio) remoteAudio.muted = CallState.isSpeakerOff;
   var remoteVideo = $('remote-video');
   if (remoteVideo) remoteVideo.muted = CallState.isSpeakerOff;
   var btn = document.querySelector('.ctrl-btn[onclick*="toggleSpeaker"]');
