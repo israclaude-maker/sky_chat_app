@@ -328,6 +328,7 @@ function init() {
       loadConvs();
       loadGroups();
       connectGlobalWS();
+      loadTURNServers(); 
       initPasteHandler();
     }).catch(function () { go('/login/'); });
 }
@@ -2458,17 +2459,25 @@ var rtcConfig = {
 };
 
 // TURN credentials dynamically load
-(function loadTURN() {
+// TURN ready flag
+var turnReady = false;
+
+// TURN credentials load - app shuru hote hi
+function loadTURNServers(callback) {
   fetch('https://skyightchat-app.metered.live/api/v1/turn/credentials?apiKey=81c8c65b552199965818eae2c6927b1c8e29')
     .then(function (r) { return r.json(); })
     .then(function (servers) {
       rtcConfig.iceServers = servers;
+      turnReady = true;
       console.log('✅ TURN loaded:', servers.length, 'servers');
+      if (callback) callback();
     })
     .catch(function (e) {
-      console.warn('TURN fetch failed:', e);
+      console.warn('⚠️ TURN fetch failed, using fallback');
+      turnReady = true; // fallback servers use honge
+      if (callback) callback();
     });
-})();
+}
 // Check media permissions before call
 async function checkMediaPermissions(type) {
   try {
@@ -2513,6 +2522,14 @@ function startCall(type) {
   console.log('startCall called with type:', type, 'activeUser:', S.activeUser, 'isInCall:', CallState.isInCall);
   if (!S.activeUser || CallState.isInCall) {
     if (!S.activeUser) toast('Select a chat first', 'e');
+    return;
+  }
+
+    if (!turnReady) {
+    toast('Connecting... please wait', 'i');
+    loadTURNServers(function () {
+      startCall(type); // retry
+    });
     return;
   }
 
