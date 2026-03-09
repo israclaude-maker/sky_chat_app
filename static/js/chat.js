@@ -2452,23 +2452,23 @@ var rtcConfig = {
     { urls: 'stun:stun.l.google.com:19302' },
     {
       urls: 'turn:a.relay.metered.ca:80',
-      username: 'c3d5a0b74a9b65259ad9dc88',
-      credential: 'e2BRMSalfUUZnw1j'
+      username: '6e99594fed47ef8450f2abf2',  // ← naya username
+      credential: 'IQidZHGlk9URTmiD'          // ← naya password
     },
     {
       urls: 'turn:a.relay.metered.ca:80?transport=tcp',
-      username: 'c3d5a0b74a9b65259ad9dc88',
-      credential: 'e2BRMSalfUUZnw1j'
+      username: '6e99594fed47ef8450f2abf2',
+      credential: 'IQidZHGlk9URTmiD'
     },
     {
       urls: 'turn:a.relay.metered.ca:443',
-      username: 'c3d5a0b74a9b65259ad9dc88',
-      credential: 'e2BRMSalfUUZnw1j'
+      username: '6e99594fed47ef8450f2abf2',
+      credential: 'IQidZHGlk9URTmiD'
     },
     {
       urls: 'turn:a.relay.metered.ca:443?transport=tcp',
-      username: 'c3d5a0b74a9b65259ad9dc88',
-      credential: 'e2BRMSalfUUZnw1j'
+      username: '6e99594fed47ef8450f2abf2',
+      credential: 'IQidZHGlk9URTmiD'
     }
   ]
 };
