@@ -2450,11 +2450,18 @@ var CallState = {
 
 var rtcConfig = {
   iceServers: [
-    { urls: 'stun:stun.relay.metered.ca:80' },
-    { urls: 'turn:global.relay.metered.ca:80', username: '6e99594fed47ef8450f2abf2', credential: 'lQidZHGlk9URTmiD' },
-    { urls: 'turn:global.relay.metered.ca:80?transport=tcp', username: '6e99594fed47ef8450f2abf2', credential: 'lQidZHGlk9URTmiD' },
-    { urls: 'turn:global.relay.metered.ca:443', username: '6e99594fed47ef8450f2abf2', credential: 'lQidZHGlk9URTmiD' },
-    { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: '6e99594fed47ef8450f2abf2', credential: 'lQidZHGlk9URTmiD' }
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    {
+      urls: 'turn:switchback.proxy.rlwy.net:56157',
+      username: 'skyuser',
+      credential: 'skypass123'
+    },
+    {
+      urls: 'turn:switchback.proxy.rlwy.net:56157?transport=tcp',
+      username: 'skyuser',
+      credential: 'skypass123'
+    }
   ]
 };
 
