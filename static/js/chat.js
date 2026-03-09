@@ -2408,10 +2408,9 @@ function removeProfilePicture() {
 
 function goBack() {
   document.getElementById('sidebar').style.display = '';
-  document.getElementById('chat-panel').style.display = '';
+  document.getElementById('chat-panel').style.removeProperty('display');
   document.getElementById('chat-panel').classList.remove('active');
   document.getElementById('back-btn').style.display = 'none';
-  document.getElementById('chat-panel').style.display = '';
   S.activeUser = null;
   S.activeGroup = null;
 }
