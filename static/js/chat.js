@@ -2462,7 +2462,8 @@ var rtcConfig = {
       username: 'skyuser',
       credential: 'skypass123'
     }
-  ]
+  ],
+  iceTransportPolicy: 'relay'   // ← YEH LINE ADD KI HAI
 };
 
 // TURN credentials dynamically load
@@ -2475,11 +2476,13 @@ function loadTURNServers(callback) {
     .then(function(r) { return r.json(); })
     .then(function(servers) {
       rtcConfig.iceServers = servers;
+      turnReady = true;    // ← YEH LINE ADD KI HAI
       console.log('✅ TURN loaded:', servers.length, 'servers');
       if (callback) callback();
     })
     .catch(function(e) {
       console.warn('⚠️ TURN fetch failed, using fallback');
+      turnReady = true;    // ← YEH BHI ADD KI HAI (fallback pe bhi true)
       if (callback) callback();
     });
 }
@@ -2797,9 +2800,7 @@ function acceptCall() {
       CallState.localStream = stream;
       $('local-video').srcObject = stream;
 
-      initWebRTC(false);
-
-      // Set remote description
+      // SIRF EK BAAR initWebRTC call karein
       initWebRTC(false, function () {
         if (CallState.remoteSdp) {
           CallState.pc.setRemoteDescription(new RTCSessionDescription(CallState.remoteSdp))
@@ -2832,7 +2833,6 @@ function acceptCall() {
       rejectCall();
     });
 }
-
 function rejectCall() {
   stopAllRingtones();
 
