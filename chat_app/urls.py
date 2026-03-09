@@ -23,6 +23,7 @@ from django.http import HttpResponse
 from accounts.views import index as accounts_index
 from chat.views import chat
 import os
+from chat.views import chat, get_turn_credentials
 
 def service_worker(request):
     """Serve service worker from root for proper scope"""
@@ -44,6 +45,7 @@ urlpatterns = [
     path('', accounts_index, name='home'),
     path('login/', accounts_index, name='login'),
     path('chat/', chat, name='chat'),
+    path('chat/api/turn-credentials/', get_turn_credentials, name='turn_credentials'),
     path('offline/', TemplateView.as_view(template_name='offline.html'), name='offline'),
     path('sw.js', service_worker, name='service_worker'),
     path('manifest.json', manifest, name='manifest'),

@@ -2464,17 +2464,15 @@ var turnReady = false;
 
 // TURN credentials load - app shuru hote hi
 function loadTURNServers(callback) {
-  fetch('https://skyightchat-app.metered.live/api/v1/turn/credentials?apiKey=81c8c65b552199965818eae2c6927b1c8e29')
-    .then(function (r) { return r.json(); })
-    .then(function (servers) {
+  fetch('/chat/api/turn-credentials/')
+    .then(function(r) { return r.json(); })
+    .then(function(servers) {
       rtcConfig.iceServers = servers;
-      turnReady = true;
       console.log('✅ TURN loaded:', servers.length, 'servers');
       if (callback) callback();
     })
-    .catch(function (e) {
+    .catch(function(e) {
       console.warn('⚠️ TURN fetch failed, using fallback');
-      turnReady = true; // fallback servers use honge
       if (callback) callback();
     });
 }
