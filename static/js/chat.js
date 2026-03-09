@@ -2602,9 +2602,25 @@ function getMediaErrorMessage(err, type) {
 }
 
 function initWebRTC(isInitiator) {
+  if (rtcConfig.iceServers.length <= 1) {
+    fetch('https://skyightchat_app.metered.live/api/v1/turn/credentials?apiKey=81c8c65b552199965818eae2c6927b1c8e29')
+      .then(function(r){ return r.json(); })
+      .then(function(servers){
+        rtcConfig.iceServers = servers;
+        console.log('✅ TURN loaded:', servers.length, 'servers');
+        doInitWebRTC(isInitiator);
+      })
+      .catch(function(){
+        doInitWebRTC(isInitiator);
+      });
+    return;
+  }
+  doInitWebRTC(isInitiator);
+}
+
+function doInitWebRTC(isInitiator) {
   CallState.pc = new RTCPeerConnection(rtcConfig);
 
-  // State monitors
   CallState.pc.oniceconnectionstatechange = function () {
     console.log('ICE State:', CallState.pc.iceConnectionState);
     if (CallState.pc.iceConnectionState === 'failed') {
@@ -2617,7 +2633,6 @@ function initWebRTC(isInitiator) {
     console.log('Connection State:', CallState.pc.connectionState);
   };
 
-  // Add local tracks
   if (CallState.localStream) {
     CallState.localStream.getTracks().forEach(function (track) {
       console.log('Adding local track:', track.kind);
@@ -2625,7 +2640,6 @@ function initWebRTC(isInitiator) {
     });
   }
 
-  // Handle ICE candidates
   CallState.pc.onicecandidate = function (e) {
     if (e.candidate) {
       console.log('Sending ICE candidate');
@@ -2640,7 +2654,6 @@ function initWebRTC(isInitiator) {
     }
   };
 
-  // Handle remote stream
   CallState.pc.ontrack = function (e) {
     console.log('Remote track received:', e.track.kind);
     CallState.remoteStream = e.streams[0];
@@ -2664,7 +2677,6 @@ function initWebRTC(isInitiator) {
     }
   };
 
-  // If initiator, create and send offer
   if (isInitiator) {
     CallState.pc.createOffer({
       offerToReceiveAudio: true,
