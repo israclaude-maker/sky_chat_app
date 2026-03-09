@@ -2450,6 +2450,7 @@ var CallState = {
 var rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
     {
       urls: 'turn:a.relay.metered.ca:80',
       username: '6e99594fed47ef8450f2abf2',
@@ -2466,11 +2467,12 @@ var rtcConfig = {
       credential: 'IQidZHGlk9URTmiD'
     },
     {
-      urls: 'turn:a.relay.metered.ca:443?transport=tcp',
+      urls: 'turns:a.relay.metered.ca:443?transport=tcp',
       username: '6e99594fed47ef8450f2abf2',
       credential: 'IQidZHGlk9URTmiD'
     }
-  ]
+  ],
+  iceCandidatePoolSize: 10
 };
 // Check media permissions before call
 async function checkMediaPermissions(type) {
