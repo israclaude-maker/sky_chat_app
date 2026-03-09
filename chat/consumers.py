@@ -135,18 +135,17 @@ class ChatConsumer(AsyncWebsocketConsumer):
         receiver_id = data.get('receiver_id')
         call_type = data.get('call_type', 'voice')
         sdp = data.get('sdp')
-        
+
         print(f"[CALL] User {self.user.id} ({self.user.username}) initiating {call_type} call to user {receiver_id}")
-        
+
         receiver = await self.get_user_by_id(receiver_id)
         if not receiver:
             print(f"[CALL] Receiver {receiver_id} not found!")
             return
-            
+
         call = await self.create_call(receiver_id, call_type)
         print(f"[CALL] Created call {call.id if call else 'None'}, sending to user_{receiver_id}")
 
-        # Get caller profile picture URL
         caller_profile_picture = None
         if self.user.profile_picture:
             caller_profile_picture = self.user.profile_picture.url
@@ -162,7 +161,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'caller_profile_picture': caller_profile_picture,
                 'call_type': call_type,
                 'call_id': call.id if call else None,
-                'sdp': sdp,
+                'sdp': data.get('sdp'),
             }
         )
         print(f"[CALL] Call notification sent to user_{receiver_id}")
@@ -242,6 +241,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         )
 
+    # ═══════════════════════════════════════════════════════════
+    # GROUP SEND HANDLERS (called by channel_layer.group_send)
+    # ═══════════════════════════════════════════════════════════
+
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({
             'type': 'chat.message',
@@ -279,6 +282,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'caller_id': event['caller_id'],
             'caller_username': event['caller_username'],
             'caller_name': event['caller_name'],
+            'caller_profile_picture': event.get('caller_profile_picture'),
             'call_type': event['call_type'],
             'call_id': event['call_id'],
             'sdp': event.get('sdp'),
@@ -327,6 +331,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'type': 'user.leave',
             'username': event['username'],
         }))
+
+    # ═══════════════════════════════════════════════════════════
+    # DATABASE HELPERS
+    # ═══════════════════════════════════════════════════════════
 
     @database_sync_to_async
     def save_message(self, message, receiver_username, reply_to=None):
