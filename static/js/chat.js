@@ -571,18 +571,18 @@ function renderConvList(items) {
       </div>
     </div>`;
   }).join('');
-   
-   el.querySelectorAll('.conv-item[data-uid]').forEach(function(item) {
-    item.addEventListener('click', function() {
+
+  el.querySelectorAll('.conv-item[data-uid]').forEach(function (item) {
+    item.addEventListener('click', function () {
       openChat(parseInt(this.dataset.uid));
     });
-    item.addEventListener('touchend', function(e) {
+    item.addEventListener('touchend', function (e) {
       e.preventDefault();
       openChat(parseInt(this.dataset.uid));
     });
   });
 }
-  
+
 
 // Render group list
 function renderGroupList(groups) {
@@ -610,11 +610,11 @@ function renderGroupList(groups) {
     </div>`;
   }).join('');
 
-  el.querySelectorAll('.conv-item[data-gid]').forEach(function(item) {
-    item.addEventListener('click', function() {
+  el.querySelectorAll('.conv-item[data-gid]').forEach(function (item) {
+    item.addEventListener('click', function () {
       openGroup(parseInt(this.dataset.gid));
     });
-    item.addEventListener('touchend', function(e) {
+    item.addEventListener('touchend', function (e) {
       e.preventDefault();
       openGroup(parseInt(this.dataset.gid));
     });
@@ -708,7 +708,7 @@ function showChatView(user) {
   $('empty-state').style.display = 'none';
   $('chat-view').classList.add('active');
 
-  
+
 
   if (window.innerWidth <= 768) {
     document.getElementById('sidebar').style.display = 'none';
@@ -2452,13 +2452,13 @@ var rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 // TURN credentials dynamically load
 (function loadTURN() {
   fetch('https://skyightchat_app.metered.live/api/v1/turn/credentials?apiKey=81c8c65b552199965818eae2c6927b1c8e29')
-    .then(function(r){ return r.json(); })
-    .then(function(servers){
+    .then(function (r) { return r.json(); })
+    .then(function (servers) {
       rtcConfig.iceServers = servers;
       console.log('✅ TURN loaded:', servers.length, 'servers');
     })
-    .catch(function(e){ 
-      console.warn('TURN fetch failed:', e); 
+    .catch(function (e) {
+      console.warn('TURN fetch failed:', e);
     });
 })();
 // Check media permissions before call
@@ -2601,16 +2601,16 @@ function getMediaErrorMessage(err, type) {
   }
 }
 
-function initWebRTC(isInitiator) {
+function initWebRTC(isInitiator, callback) {
   if (rtcConfig.iceServers.length <= 1) {
     fetch('https://skyightchat_app.metered.live/api/v1/turn/credentials?apiKey=81c8c65b552199965818eae2c6927b1c8e29')
-      .then(function(r){ return r.json(); })
-      .then(function(servers){
+      .then(function (r) { return r.json(); })
+      .then(function (servers) {
         rtcConfig.iceServers = servers;
         console.log('✅ TURN loaded:', servers.length, 'servers');
         doInitWebRTC(isInitiator);
       })
-      .catch(function(){
+      .catch(function () {
         doInitWebRTC(isInitiator);
       });
     return;
@@ -2618,7 +2618,7 @@ function initWebRTC(isInitiator) {
   doInitWebRTC(isInitiator);
 }
 
-function doInitWebRTC(isInitiator) {
+function doInitWebRTC(isInitiator, callback) {
   CallState.pc = new RTCPeerConnection(rtcConfig);
 
   CallState.pc.oniceconnectionstatechange = function () {
@@ -2678,6 +2678,7 @@ function doInitWebRTC(isInitiator) {
   };
 
   if (isInitiator) {
+
     CallState.pc.createOffer({
       offerToReceiveAudio: true,
       offerToReceiveVideo: CallState.callType === 'video'
@@ -2706,6 +2707,8 @@ function doInitWebRTC(isInitiator) {
         console.error('Offer error:', err);
         cancelCall();
       });
+  } else {
+    if (callback) callback();
   }
 }
 
@@ -2771,28 +2774,30 @@ function acceptCall() {
       initWebRTC(false);
 
       // Set remote description
-      if (CallState.remoteSdp) {
-        CallState.pc.setRemoteDescription(new RTCSessionDescription(CallState.remoteSdp))
-          .then(function () {
-            return CallState.pc.createAnswer();
-          })
-          .then(function (answer) {
-            return CallState.pc.setLocalDescription(answer);
-          })
-          .then(function () {
-            var ws = S.globalWs || S.ws;
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({
-                type: 'call_accept',
-                call_id: CallState.callId,
-                caller_id: CallState.remoteUserId,
-                sdp: CallState.pc.localDescription
-              }));
-            }
-            flushPendingIceCandidates();
-            showOngoingCall();
-          });
-      }
+      initWebRTC(false, function () {
+        if (CallState.remoteSdp) {
+          CallState.pc.setRemoteDescription(new RTCSessionDescription(CallState.remoteSdp))
+            .then(function () {
+              return CallState.pc.createAnswer();
+            })
+            .then(function (answer) {
+              return CallState.pc.setLocalDescription(answer);
+            })
+            .then(function () {
+              var ws = S.globalWs || S.ws;
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                  type: 'call_accept',
+                  call_id: CallState.callId,
+                  caller_id: CallState.remoteUserId,
+                  sdp: CallState.pc.localDescription
+                }));
+              }
+              flushPendingIceCandidates();
+              showOngoingCall();
+            });
+        }
+      });
     })
     .catch(function (err) {
       console.error('Media error:', err);
