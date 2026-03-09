@@ -2447,7 +2447,15 @@ var CallState = {
   isSpeakerOff: false
 };
 
-var rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+var rtcConfig = {
+  iceServers: [
+    { urls: 'stun:stun.relay.metered.ca:80' },
+    { urls: 'turn:global.relay.metered.ca:80', username: '6e99594fed47ef8450f2abf2', credential: 'lQidZHGlk9URTmiD' },
+    { urls: 'turn:global.relay.metered.ca:80?transport=tcp', username: '6e99594fed47ef8450f2abf2', credential: 'lQidZHGlk9URTmiD' },
+    { urls: 'turn:global.relay.metered.ca:443', username: '6e99594fed47ef8450f2abf2', credential: 'lQidZHGlk9URTmiD' },
+    { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: '6e99594fed47ef8450f2abf2', credential: 'lQidZHGlk9URTmiD' }
+  ]
+};
 
 // TURN credentials dynamically load
 (function loadTURN() {
@@ -2602,20 +2610,7 @@ function getMediaErrorMessage(err, type) {
 }
 
 function initWebRTC(isInitiator, callback) {
-  if (rtcConfig.iceServers.length <= 1) {
-    fetch('https://skyightchat_app.metered.live/api/v1/turn/credentials?apiKey=81c8c65b552199965818eae2c6927b1c8e29')
-      .then(function (r) { return r.json(); })
-      .then(function (servers) {
-        rtcConfig.iceServers = servers;
-        console.log('✅ TURN loaded:', servers.length, 'servers');
-        doInitWebRTC(isInitiator);
-      })
-      .catch(function () {
-        doInitWebRTC(isInitiator);
-      });
-    return;
-  }
-  doInitWebRTC(isInitiator);
+  doInitWebRTC(isInitiator, callback);
 }
 
 function doInitWebRTC(isInitiator, callback) {
