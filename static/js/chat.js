@@ -2449,10 +2449,19 @@ var CallState = {
 };
 
 var rtcConfig = {
-  iceServers: [
-    {
-      urls: "stun:stun.relay.metered.ca:80",
-    },
+  iceServers: [], // loadTURNServers fill karega
+  iceTransportPolicy: 'all'
+};
+
+// TURN credentials dynamically load
+// TURN ready flag
+var turnReady = false;
+
+// TURN credentials load - app shuru hote hi
+function loadTURNServers(callback) {
+  // API call band - seedha hardcoded use karo
+  rtcConfig.iceServers = [
+    { urls: "stun:stun.relay.metered.ca:80" },
     {
       urls: "turn:global.relay.metered.ca:80",
       username: "c3d5a0b74a9b65259ad9dc88",
@@ -2472,33 +2481,11 @@ var rtcConfig = {
       urls: "turns:global.relay.metered.ca:443?transport=tcp",
       username: "c3d5a0b74a9b65259ad9dc88",
       credential: "e2BRMSaIfUUZnw1j",
-    },
-  ],
-  iceTransportPolicy: 'all'  // 'relay' nahi - 'all' rakho
-};
-
-// TURN credentials dynamically load
-// TURN ready flag
-var turnReady = false;
-
-// TURN credentials load - app shuru hote hi
-function loadTURNServers(callback) {
-  fetch('/chat/api/turn-credentials/')
-    .then(function(r) { return r.json(); })
-    .then(function(servers) {
-      if (servers && servers.length > 0) {
-        rtcConfig.iceServers = servers;
-      }
-      // agar API kaam na kare toh hardcoded wala hi rahega
-      turnReady = true;
-      console.log('✅ TURN ready');
-      if (callback) callback();
-    })
-    .catch(function(e) {
-      console.warn('TURN API failed, using hardcoded credentials');
-      turnReady = true;
-      if (callback) callback();
-    });
+    }
+  ];
+  turnReady = true;
+  console.log('✅ TURN ready - Metered servers loaded');
+  if (callback) callback();
 }
 // Check media permissions before call
 async function checkMediaPermissions(type) {
