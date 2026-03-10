@@ -2450,20 +2450,31 @@ var CallState = {
 
 var rtcConfig = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
     {
-      urls: 'turn:switchback.proxy.rlwy.net:56157',
-      username: 'skyuser',
-      credential: 'skypass123'
+      urls: "stun:stun.relay.metered.ca:80",
     },
     {
-      urls: 'turn:switchback.proxy.rlwy.net:56157?transport=tcp',
-      username: 'skyuser',
-      credential: 'skypass123'
-    }
+      urls: "turn:global.relay.metered.ca:80",
+      username: "c3d5a0b74a9b65259ad9dc88",
+      credential: "e2BRMSaIfUUZnw1j",
+    },
+    {
+      urls: "turn:global.relay.metered.ca:80?transport=tcp",
+      username: "c3d5a0b74a9b65259ad9dc88",
+      credential: "e2BRMSaIfUUZnw1j",
+    },
+    {
+      urls: "turn:global.relay.metered.ca:443",
+      username: "c3d5a0b74a9b65259ad9dc88",
+      credential: "e2BRMSaIfUUZnw1j",
+    },
+    {
+      urls: "turns:global.relay.metered.ca:443?transport=tcp",
+      username: "c3d5a0b74a9b65259ad9dc88",
+      credential: "e2BRMSaIfUUZnw1j",
+    },
   ],
-  iceTransportPolicy: 'relay'   // ← YEH LINE ADD KI HAI
+  iceTransportPolicy: 'all'  // 'relay' nahi - 'all' rakho
 };
 
 // TURN credentials dynamically load
@@ -2475,14 +2486,17 @@ function loadTURNServers(callback) {
   fetch('/chat/api/turn-credentials/')
     .then(function(r) { return r.json(); })
     .then(function(servers) {
-      rtcConfig.iceServers = servers;
-      turnReady = true;    // ← YEH LINE ADD KI HAI
-      console.log('✅ TURN loaded:', servers.length, 'servers');
+      if (servers && servers.length > 0) {
+        rtcConfig.iceServers = servers;
+      }
+      // agar API kaam na kare toh hardcoded wala hi rahega
+      turnReady = true;
+      console.log('✅ TURN ready');
       if (callback) callback();
     })
     .catch(function(e) {
-      console.warn('⚠️ TURN fetch failed, using fallback');
-      turnReady = true;    // ← YEH BHI ADD KI HAI (fallback pe bhi true)
+      console.warn('TURN API failed, using hardcoded credentials');
+      turnReady = true;
       if (callback) callback();
     });
 }
