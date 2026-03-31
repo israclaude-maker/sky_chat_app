@@ -2458,35 +2458,19 @@ var rtcConfig = {
 var turnReady = false;
 
 // TURN credentials load - app shuru hote hi
-function loadTURNServers(callback) {
-  // API call band - seedha hardcoded use karo
-  rtcConfig.iceServers = [
-    { urls: "stun:stun.relay.metered.ca:80" },
-    {
-      urls: "turn:global.relay.metered.ca:80",
-      username: "c3d5a0b74a9b65259ad9dc88",
-      credential: "e2BRMSaIfUUZnw1j",
-    },
-    {
-      urls: "turn:global.relay.metered.ca:80?transport=tcp",
-      username: "c3d5a0b74a9b65259ad9dc88",
-      credential: "e2BRMSaIfUUZnw1j",
-    },
-    {
-      urls: "turn:global.relay.metered.ca:443",
-      username: "c3d5a0b74a9b65259ad9dc88",
-      credential: "e2BRMSaIfUUZnw1j",
-    },
-    {
-      urls: "turns:global.relay.metered.ca:443?transport=tcp",
-      username: "c3d5a0b74a9b65259ad9dc88",
-      credential: "e2BRMSaIfUUZnw1j",
-    }
-  ];
-  turnReady = true;
-  console.log('✅ TURN ready - Metered servers loaded');
-  if (callback) callback();
-}
+rtcConfig.iceServers = [
+  { urls: "stun:187.77.158.226:3478" },
+  {
+    urls: "turn:187.77.158.226:3478",
+    username: "skyuser",
+    credential: "skypass123"
+  },
+  {
+    urls: "turn:187.77.158.226:3478?transport=tcp",
+    username: "skyuser",
+    credential: "skypass123"
+  }
+];
 // Check media permissions before call
 async function checkMediaPermissions(type) {
   try {
