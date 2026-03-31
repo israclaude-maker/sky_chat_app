@@ -21,6 +21,7 @@ from django.conf.urls.static import static
 from django.views.generic import TemplateView
 from django.http import HttpResponse
 from accounts.views import index as accounts_index
+from rest_framework_simplejwt.views import TokenRefreshView
 import os
 from chat.views import chat, get_turn_credentials
 
@@ -50,6 +51,7 @@ urlpatterns = [
     path('manifest.json', manifest, name='manifest'),
     path('admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
+    path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ]
 
 # Serve media files in development

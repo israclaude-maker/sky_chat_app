@@ -2,10 +2,23 @@
 
 const API_URL = '/api/auth/users';
 
-// Check if already logged in
-if (localStorage.getItem('access_token')) {
-  window.location.href = '/chat/';
-}
+// Check if already logged in — verify token is not expired before redirecting
+(function () {
+  var t = localStorage.getItem('access_token');
+  if (!t) return;
+  // Decode JWT payload to check expiry (no crypto, just base64)
+  try {
+    var payload = JSON.parse(atob(t.split('.')[1]));
+    if (payload.exp && payload.exp * 1000 > Date.now()) {
+      window.location.href = '/chat/';
+    } else {
+      // Token expired — clear it so user sees login form
+      localStorage.removeItem('access_token');
+    }
+  } catch (e) {
+    localStorage.removeItem('access_token');
+  }
+}());
 
 // Initialize - show login form by default
 document.addEventListener('DOMContentLoaded', function () {

@@ -253,6 +253,28 @@ function lastSeenStr(iso) {
   return 'Last seen ' + d.toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric', timeZone: PKT }) + ' at ' + hm;
 }
 
+// Token refresh — prevents infinite reload loop when JWT expires
+var _refreshPromise = null;
+function refreshAccessToken() {
+  if (_refreshPromise) return _refreshPromise;
+  var rt = localStorage.getItem('refresh_token');
+  if (!rt) { localStorage.clear(); go('/login/'); return Promise.reject('no refresh token'); }
+  _refreshPromise = fetch('/api/auth/token/refresh/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh: rt })
+  }).then(function (r) {
+    _refreshPromise = null;
+    if (!r.ok) { localStorage.clear(); go('/login/'); throw new Error('refresh failed'); }
+    return r.json();
+  }).then(function (data) {
+    S.token = data.access;
+    localStorage.setItem('access_token', data.access);
+    return data.access;
+  }).catch(function (e) { _refreshPromise = null; throw e; });
+  return _refreshPromise;
+}
+
 // API function
 function api(path, opts) {
   opts = opts || {};
@@ -264,7 +286,17 @@ function api(path, opts) {
   if (opts.body && typeof opts.body === 'string') headers['Content-Type'] = 'application/json';
   return fetch(API_URL + path, Object.assign({ headers: headers }, opts))
     .then(function (r) {
-      if (r.status === 401) { go('/login/'); return null; }
+      if (r.status === 401) {
+        // Try refresh then retry once
+        return refreshAccessToken().then(function (newToken) {
+          var h2 = Object.assign({}, headers, { 'Authorization': 'Bearer ' + newToken });
+          return fetch(API_URL + path, Object.assign({}, opts, { headers: h2 }));
+        }).then(function (r2) {
+          if (r2.status === 401) { localStorage.clear(); go('/login/'); return null; }
+          if (!r2.ok) throw new Error('API error');
+          return r2.json();
+        });
+      }
       if (!r.ok) throw new Error('API error');
       return r.json();
     });
@@ -279,18 +311,8 @@ var PasteState = {
 // Initialize app
 function init() {
   if (!S.token) return go('/login/');
-  // Force fresh - no cache
-  fetch(API_URL + '/me/', {
-    headers: {
-      'Authorization': 'Bearer ' + S.token,
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache'
-    }
-  })
-    .then(function (r) {
-      if (r.status === 401) { go('/login/'); return null; }
-      return r.json();
-    })
+  // Use api() so token refresh is handled automatically
+  api('/me/')
     .then(function (user) {
       if (!user) return;
       S.user = user;
