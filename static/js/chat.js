@@ -352,7 +352,11 @@ function init() {
       connectGlobalWS();
       loadTURNServers(); 
       initPasteHandler();
-    }).catch(function () { go('/login/'); });
+    }).catch(function (err) {
+      // Do not force-login on generic runtime errors; prevents redirect loops.
+      console.error('Init failed:', err);
+      toast('Failed to initialize chat. Please refresh once.', 'e');
+    });
 }
 
 // Initialize paste handler for images
@@ -2533,6 +2537,12 @@ var rtcConfig = {
 // TURN credentials dynamically load
 // TURN ready flag
 var turnReady = true;
+
+function loadTURNServers(cb) {
+  // TURN servers are statically configured below; this keeps caller flow safe.
+  turnReady = true;
+  if (typeof cb === 'function') cb();
+}
 
 // TURN credentials load - app shuru hote hi
 rtcConfig.iceServers = [
