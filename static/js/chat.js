@@ -550,16 +550,46 @@ function renderConvList(items) {
     </div>`;
     return;
   }
-  el.innerHTML = items.map(function (item) {
+
+  // Remove any non-conv-item placeholder nodes (e.g. "no chats" div)
+  Array.from(el.children).forEach(function (child) {
+    if (!child.classList.contains('conv-item')) child.remove();
+  });
+
+  // Map existing DOM nodes by uid to avoid full re-render (prevents blinking)
+  var existingMap = {};
+  el.querySelectorAll('.conv-item[data-uid]').forEach(function (node) {
+    existingMap[node.dataset.uid] = node;
+  });
+
+  var frag = document.createDocumentFragment();
+  items.forEach(function (item) {
     var u = item.user;
+    var uid = String(u && u.id);
     var name = dname(u);
     var initials = ((u.first_name || u.username || 'U')[0] + (u.last_name ? u.last_name[0] : '')).toUpperCase();
     var last = item.last_message || 'No messages yet';
     var online = !!(u && u.is_online);
     var time = item.last_message_time ? fmtTime(item.last_message_time) : '';
     var act = S.activeUser && S.activeUser.id === (u && u.id);
-    return `<div class="conv-item${act ? ' active' : ''}" data-uid="${u && u.id}" onclick="openChat(${u && u.id})">
-      <div class="av-wrap">
+
+    var node = existingMap[uid];
+    if (node) {
+      // Update existing node in-place — no image reload, no blink
+      node.classList.toggle('active', act);
+      var dot = node.querySelector('.sdot');
+      if (dot) dot.className = 'sdot ' + (online ? 'on' : 'off');
+      var prev = node.querySelector('.conv-prev');
+      if (prev) prev.textContent = last;
+      var timeEl = node.querySelector('.conv-time');
+      if (timeEl) timeEl.textContent = time;
+      delete existingMap[uid];
+    } else {
+      // Create new node
+      node = document.createElement('div');
+      node.className = 'conv-item' + (act ? ' active' : '');
+      node.dataset.uid = uid;
+      node.innerHTML = `<div class="av-wrap">
         ${u.profile_picture ? `<img class="av-img av-52" src="${esc(u.profile_picture)}">` : `<div style="width:52px;height:52px;border-radius:50%;background:#1877f2;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;">${initials}</div>`}
         <div class="sdot ${online ? 'on' : 'off'}"></div>
       </div>
@@ -569,19 +599,18 @@ function renderConvList(items) {
       </div>
       <div class="conv-meta">
         <div class="conv-time">${time}</div>
-      </div>
-    </div>`;
-  }).join('');
-
-  el.querySelectorAll('.conv-item[data-uid]').forEach(function (item) {
-    item.addEventListener('click', function () {
-      openChat(parseInt(this.dataset.uid));
-    });
-    item.addEventListener('touchend', function (e) {
-      e.preventDefault();
-      openChat(parseInt(this.dataset.uid));
-    });
+      </div>`;
+      node.addEventListener('click', function () { openChat(parseInt(this.dataset.uid)); });
+      node.addEventListener('touchend', function (e) { e.preventDefault(); openChat(parseInt(this.dataset.uid)); });
+    }
+    frag.appendChild(node); // moves existing nodes to frag (preserving order)
   });
+
+  // Remove nodes no longer in the list
+  Object.keys(existingMap).forEach(function (uid) { existingMap[uid].remove(); });
+
+  // el is now empty (all conv-items moved to frag); append in correct order
+  el.appendChild(frag);
 }
 
 
@@ -594,11 +623,39 @@ function renderGroupList(groups) {
     </div>`;
     return;
   }
-  el.innerHTML = groups.map(function (g) {
+
+  // Remove any non-conv-item placeholder nodes
+  Array.from(el.children).forEach(function (child) {
+    if (!child.classList.contains('conv-item')) child.remove();
+  });
+
+  // Map existing DOM nodes by gid to avoid full re-render (prevents blinking)
+  var existingMap = {};
+  el.querySelectorAll('.conv-item[data-gid]').forEach(function (node) {
+    existingMap[node.dataset.gid] = node;
+  });
+
+  var frag = document.createDocumentFragment();
+  groups.forEach(function (g) {
+    var gid = String(g.id);
     var act = S.activeGroup && S.activeGroup.id === g.id;
     var memberCount = g.members ? g.members.length : 0;
-    return `<div class="conv-item group${act ? ' active' : ''}" data-gid="${g.id}" onclick="openGroup(${g.id})">
-      <div class="group-icon">
+    var time = g.last_message_time ? fmtTime(g.last_message_time) : '';
+
+    var node = existingMap[gid];
+    if (node) {
+      // Update existing node in-place
+      node.classList.toggle('active', act);
+      var prev = node.querySelector('.conv-prev');
+      if (prev) prev.textContent = memberCount + ' members';
+      var timeEl = node.querySelector('.conv-time');
+      if (timeEl) timeEl.textContent = time;
+      delete existingMap[gid];
+    } else {
+      node = document.createElement('div');
+      node.className = 'conv-item group' + (act ? ' active' : '');
+      node.dataset.gid = gid;
+      node.innerHTML = `<div class="group-icon">
         <i class="fa-solid fa-users"></i>
       </div>
       <div class="conv-body">
@@ -606,20 +663,18 @@ function renderGroupList(groups) {
         <div class="conv-prev">${memberCount} members</div>
       </div>
       <div class="conv-meta">
-        <div class="conv-time">${g.last_message_time ? fmtTime(g.last_message_time) : ''}</div>
-      </div>
-    </div>`;
-  }).join('');
-
-  el.querySelectorAll('.conv-item[data-gid]').forEach(function (item) {
-    item.addEventListener('click', function () {
-      openGroup(parseInt(this.dataset.gid));
-    });
-    item.addEventListener('touchend', function (e) {
-      e.preventDefault();
-      openGroup(parseInt(this.dataset.gid));
-    });
+        <div class="conv-time">${time}</div>
+      </div>`;
+      node.addEventListener('click', function () { openGroup(parseInt(this.dataset.gid)); });
+      node.addEventListener('touchend', function (e) { e.preventDefault(); openGroup(parseInt(this.dataset.gid)); });
+    }
+    frag.appendChild(node);
   });
+
+  // Remove nodes no longer in list
+  Object.keys(existingMap).forEach(function (gid) { existingMap[gid].remove(); });
+
+  el.appendChild(frag);
 }
 
 function openChat(userId) {
