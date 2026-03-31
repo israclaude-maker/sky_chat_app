@@ -2455,7 +2455,7 @@ var rtcConfig = {
 
 // TURN credentials dynamically load
 // TURN ready flag
-var turnReady = false;
+var turnReady = true;
 
 // TURN credentials load - app shuru hote hi
 rtcConfig.iceServers = [
