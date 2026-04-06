@@ -20,7 +20,7 @@ function tickSVG(status) {
 // Notification popup
 function showNotifPopup(msg) {
   const stack = document.getElementById('notif-stack');
-  const av = msg.profile_picture || seed(msg.username || 'user');
+  const av = msg.profile_picture || seed(msg.username || 'User');
   const name = msg.username || 'Someone';
   const body = msg.message || '';
   const el = document.createElement('div');
@@ -192,14 +192,23 @@ function dname(u) {
 }
 
 function seed(n) {
-  return 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(n || 'user');
+  // Returns a data URI SVG of a colored circle with initials
+  var name = (n || 'U').trim() || 'U';
+  var parts = name.split(/[\s@]+/).filter(function(p) { return p.length > 0; });
+  var first = parts[0] || 'U';
+  var second = parts.length > 1 ? parts[1] : '';
+  var initials = (first[0] + (second ? second[0] : '')).toUpperCase();
+  var bg = '#1a73e8';
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" rx="50" fill="' + bg + '"/><text x="50" y="50" dy=".35em" text-anchor="middle" fill="white" font-family="sans-serif" font-size="40" font-weight="700">' + initials + '</text></svg>';
+  return 'data:image/svg+xml,' + encodeURIComponent(svg);
 }
 
-// Get avatar URL - use profile_picture if available, otherwise seed
+// Get avatar URL - use profile_picture if available, otherwise initials
 function getAvatar(user) {
-  if (!user) return seed('user');
+  if (!user) return seed('U');
   if (user.profile_picture) return user.profile_picture;
-  return seed(user.username || user.first_name || 'user');
+  var name = ((user.first_name || '') + ' ' + (user.last_name || '')).trim() || user.username || 'U';
+  return seed(name);
 }
 
 function esc(s) {
@@ -253,6 +262,28 @@ function lastSeenStr(iso) {
   return 'Last seen ' + d.toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric', timeZone: PKT }) + ' at ' + hm;
 }
 
+// Token refresh — prevents infinite reload loop when JWT expires
+var _refreshPromise = null;
+function refreshAccessToken() {
+  if (_refreshPromise) return _refreshPromise;
+  var rt = localStorage.getItem('refresh_token');
+  if (!rt) { localStorage.clear(); go('/login/'); return Promise.reject('no refresh token'); }
+  _refreshPromise = fetch('/api/auth/token/refresh/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh: rt })
+  }).then(function (r) {
+    _refreshPromise = null;
+    if (!r.ok) { localStorage.clear(); go('/login/'); throw new Error('refresh failed'); }
+    return r.json();
+  }).then(function (data) {
+    S.token = data.access;
+    localStorage.setItem('access_token', data.access);
+    return data.access;
+  }).catch(function (e) { _refreshPromise = null; throw e; });
+  return _refreshPromise;
+}
+
 // API function
 function api(path, opts) {
   opts = opts || {};
@@ -264,7 +295,17 @@ function api(path, opts) {
   if (opts.body && typeof opts.body === 'string') headers['Content-Type'] = 'application/json';
   return fetch(API_URL + path, Object.assign({ headers: headers }, opts))
     .then(function (r) {
-      if (r.status === 401) { go('/login/'); return null; }
+      if (r.status === 401) {
+        // Try refresh then retry once
+        return refreshAccessToken().then(function (newToken) {
+          var h2 = Object.assign({}, headers, { 'Authorization': 'Bearer ' + newToken });
+          return fetch(API_URL + path, Object.assign({}, opts, { headers: h2 }));
+        }).then(function (r2) {
+          if (r2.status === 401) { localStorage.clear(); go('/login/'); return null; }
+          if (!r2.ok) throw new Error('API error');
+          return r2.json();
+        });
+      }
       if (!r.ok) throw new Error('API error');
       return r.json();
     });
@@ -279,18 +320,8 @@ var PasteState = {
 // Initialize app
 function init() {
   if (!S.token) return go('/login/');
-  // Force fresh - no cache
-  fetch(API_URL + '/me/', {
-    headers: {
-      'Authorization': 'Bearer ' + S.token,
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache'
-    }
-  })
-    .then(function (r) {
-      if (r.status === 401) { go('/login/'); return null; }
-      return r.json();
-    })
+  // Use api() so token refresh is handled automatically
+  api('/me/')
     .then(function (user) {
       if (!user) return;
       S.user = user;
@@ -300,8 +331,6 @@ function init() {
       $('sb-username').textContent = fullName;
 
       // Avatar ya initial letter
-      // Avatar ya initial letter
-      var initial = (S.user.first_name || S.user.username || 'U')[0].toUpperCase();
       var myAv = $('my-av');
       var myAvInit = $('my-av-init');
 
@@ -314,22 +343,28 @@ function init() {
         // Agar image load fail ho to letter show karo
         myAv.onerror = function () {
           myAv.style.display = 'none';
-          myAvInit.textContent = initial;
-          myAvInit.style.display = 'flex';
+          myAv.src = seed(fullName);
+          myAv.style.display = 'block';
+          myAvInit.style.display = 'none';
         };
       } else {
-        // No picture - letter show karo
-        myAv.style.display = 'none';
-        myAvInit.textContent = initial;
-        myAvInit.style.display = 'flex';
+        // No picture - show initials SVG
+        myAv.src = seed(fullName);
+        myAv.style.cssText = 'display:block;width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,0.4);';
+        myAvInit.style.display = 'none';
       }
 
       buildEmoji();
       loadConvs();
       loadGroups();
       connectGlobalWS();
+      loadTURNServers(); 
       initPasteHandler();
-    }).catch(function () { go('/login/'); });
+    }).catch(function (err) {
+      // Do not force-login on generic runtime errors; prevents redirect loops.
+      console.error('Init failed:', err);
+      toast('Failed to initialize chat. Please refresh once.', 'e');
+    });
 }
 
 // Initialize paste handler for images
@@ -491,7 +526,7 @@ function connectGlobalWS() {
         showNotification(
           'Incoming ' + (data.call_type === 'video' ? 'Video' : 'Voice') + ' Call',
           data.caller_name + ' is calling...',
-          data.caller_profile_picture || seed(data.caller_username || 'user'),
+          data.caller_profile_picture || seed(data.caller_name || data.caller_username || 'User'),
           function () { window.focus(); },
           true // isCall
         );
@@ -505,6 +540,24 @@ function connectGlobalWS() {
         handleCallCancelled(data);
       } else if (data.type === 'call_ice') {
         handleIceCandidate(data);
+      }
+      // Group call events
+      else if (data.type === 'group_call_incoming') {
+        handleGroupCallIncoming(data);
+      } else if (data.type === 'group_call_started') {
+        handleGroupCallStarted(data);
+      } else if (data.type === 'group_call_joined') {
+        handleGroupCallJoined(data);
+      } else if (data.type === 'group_call_user_joined') {
+        handleGroupCallUserJoined(data);
+      } else if (data.type === 'group_call_offer') {
+        handleGroupCallOffer(data);
+      } else if (data.type === 'group_call_answer') {
+        handleGroupCallAnswer(data);
+      } else if (data.type === 'group_call_ice') {
+        handleGroupCallIce(data);
+      } else if (data.type === 'group_call_user_left') {
+        handleGroupCallUserLeft(data);
       }
     } catch (err) { console.warn('Global WS error:', err); }
   };
@@ -521,10 +574,15 @@ function connectGlobalWS() {
 function loadConvs() {
   api('/conversations/').then(function (convs) {
     S.convs = convs || [];
-    if (S.currentTab === 'chats') {
+    if (S.currentTab === 'chats' || S.currentTab === 'unread') {
       renderConvList(S.convs);
     }
-  }).catch(function () { toast('Failed to load chats', 'e'); });
+  }).catch(function (e) {
+    console.error('Failed to load chats:', e);
+    if (S.currentTab === 'chats' || S.currentTab === 'unread') {
+      $('conv-list').innerHTML = '<div style="padding:28px;text-align:center;color:var(--sub);font-size:13px;">No chats yet.</div>';
+    }
+  });
 }
 
 // Load groups
@@ -537,70 +595,128 @@ function loadGroups() {
   }).catch(function (e) {
     console.log('Groups not available:', e);
     S.groups = [];
+    if (S.currentTab === 'groups') {
+      $('conv-list').innerHTML = '<div style="padding:28px;text-align:center;color:var(--sub);font-size:13px;">No groups yet.</div>';
+    }
   });
 }
 
 // Render conversation list
 function renderConvList(items) {
   var el = $('conv-list');
-  if (!items.length) {
-    el.innerHTML = `<div style="padding:28px;text-align:center;color:var(--sub);font-size:13px;">
-      No chats yet. Click <i class="fa-solid fa-comment-medical"></i> to start one!
-    </div>`;
+  el.innerHTML = '';
+
+  // Filter for unread tab
+  var displayItems = items;
+  if (S.currentTab === 'unread') {
+    displayItems = items.filter(function (item) { return item.unread_count > 0; });
+  }
+
+  if (!displayItems.length) {
+    el.innerHTML = S.currentTab === 'unread'
+      ? '<div style="padding:28px;text-align:center;color:var(--sub);font-size:13px;">No unread messages</div>'
+      : '<div style="padding:28px;text-align:center;color:var(--sub);font-size:13px;">No chats yet. Click <i class="fa-solid fa-comment-medical"></i> to start one!</div>';
     return;
   }
-  el.innerHTML = items.map(function (item) {
-    var u = item.user;
-    var name = dname(u);
-    var initials = ((u.first_name || u.username || 'U')[0] + (u.last_name ? u.last_name[0] : '')).toUpperCase();
+
+  var frag = document.createDocumentFragment();
+  displayItems.forEach(function (item) {
+    var isGroupItem = item.type === 'group';
     var last = item.last_message || 'No messages yet';
-    var online = !!(u && u.is_online);
     var time = item.last_message_time ? fmtTime(item.last_message_time) : '';
-    var act = S.activeUser && S.activeUser.id === (u && u.id);
-    return `<div class="conv-item${act ? ' active' : ''}" data-uid="${u && u.id}" onclick="openChat(${u && u.id})">
-      <div class="av-wrap">
-        ${u.profile_picture ? `<img class="av-img av-52" src="${esc(u.profile_picture)}">` : `<div style="width:52px;height:52px;border-radius:50%;background:#1877f2;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;">${initials}</div>`}
-        <div class="sdot ${online ? 'on' : 'off'}"></div>
-      </div>
-      <div class="conv-body">
-        <div class="conv-name">${esc(name)}</div>
-        <div class="conv-prev">${esc(last)}</div>
-      </div>
-      <div class="conv-meta">
-        <div class="conv-time">${time}</div>
-      </div>
-    </div>`;
-  }).join('');
+    var unread = item.unread_count || 0;
+    var badgeHtml = unread > 0 ? '<div class="unread-badge">' + (unread > 99 ? '99+' : unread) + '</div>' : '';
+    var timeClass = unread > 0 ? 'conv-time unread' : 'conv-time';
+
+    var node = document.createElement('div');
+    node.className = 'conv-item';
+
+    if (isGroupItem) {
+      var g = item.group;
+      var gid = g.id;
+      var act = S.activeGroup && S.activeGroup.id === gid;
+      node.classList.toggle('active', act);
+      node.dataset.gid = gid;
+      node.innerHTML = '<div class="av-wrap">' +
+        '<img class="av-img av-52" src="' + esc(g.group_picture || seed(g.name)) + '">' +
+      '</div>' +
+      '<div class="conv-body">' +
+        '<div class="conv-name">' + esc(g.name) + '</div>' +
+        '<div class="conv-prev">' + esc(last) + '</div>' +
+      '</div>' +
+      '<div class="conv-meta">' +
+        '<div class="' + timeClass + '">' + time + '</div>' +
+        badgeHtml +
+      '</div>';
+      node.addEventListener('click', function () { openGroup(parseInt(this.dataset.gid)); });
+    } else {
+      var u = item.user;
+      var uid = u && u.id;
+      var name = dname(u);
+      var online = !!(u && u.is_online);
+      var act = S.activeUser && S.activeUser.id === uid;
+      node.classList.toggle('active', act);
+      node.dataset.uid = uid;
+      node.innerHTML = '<div class="av-wrap">' +
+        '<img class="av-img av-52" src="' + esc(getAvatar(u)) + '">' +
+        '<div class="sdot ' + (online ? 'on' : 'off') + '"></div>' +
+      '</div>' +
+      '<div class="conv-body">' +
+        '<div class="conv-name">' + esc(name) + '</div>' +
+        '<div class="conv-prev">' + esc(last) + '</div>' +
+      '</div>' +
+      '<div class="conv-meta">' +
+        '<div class="' + timeClass + '">' + time + '</div>' +
+        badgeHtml +
+      '</div>';
+      node.addEventListener('click', function () { openChat(parseInt(this.dataset.uid)); });
+    }
+    frag.appendChild(node);
+  });
+
+  el.appendChild(frag);
 }
 
-// Render group list
+
+// Render group list (Groups tab only - no DMs)
 function renderGroupList(groups) {
   var el = $('conv-list');
+  el.innerHTML = '';
+
   if (!groups.length) {
-    el.innerHTML = `<div style="padding:28px;text-align:center;color:var(--sub);font-size:13px;">
-      No groups yet. Click <i class="fa-solid fa-comment-medical"></i> to create one!
-    </div>`;
+    el.innerHTML = '<div style="padding:28px;text-align:center;color:var(--sub);font-size:13px;">No groups yet. Click <i class="fa-solid fa-comment-medical"></i> to create one!</div>';
     return;
   }
-  el.innerHTML = groups.map(function (g) {
+
+  var frag = document.createDocumentFragment();
+  groups.forEach(function (g) {
+    var gid = String(g.id);
     var act = S.activeGroup && S.activeGroup.id === g.id;
     var memberCount = g.members ? g.members.length : 0;
-    return `<div class="conv-item group${act ? ' active' : ''}" data-gid="${g.id}" onclick="openGroup(${g.id})">
-      <div class="group-icon">
-        <i class="fa-solid fa-users"></i>
-      </div>
-      <div class="conv-body">
-        <div class="conv-name">${esc(g.name)}</div>
-        <div class="conv-prev">${memberCount} members</div>
-      </div>
-      <div class="conv-meta">
-        <div class="conv-time">${g.last_message_time ? fmtTime(g.last_message_time) : ''}</div>
-      </div>
-    </div>`;
-  }).join('');
+    var time = g.last_message_time ? fmtTime(g.last_message_time) : '';
+    var last = g.last_message || memberCount + ' members';
+
+    var node = document.createElement('div');
+    node.className = 'conv-item' + (act ? ' active' : '');
+    node.dataset.gid = gid;
+    node.innerHTML = '<div class="av-wrap">' +
+      '<img class="av-img av-52" src="' + esc(g.group_picture || seed(g.name)) + '">' +
+    '</div>' +
+    '<div class="conv-body">' +
+      '<div class="conv-name">' + esc(g.name) + '</div>' +
+      '<div class="conv-prev">' + esc(last) + '</div>' +
+    '</div>' +
+    '<div class="conv-meta">' +
+      '<div class="conv-time' + (g.unread_count > 0 ? ' unread' : '') + '">' + time + '</div>' +
+      (g.unread_count > 0 ? '<span class="unread-badge">' + g.unread_count + '</span>' : '') +
+    '</div>';
+    node.addEventListener('click', function () { openGroup(parseInt(this.dataset.gid)); });
+    frag.appendChild(node);
+  });
+
+  el.appendChild(frag);
 }
 
-// Open chat with user
 function openChat(userId) {
   var user = null;
   for (var i = 0; i < S.convs.length; i++) {
@@ -620,9 +736,19 @@ function openChat(userId) {
   S.activeGroup = null;
   S.isGroup = false;
 
-  // Pehle WS connect karo
-  connectWS(user.id);  // ← ORDER CHANGE KARO - pehle yeh
+  // Clear unread count for this conversation
+  for (var k = 0; k < S.convs.length; k++) {
+    if (S.convs[k].user && S.convs[k].user.id === userId) {
+      S.convs[k].unread_count = 0;
+      break;
+    }
+  }
+  // Re-render sidebar to update badge
+  if (S.currentTab === 'chats' || S.currentTab === 'unread') {
+    renderConvList(S.convs);
+  }
 
+  connectWS(user.id);
   showChatView(user);
   loadMessages(userId);
   hlActive(userId, 'user');
@@ -656,11 +782,42 @@ function openGroup(groupId) {
   for (var i = 0; i < S.groups.length; i++) {
     if (S.groups[i].id === groupId) { group = S.groups[i]; break; }
   }
+  // Also check convs list (groups appear in Chats tab)
+  if (!group) {
+    for (var j = 0; j < S.convs.length; j++) {
+      if (S.convs[j].type === 'group' && S.convs[j].group && S.convs[j].group.id === groupId) {
+        group = S.convs[j].group;
+        break;
+      }
+    }
+  }
   if (!group) { toast('Group not found', 'e'); return; }
 
   S.activeGroup = group;
   S.activeUser = null;
   S.isGroup = true;
+
+  // Clear unread count in convs
+  for (var k = 0; k < S.convs.length; k++) {
+    if (S.convs[k].type === 'group' && S.convs[k].group && S.convs[k].group.id === groupId) {
+      S.convs[k].unread_count = 0;
+      break;
+    }
+  }
+  // Clear unread count in groups list
+  for (var m = 0; m < S.groups.length; m++) {
+    if (S.groups[m].id === groupId) {
+      S.groups[m].unread_count = 0;
+      break;
+    }
+  }
+  if (S.currentTab === 'chats' || S.currentTab === 'unread') {
+    renderConvList(S.convs);
+  }
+  if (S.currentTab === 'groups') {
+    renderGroupList(S.groups);
+  }
+
   showGroupView(group);
   loadGroupMessages(groupId);
   connectGroupWS(group.id);
@@ -689,22 +846,24 @@ function loadGroupMessages(groupId) {
 function showChatView(user) {
   $('empty-state').style.display = 'none';
   $('chat-view').classList.add('active');
+
+
+
+  if (window.innerWidth <= 768) {
+    document.getElementById('sidebar').style.display = 'none';
+    document.getElementById('chat-panel').style.display = 'flex';
+    document.getElementById('chat-panel').classList.add('active');
+    document.getElementById('back-btn').style.display = 'flex';
+  } else {
+    document.getElementById('back-btn').style.display = 'none';
+  }
   var name = dname(user);
   $('tb-name').textContent = name;
-  if (user.profile_picture) {
-    $('tb-av').src = user.profile_picture;
-    $('tb-av').style.display = 'block';
-  } else {
-    $('tb-av').style.display = 'none';
-    var oldInit = document.getElementById('tb-av-init');
-    if (oldInit) oldInit.remove();
-    var initials = ((user.first_name || user.username || 'U')[0] + (user.last_name ? user.last_name[0] : '')).toUpperCase();
-    var div = document.createElement('div');
-    div.id = 'tb-av-init';
-    div.style.cssText = 'width:42px;height:42px;border-radius:50%;background:#1877f2;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;';
-    div.textContent = initials;
-    $('tb-av').parentNode.insertBefore(div, $('tb-av'));
-  }
+  // Remove old initials div if exists
+  var oldInit = document.getElementById('tb-av-init');
+  if (oldInit) oldInit.remove();
+  $('tb-av').src = getAvatar(user);
+  $('tb-av').style.display = 'block';
   var dot = $('tb-dot'), sub = $('tb-sub');
   if (user.is_online) {
     dot.className = 'sdot on';
@@ -715,6 +874,16 @@ function showChatView(user) {
     sub.textContent = lastSeenStr(user.last_seen);
     sub.className = 'tb-sub';
   }
+
+  // Make topbar clickable for contact info
+  var tbInfo = document.querySelector('.tb-info');
+  if (tbInfo) {
+    tbInfo.style.cursor = 'pointer';
+    tbInfo.onclick = function () { openContactInfo(user); };
+  }
+  $('tb-dot').style.display = '';
+
+  closeInfoPanel();
   $('msg-area').innerHTML = '';
   updateSendBtn();
 }
@@ -723,12 +892,33 @@ function showChatView(user) {
 function showGroupView(group) {
   $('empty-state').style.display = 'none';
   $('chat-view').classList.add('active');
+
+  if (window.innerWidth <= 768) {
+    document.getElementById('sidebar').style.display = 'none';
+    document.getElementById('chat-panel').style.display = 'flex';
+    document.getElementById('chat-panel').classList.add('active');
+    document.getElementById('back-btn').style.display = 'flex';
+  }
   $('tb-name').textContent = group.name;
-  $('tb-av').src = seed(group.name);
+  $('tb-av').src = group.group_picture || seed(group.name);
+  $('tb-av').style.display = 'block';
+  $('tb-av').style.display = 'block';
+  // Remove initials div if exists
+  var oldInit = document.getElementById('tb-av-init');
+  if (oldInit) oldInit.remove();
   $('tb-dot').style.display = 'none';
   var memberCount = group.members ? group.members.length : 0;
   $('tb-sub').textContent = memberCount + ' members';
   $('tb-sub').className = 'tb-sub';
+  
+  // Make topbar clickable for group info
+  var tbInfo = document.querySelector('.tb-info');
+  if (tbInfo) {
+    tbInfo.style.cursor = 'pointer';
+    tbInfo.onclick = function () { openGroupInfo(group.id); };
+  }
+  
+  closeInfoPanel();
   $('msg-area').innerHTML = '';
   updateSendBtn();
 }
@@ -747,6 +937,14 @@ function msgDropdownHTML(msgId, msgText, isOut, timestamp, senderName) {
     return `<button class="msg-react-btn" onclick="reactToMsg('${msgId}','${e}')">${e}</button>`;
   }).join('');
 
+  // Only show edit for own messages within 3 hours
+  var canEdit = false;
+  if (isOut && timestamp) {
+    var msgTime = new Date(timestamp).getTime();
+    var now = Date.now();
+    canEdit = (now - msgTime) < 3 * 60 * 60 * 1000; // 3 hours
+  }
+
   return `
     <button class="msg-dropdown-btn" onclick="toggleMsgDropdown(event, '${msgId}')">
       <i class="fa-solid fa-chevron-down"></i>
@@ -762,7 +960,7 @@ function msgDropdownHTML(msgId, msgText, isOut, timestamp, senderName) {
       <div class="msg-drop-item" onclick="copyMsg('${esc(msgText)}')">
         <i class="fa-regular fa-copy"></i> Copy
       </div>
-      ${isOut ? `<div class="msg-drop-item" onclick="editMsg('${msgId}','${esc(msgText)}')">
+      ${canEdit ? `<div class="msg-drop-item" onclick="editMsg('${msgId}','${esc(msgText)}')">
         <i class="fa-solid fa-pen"></i> Edit
       </div>` : ''}
       ${isOut ? `<div class="msg-drop-item" onclick="showMsgInfo('${msgId}','${esc(msgText)}','${timestamp}')">
@@ -943,24 +1141,76 @@ function copyMsg(text) {
 function showMsgInfo(msgId, text, timestamp) {
   $('mi-text').textContent = text;
   $('mi-sent').textContent = fmtFullTime(timestamp);
-  $('mi-delivered').textContent = '-';
-  $('mi-seen').textContent = '-';
-  openM('mi-modal');
-  document.querySelectorAll('.msg-dropdown.show').forEach(function (d) { d.classList.remove('show'); });
-
-  // Fetch actual message info from server
-  api('/messages/' + msgId + '/info/')
-    .then(function (data) {
-      if (data && data.sent_at) {
+  
+  // Reset
+  var readByContainer = $('mi-read-by');
+  var deliveredContainer = $('mi-delivered-to');
+  var simpleInfo = $('mi-simple-info');
+  
+  if (S.isGroup && S.activeGroup) {
+    // Group message - show read-by list
+    if (simpleInfo) simpleInfo.style.display = 'none';
+    if (readByContainer) { readByContainer.style.display = 'block'; readByContainer.innerHTML = '<div style="padding:12px;text-align:center;color:var(--sub);"><i class="fa-solid fa-spinner fa-spin"></i></div>'; }
+    if (deliveredContainer) { deliveredContainer.style.display = 'block'; deliveredContainer.innerHTML = ''; }
+    
+    openM('mi-modal');
+    
+    api('/groups/messages/' + msgId + '/info/')
+      .then(function (data) {
+        if (!data) return;
+        
         $('mi-sent').textContent = fmtFullTime(data.sent_at);
-        if (data.delivered_at) {
-          $('mi-delivered').textContent = fmtFullTime(data.delivered_at);
+        
+        // Read by list
+        var readHtml = '<div class="mi-section-title"><span class="msg-ticks read"><i class="fa-solid fa-check"></i><i class="fa-solid fa-check"></i></span> Read by</div>';
+        if (data.read_by && data.read_by.length) {
+          data.read_by.forEach(function (u) {
+            var name = (u.first_name ? (u.first_name + ' ' + (u.last_name || '')).trim() : u.username);
+            var av = u.profile_picture || seed(name);
+            var time = u.read_at ? fmtFullTime(u.read_at) : '';
+            readHtml += '<div class="mi-user-row"><img class="mi-user-av" src="' + esc(av) + '"><div class="mi-user-info"><div class="mi-user-name">' + esc(name) + '</div><div class="mi-user-time">' + time + '</div></div></div>';
+          });
+        } else {
+          readHtml += '<div style="padding:8px 0;color:var(--sub);font-size:13px;">No one yet</div>';
         }
-        if (data.read_at) {
-          $('mi-seen').textContent = fmtFullTime(data.read_at);
+        if (readByContainer) readByContainer.innerHTML = readHtml;
+        
+        // Delivered to list
+        var delHtml = '<div class="mi-section-title"><span class="msg-ticks"><i class="fa-solid fa-check"></i><i class="fa-solid fa-check"></i></span> Delivered to</div>';
+        if (data.delivered_to && data.delivered_to.length) {
+          data.delivered_to.forEach(function (u) {
+            var name = (u.first_name ? (u.first_name + ' ' + (u.last_name || '')).trim() : u.username);
+            var av = u.profile_picture || seed(name);
+            var time = u.delivered_at ? fmtFullTime(u.delivered_at) : '';
+            delHtml += '<div class="mi-user-row"><img class="mi-user-av" src="' + esc(av) + '"><div class="mi-user-info"><div class="mi-user-name">' + esc(name) + '</div><div class="mi-user-time">' + time + '</div></div></div>';
+          });
         }
-      }
-    });
+        if (deliveredContainer) deliveredContainer.innerHTML = delHtml;
+      });
+  } else {
+    // Direct message - simple info
+    if (simpleInfo) simpleInfo.style.display = 'block';
+    if (readByContainer) readByContainer.style.display = 'none';
+    if (deliveredContainer) deliveredContainer.style.display = 'none';
+    $('mi-delivered').textContent = '-';
+    $('mi-seen').textContent = '-';
+    
+    openM('mi-modal');
+    
+    api('/messages/' + msgId + '/info/')
+      .then(function (data) {
+        if (data && data.sent_at) {
+          $('mi-sent').textContent = fmtFullTime(data.sent_at);
+          if (data.delivered_at) {
+            $('mi-delivered').textContent = fmtFullTime(data.delivered_at);
+          }
+          if (data.read_at) {
+            $('mi-seen').textContent = fmtFullTime(data.read_at);
+          }
+        }
+      });
+  }
+  document.querySelectorAll('.msg-dropdown.show').forEach(function (d) { d.classList.remove('show'); });
 }
 
 // Delete message
@@ -1013,22 +1263,15 @@ function saveEditedMsg() {
   }).then(function (data) {
     if (data && data.success) {
       // Update message in UI
-      var msgRow = document.getElementById('msg-' + msgId);
-      if (msgRow) {
-        var msgTextEl = msgRow.querySelector('.msg-text');
-        if (msgTextEl) {
-          msgTextEl.innerHTML = esc(newText);
-          // Add edited indicator
-          if (!msgRow.querySelector('.msg-edited')) {
-            var footer = msgRow.querySelector('.msg-footer');
-            if (footer) {
-              var editedSpan = document.createElement('span');
-              editedSpan.className = 'msg-edited';
-              editedSpan.textContent = 'edited';
-              footer.insertBefore(editedSpan, footer.firstChild);
-            }
-          }
-        }
+      updateEditedMsgUI(msgId, newText);
+      // Broadcast edit via WebSocket
+      if (S.ws && S.ws.readyState === 1) {
+        S.ws.send(JSON.stringify({
+          type: 'message_edit',
+          message_id: msgId,
+          new_text: newText,
+          group_id: data.group_id || null
+        }));
       }
       toast('Message edited', 's');
       closeM('edit-msg-modal');
@@ -1043,6 +1286,22 @@ function saveEditedMsg() {
   });
 }
 
+function updateEditedMsgUI(msgId, newText) {
+  var msgRow = document.getElementById('msg-' + msgId);
+  if (!msgRow) return;
+  var msgTextEl = msgRow.querySelector('.msg-text');
+  if (msgTextEl) msgTextEl.innerHTML = esc(newText);
+  if (!msgRow.querySelector('.msg-edited')) {
+    var footer = msgRow.querySelector('.msg-footer');
+    if (footer) {
+      var editedSpan = document.createElement('span');
+      editedSpan.className = 'msg-edited';
+      editedSpan.textContent = 'edited';
+      footer.insertBefore(editedSpan, footer.firstChild);
+    }
+  }
+}
+
 // Append message to chat
 function appendMsg(msg, consec) {
   var area = $('msg-area');
@@ -1054,7 +1313,36 @@ function appendMsg(msg, consec) {
   var senderName = msg.display_name || msg.username || 'User';
   var msgType = msg.message_type || 'text';
   var isForwarded = msg.is_forwarded || false;
+  var isEdited = msg.is_edited || false;
   var replyData = msg.reply_data || null;
+
+  // System message check (e.g. "X left the group", "X removed Y")  
+  var isSystem = msg.is_system || false;
+  if (!isSystem && S.isGroup && content && (
+    content.match(/ left the group$/) ||
+    content.match(/ removed /) ||
+    content.match(/ added /) ||
+    content.match(/ was added$/) ||
+    content.match(/ changed the group/)
+  )) {
+    isSystem = true;
+  }
+
+  if (isSystem) {
+    var sysDiv = document.createElement('div');
+    sysDiv.className = 'system-msg';
+    sysDiv.innerHTML = '<span>' + esc(content) + '</span>';
+    area.appendChild(sysDiv);
+    area.scrollTop = area.scrollHeight;
+    return;
+  }
+
+  // Group sender name (only for incoming messages in groups)
+  var groupSenderHtml = '';
+  if (S.isGroup && !me && !consec) {
+    var senderColor = strToColor(msg.username || 'user');
+    groupSenderHtml = '<div class="group-sender" style="color:' + senderColor + ';">' + esc(senderName) + '</div>';
+  }
 
   // Build forwarded label
   var forwardedLabel = '';
@@ -1137,11 +1425,12 @@ function appendMsg(msg, consec) {
   row.innerHTML = `
     ${msgDropdownHTML(msgId, content, me, msg.timestamp, senderName)}
     <div class="bubble" style="position:relative;">
+      ${groupSenderHtml}
       ${forwardedLabel}
       ${replyQuote}
       ${msgContent}
       <div class="msg-footer">
-        <span class="msg-time">${fmtTime(msg.timestamp)}</span>${tick}
+        ${isEdited ? '<span class="msg-edited">edited</span>' : ''}<span class="msg-time">${fmtTime(msg.timestamp)}</span>${tick}
       </div>
       ${reactionsHtml}
     </div>
@@ -1198,13 +1487,37 @@ function formatFileSize(bytes) {
 }
 
 function markMessageRead(msgId) {
-  api('/messages/' + msgId + '/read/', { method: 'POST' })
-    .then(function (res) {
-      if (res && res.is_read) {
-        // Update UI to show blue tick for sender
-        notifyMessageRead(msgId);
+  if (S.isGroup && S.activeGroup) {
+    // Group read receipt - batch and send via WS
+    if (!S._pendingGroupReads) S._pendingGroupReads = [];
+    S._pendingGroupReads.push(msgId);
+    
+    clearTimeout(S._groupReadTimer);
+    S._groupReadTimer = setTimeout(function () {
+      var ids = S._pendingGroupReads;
+      S._pendingGroupReads = [];
+      
+      // Send via API
+      api('/groups/' + S.activeGroup.id + '/mark_read/', { method: 'POST' })
+        .catch(function () {});
+      
+      // Send via WS for real-time notification
+      if (S.ws && S.ws.readyState === WebSocket.OPEN) {
+        S.ws.send(JSON.stringify({
+          type: 'group_read',
+          group_id: S.activeGroup.id,
+          message_ids: ids
+        }));
       }
-    });
+    }, 500);
+  } else {
+    api('/messages/' + msgId + '/read/', { method: 'POST' })
+      .then(function (res) {
+        if (res && res.is_read) {
+          notifyMessageRead(msgId);
+        }
+      });
+  }
 }
 
 function notifyMessageRead(msgId) {
@@ -1233,7 +1546,17 @@ function doSend() { sendText(); }
 function sendText() {
   var ta = $('msg-ta');
   var txt = ta.value.trim();
-  if (!txt || !S.ws || S.ws.readyState !== WebSocket.OPEN) return;
+  if (!txt) return;
+  if (!S.ws || S.ws.readyState !== WebSocket.OPEN) {
+    toast('Connecting... try again', 'e');
+    // Try to reconnect
+    if (S.isGroup && S.activeGroup) {
+      connectGroupWS(S.activeGroup.id);
+    } else if (S.activeUser) {
+      connectWS(S.activeUser.id);
+    }
+    return;
+  }
 
   var msgData = {
     type: 'chat.message',
@@ -1739,7 +2062,7 @@ function handleWS(data) {
     // Show notification if message is from someone else
     if (!me) {
       var senderName = data.display_name || data.username || 'Someone';
-      var avatar = data.profile_picture || seed(data.username || 'user');
+      var avatar = data.profile_picture || seed(data.display_name || data.username || 'User');
       showNotifPopup({
         username: senderName,
         message: data.message,
@@ -1780,6 +2103,34 @@ function handleWS(data) {
 
   else if (type === 'message_read') {
     updateMessageTick(data.message_id, 'read');
+  }
+
+  else if (type === 'system_message') {
+    appendMsg({
+      message: data.message,
+      is_system: true,
+      timestamp: data.timestamp
+    }, false);
+  }
+
+  else if (type === 'group_read_receipt') {
+    // Only show blue tick when ALL members have read
+    if (data.message_ids && data.reader_id !== S.user.id) {
+      var readCounts = data.read_counts || {};
+      var memberCount = data.member_count || 0;
+      data.message_ids.forEach(function (mid) {
+        var rc = readCounts[String(mid)] || 0;
+        if (memberCount > 0 && rc >= memberCount - 1) {
+          updateMessageTick(mid, 'read');
+        }
+      });
+    }
+  }
+
+  else if (type === 'message_edited') {
+    if (data.username !== S.user.username) {
+      updateEditedMsgUI(data.message_id, data.new_text);
+    }
   }
 }
 
@@ -1858,6 +2209,33 @@ function handleSearch(q) {
 }
 
 // New chat modal
+// Sidebar dropdown menu
+function toggleSbMenu(e) {
+  e.stopPropagation();
+  var dd = $('sb-dropdown');
+  dd.classList.toggle('open');
+  // Close on outside click
+  if (dd.classList.contains('open')) {
+    setTimeout(function () {
+      document.addEventListener('click', closeSbMenu);
+    }, 0);
+  }
+}
+function closeSbMenu() {
+  var dd = $('sb-dropdown');
+  if (dd) dd.classList.remove('open');
+  document.removeEventListener('click', closeSbMenu);
+}
+function openNewGroup() {
+  closeSbMenu();
+  openM('cg-modal');
+  $('cg-name').value = '';
+  $('cg-srch').value = '';
+  S.selectedGroupUsers = [];
+  if (typeof updateSelectedUsers === 'function') updateSelectedUsers();
+  if (typeof loadGroupUsersList === 'function') loadGroupUsersList();
+}
+
 function openNewChat() {
   if (S.currentTab === 'groups') {
     // Open create group modal
@@ -1880,7 +2258,7 @@ function loadNCList() {
     var el = $('nc-list');
     el.innerHTML = users.map(function (u) {
       var name = dname(u);
-      var av = u.profile_picture || seed(u.username || name);
+      var av = getAvatar(u);
       var online = !!u.is_online;
       return `<div class="user-row" onclick="startNewChat(${u.id})">
         <div class="av-wrap">
@@ -1905,7 +2283,7 @@ function searchNC(q) {
     var el = $('nc-list');
     el.innerHTML = filtered.map(function (u) {
       var name = dname(u);
-      var av = u.profile_picture || seed(u.username || name);
+      var av = getAvatar(u);
       return `<div class="user-row" onclick="startNewChat(${u.id})">
         <div class="av-wrap">
           <img class="av-img av-36" src="${esc(av)}">
@@ -1938,7 +2316,7 @@ function renderGroupUsersList(users) {
   var el = $('cg-list');
   el.innerHTML = users.map(function (u) {
     var name = dname(u);
-    var av = u.profile_picture || seed(u.username || name);
+    var av = getAvatar(u);
     var isSelected = S.selectedGroupUsers.some(function (su) { return su.id === u.id; });
     return `<div class="user-row ${isSelected ? 'selected' : ''}" onclick="toggleGroupUser(${u.id})">
       <input type="checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation()">
@@ -2017,6 +2395,289 @@ function createGroup() {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════
+// GROUP INFO PANEL
+// ═══════════════════════════════════════════════════════════════
+
+// ===================== INFO SIDE PANEL =====================
+
+function openContactInfo(user) {
+  var panel = $('info-panel');
+  if (!panel) return;
+  $('ip-header-title').textContent = 'Contact info';
+  $('ip-avatar').src = getAvatar(user);
+  $('ip-name').textContent = dname(user);
+  $('ip-sub').textContent = user.is_online ? 'Online' : lastSeenStr(user.last_seen);
+  $('ip-sub').className = 'ip-sub' + (user.is_online ? ' online' : '');
+  // Actions
+  $('ip-actions').style.display = '';
+  // About
+  var aboutSec = $('ip-about-section');
+  if (aboutSec) aboutSec.style.display = 'none';
+  // Hide group sections
+  $('ip-members-section').style.display = 'none';
+  $('ip-leave-section').style.display = 'none';
+  // Load media
+  loadInfoMedia('/contact_media/' + user.id + '/');
+  panel.classList.add('open');
+}
+
+function openGroupInfo(groupId) {
+  var panel = $('info-panel');
+  if (!panel) return;
+  $('ip-header-title').textContent = 'Group info';
+  $('ip-members').innerHTML = '<div style="padding:12px;text-align:center;color:var(--sub);"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+  $('ip-members-section').style.display = '';
+  $('ip-leave-section').style.display = '';
+  $('ip-actions').style.display = 'none';
+  $('ip-about-section').style.display = 'none';
+  panel.classList.add('open');
+
+  api('/groups/' + groupId + '/info/')
+    .then(function (data) {
+      if (!data) return;
+      $('ip-avatar').src = data.group_picture || seed(data.name);
+      $('ip-name').textContent = data.name;
+      $('ip-sub').textContent = data.member_count + ' members';
+      $('ip-sub').className = 'ip-sub';
+      if (data.description) {
+        $('ip-about-section').style.display = '';
+        $('ip-about').textContent = data.description;
+      }
+      var isAdmin = data.admins.indexOf(S.user.id) !== -1;
+      var addBtn = $('ip-add-member-btn');
+      if (addBtn) addBtn.style.display = isAdmin ? 'flex' : 'none';
+      data.members.sort(function (a, b) {
+        if (a.is_admin && !b.is_admin) return -1;
+        if (!a.is_admin && b.is_admin) return 1;
+        return (a.first_name || a.username).toLowerCase().localeCompare((b.first_name || b.username).toLowerCase());
+      });
+      var html = '';
+      data.members.forEach(function (m) {
+        var name = m.first_name ? (m.first_name + ' ' + (m.last_name || '')).trim() : m.username;
+        var avUrl = m.profile_picture || seed((m.first_name || m.username) + ' ' + (m.last_name || ''));
+        var isMe = m.id === S.user.id;
+        var badge = m.is_admin ? '<span class="gi-admin-badge">Group admin</span>' : '';
+        var statusText = m.is_online ? 'Online' : (m.last_seen ? lastSeenStr(m.last_seen) : '');
+        var actions = '';
+        if (isAdmin && !isMe) {
+          actions = '<div class="gi-member-actions">';
+          if (!m.is_admin) {
+            actions += '<button class="gi-action-btn" onclick="makeGroupAdmin(' + groupId + ',' + m.id + ')" title="Make admin"><i class="fa-solid fa-shield-halved"></i></button>';
+          } else {
+            actions += '<button class="gi-action-btn" onclick="removeGroupAdmin(' + groupId + ',' + m.id + ')" title="Remove admin"><i class="fa-solid fa-shield"></i></button>';
+          }
+          actions += '<button class="gi-action-btn danger" onclick="removeGroupMember(' + groupId + ',' + m.id + ',\'' + esc(name) + '\')" title="Remove"><i class="fa-solid fa-user-minus"></i></button>';
+          actions += '</div>';
+        }
+        html += '<div class="gi-member">' +
+          '<img class="gi-member-av" src="' + esc(avUrl) + '">' +
+          '<div class="gi-member-info">' +
+            '<div class="gi-member-name">' + esc(isMe ? 'You' : name) + ' ' + badge + '</div>' +
+            '<div class="gi-member-status ' + (m.is_online ? 'online' : '') + '">' + statusText + '</div>' +
+          '</div>' + actions + '</div>';
+      });
+      $('ip-members').innerHTML = html;
+      $('ip-leave-btn').onclick = function () { leaveGroup(groupId); };
+    })
+    .catch(function () { toast('Failed to load group info', 'e'); });
+
+  loadInfoMedia('/group_media/' + groupId + '/');
+}
+
+function loadInfoMedia(endpoint) {
+  var grid = $('ip-media-grid');
+  var countEl = $('ip-media-count');
+  grid.innerHTML = '<div style="padding:12px;text-align:center;color:var(--sub);font-size:13px;"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+  countEl.textContent = '';
+  api(endpoint).then(function (items) {
+    if (!items || !items.length) {
+      grid.innerHTML = '<div style="padding:12px;text-align:center;color:var(--sub);font-size:13px;">No media yet</div>';
+      countEl.textContent = '0';
+      return;
+    }
+    countEl.textContent = items.length;
+    var mediaItems = items.filter(function (i) { return i.type === 'image' || i.type === 'video'; });
+    var docItems = items.filter(function (i) { return i.type !== 'image' && i.type !== 'video'; });
+    var html = '';
+    if (mediaItems.length) {
+      html += '<div class="ip-media-thumbs">';
+      mediaItems.forEach(function (m) {
+        if (m.type === 'image') {
+          html += '<div class="ip-media-thumb" onclick="openMedia(\'' + esc(m.url) + '\',\'image\')">' +
+            '<img src="' + esc(m.url) + '" alt="">' + '</div>';
+        } else if (m.type === 'video') {
+          html += '<div class="ip-media-thumb" onclick="openMedia(\'' + esc(m.url) + '\',\'video\')">' +
+            '<video src="' + esc(m.url) + '"></video>' +
+            '<div class="ip-thumb-play"><i class="fa-solid fa-play"></i></div></div>';
+        }
+      });
+      html += '</div>';
+    }
+    if (docItems.length) {
+      html += '<div class="ip-docs-list">';
+      docItems.forEach(function (d) {
+        var icon = d.type === 'audio' || d.type === 'voice' ? 'fa-headphones' : 'fa-file';
+        var size = d.size ? (d.size < 1024 * 1024 ? Math.round(d.size / 1024) + ' KB' : (d.size / (1024 * 1024)).toFixed(1) + ' MB') : '';
+        html += '<div class="ip-doc-item" onclick="openFilePreview(\'' + esc(d.url) + '\',\'' + esc(d.name || 'file') + '\')">' +
+          '<i class="fa-solid ' + icon + ' ip-doc-icon"></i>' +
+          '<div class="ip-doc-info"><div class="ip-doc-name">' + esc(d.name || 'File') + '</div>' +
+          '<div class="ip-doc-size">' + size + '</div></div></div>';
+      });
+      html += '</div>';
+    }
+    grid.innerHTML = html;
+  }).catch(function () {
+    grid.innerHTML = '<div style="padding:12px;text-align:center;color:var(--sub);font-size:13px;">Failed to load</div>';
+  });
+}
+
+function closeInfoPanel() {
+  var panel = $('info-panel');
+  if (panel) panel.classList.remove('open');
+}
+
+function addGroupMember(groupId) {
+  // Open add member modal
+  $('gam-list').innerHTML = '<div style="padding:16px;text-align:center;color:var(--sub);"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+  openM('gam-modal');
+  
+  api('/all_users/')
+    .then(function (users) {
+      if (!users) return;
+      
+      // Filter out existing members
+      var existingIds = S.activeGroup.members.map(function (m) { return m.id; });
+      var available = users.filter(function (u) { return existingIds.indexOf(u.id) === -1; });
+      
+      if (!available.length) {
+        $('gam-list').innerHTML = '<div style="padding:16px;text-align:center;color:var(--sub);">No users to add</div>';
+        return;
+      }
+      
+      var html = '';
+      available.forEach(function (u) {
+        var name = dname(u);
+        var av = u.profile_picture || seed(u.username);
+        html += '<div class="user-item" onclick="doAddGroupMember(' + groupId + ',' + u.id + ',\'' + esc(name).replace(/'/g, "\\'") + '\')">' +
+          '<img class="user-av" src="' + esc(av) + '">' +
+          '<div class="user-name">' + esc(name) + '</div>' +
+        '</div>';
+      });
+      $('gam-list').innerHTML = html;
+    });
+}
+
+function doAddGroupMember(groupId, userId, memberName) {
+  api('/groups/' + groupId + '/add_member/', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId })
+  }).then(function (data) {
+    if (data && !data.error) {
+      toast('Member added', 's');
+      closeM('gam-modal');
+      loadGroups();
+      openGroupInfo(groupId);
+      
+      // Send system message via WS
+      if (S.ws && S.ws.readyState === WebSocket.OPEN) {
+        var adder = S.user.first_name || S.user.username;
+        var added = memberName || 'a member';
+        S.ws.send(JSON.stringify({
+          type: 'group_system',
+          action: 'add_member',
+          group_id: groupId,
+          target_user_id: userId,
+          system_message: adder + ' added ' + added
+        }));
+      }
+    } else {
+      toast(data.error || 'Failed', 'e');
+    }
+  });
+}
+
+function removeGroupMember(groupId, userId, name) {
+  if (!confirm('Remove ' + name + ' from the group?')) return;
+  
+  api('/groups/' + groupId + '/remove_member/', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId })
+  }).then(function (data) {
+    if (data && !data.error) {
+      toast('Member removed', 's');
+      loadGroups();
+      openGroupInfo(groupId);
+      
+      // Update local group data
+      if (S.activeGroup) {
+        S.activeGroup.members = data.members;
+        S.activeGroup.admins = data.admins;
+      }
+    } else {
+      toast(data.error || 'Failed', 'e');
+    }
+  });
+}
+
+function makeGroupAdmin(groupId, userId) {
+  api('/groups/' + groupId + '/make_admin/', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId })
+  }).then(function (data) {
+    if (data && !data.error) {
+      toast('Admin added', 's');
+      openGroupInfo(groupId);
+    } else {
+      toast(data.error || 'Failed', 'e');
+    }
+  });
+}
+
+function removeGroupAdmin(groupId, userId) {
+  api('/groups/' + groupId + '/remove_admin/', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId })
+  }).then(function (data) {
+    if (data && !data.error) {
+      toast('Admin removed', 's');
+      openGroupInfo(groupId);
+    } else {
+      toast(data.error || 'Failed', 'e');
+    }
+  });
+}
+
+function leaveGroup(groupId) {
+  if (!confirm('Leave this group?')) return;
+  
+  api('/groups/' + groupId + '/leave/', {
+    method: 'POST'
+  }).then(function (data) {
+    if (data && !data.error) {
+      toast('Left group', 's');
+      closeM('gi-modal');
+      S.activeGroup = null;
+      S.isGroup = false;
+      $('chat-view').classList.remove('active');
+      $('empty-state').style.display = 'flex';
+      loadGroups();
+    } else {
+      toast(data.error || 'Failed', 'e');
+    }
+  });
+}
+
+// String to color for group sender names
+function strToColor(str) {
+  var colors = ['#e91e63','#9c27b0','#673ab7','#3f51b5','#2196f3','#00bcd4','#009688','#4caf50','#ff9800','#ff5722','#795548','#607d8b'];
+  var hash = 0;
+  for (var i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
+
 // Tab switching
 function swTab(tab, btn) {
   S.currentTab = tab;
@@ -2025,7 +2686,10 @@ function swTab(tab, btn) {
 
   $('search-inp').value = '';
 
-  if (tab === 'chats') {
+  // Immediately clear the list before loading new data
+  $('conv-list').innerHTML = '<div style="padding:28px;text-align:center;color:var(--sub);"><i class="fa-solid fa-spinner fa-spin" style="font-size:22px;color:var(--blue);"></i></div>';
+
+  if (tab === 'chats' || tab === 'unread') {
     loadConvs();
   } else if (tab === 'groups') {
     loadGroups();
@@ -2233,7 +2897,7 @@ function openProfile() {
     openM('pf-modal');
   }).catch(function () {
     // Fallback to local user data
-    $('pf-av').src = S.user.profile_picture || seed(S.user.username);
+    $('pf-av').src = S.user.profile_picture || seed((S.user.first_name || S.user.username) + ' ' + (S.user.last_name || ''));
     $('pf-un').textContent = '@' + S.user.username;
     $('pf-fname').value = S.user.first_name || '';
     $('pf-lname').value = S.user.last_name || '';
@@ -2368,6 +3032,63 @@ function removeProfilePicture() {
   });
 }
 
+function goBack() {
+  closeInfoPanel();
+  closeTbMenu();
+  document.getElementById('sidebar').style.display = '';
+  document.getElementById('chat-panel').style.removeProperty('display');
+  document.getElementById('chat-panel').classList.remove('active');
+  document.getElementById('back-btn').style.display = 'none';
+  S.activeUser = null;
+  S.activeGroup = null;
+}
+
+/* ── Topbar 3-dot dropdown ── */
+function toggleTbMenu(e) {
+  e.stopPropagation();
+  var dd = $('tb-dropdown');
+  dd.classList.toggle('open');
+  if (dd.classList.contains('open')) {
+    setTimeout(function () {
+      document.addEventListener('click', closeTbMenu);
+    }, 0);
+  }
+}
+function closeTbMenu() {
+  var dd = $('tb-dropdown');
+  if (dd) dd.classList.remove('open');
+  document.removeEventListener('click', closeTbMenu);
+}
+function openContactOrGroupInfo() {
+  if (S.activeGroup) {
+    openGroupInfo(S.activeGroup.id);
+  } else if (S.activeUser) {
+    openContactInfo(S.activeUser);
+  }
+}
+function closeChat() {
+  goBack();
+}
+function deleteCurrentChat() {
+  var isGroup = !!S.activeGroup;
+  var name = isGroup ? S.activeGroup.name : (S.activeUser ? S.activeUser.username : 'this chat');
+  if (!confirm('Delete entire chat with "' + name + '"? This cannot be undone.')) return;
+  var path;
+  if (isGroup) {
+    path = '/delete_group/' + S.activeGroup.id + '/';
+  } else if (S.activeUser) {
+    path = '/delete_conversation/' + S.activeUser.id + '/';
+  } else return;
+  api(path, { method: 'POST', body: '{}' })
+    .then(function (data) {
+      if (!data) return;
+      toast('Chat deleted', 's');
+      goBack();
+      loadConvos();
+      if (isGroup) loadGroups();
+    })
+    .catch(function () { toast('Failed to delete chat', 'e'); });
+}
 // Modal management
 function openM(id) { $(id).classList.add('open'); }
 function closeM(id) { $(id).classList.remove('open'); }
@@ -2398,34 +3119,39 @@ var CallState = {
   callStartTime: null,
   isMuted: false,
   isCamOff: false,
-  isSpeakerOff: false
+  isSpeakerOff: false,
+  remoteProfilePic: null
 };
 
 var rtcConfig = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    {
-      urls: 'turn:a.relay.metered.ca:80',
-      username: 'c3d5a0b74a9b65259ad9dc88',
-      credential: 'e2BRMSalfUUZnw1j'
-    },
-    {
-      urls: 'turn:a.relay.metered.ca:80?transport=tcp',
-      username: 'c3d5a0b74a9b65259ad9dc88',
-      credential: 'e2BRMSalfUUZnw1j'
-    },
-    {
-      urls: 'turn:a.relay.metered.ca:443',
-      username: 'c3d5a0b74a9b65259ad9dc88',
-      credential: 'e2BRMSalfUUZnw1j'
-    },
-    {
-      urls: 'turn:a.relay.metered.ca:443?transport=tcp',
-      username: 'c3d5a0b74a9b65259ad9dc88',
-      credential: 'e2BRMSalfUUZnw1j'
-    }
-  ]
+  iceServers: [], // loadTURNServers fill karega
+  iceTransportPolicy: 'all'
 };
+
+// TURN credentials dynamically load
+// TURN ready flag
+var turnReady = true;
+
+function loadTURNServers(cb) {
+  // TURN servers are statically configured below; this keeps caller flow safe.
+  turnReady = true;
+  if (typeof cb === 'function') cb();
+}
+
+// TURN credentials load - app shuru hote hi
+rtcConfig.iceServers = [
+  { urls: "stun:187.77.158.226:3478" },
+  {
+    urls: "turn:187.77.158.226:3478",
+    username: "skyuser",
+    credential: "skypass123"
+  },
+  {
+    urls: "turn:187.77.158.226:3478?transport=tcp",
+    username: "skyuser",
+    credential: "skypass123"
+  }
+];
 // Check media permissions before call
 async function checkMediaPermissions(type) {
   try {
@@ -2467,15 +3193,31 @@ async function checkMediaPermissions(type) {
 }
 
 function startCall(type) {
-  console.log('startCall called with type:', type, 'activeUser:', S.activeUser, 'isInCall:', CallState.isInCall);
+  console.log('startCall called with type:', type, 'activeUser:', S.activeUser, 'activeGroup:', S.activeGroup, 'isInCall:', CallState.isInCall);
+  
+  // Group call
+  if (S.activeGroup && S.isGroup) {
+    startGroupCall(type);
+    return;
+  }
+  
   if (!S.activeUser || CallState.isInCall) {
     if (!S.activeUser) toast('Select a chat first', 'e');
+    return;
+  }
+
+    if (!turnReady) {
+    toast('Connecting... please wait', 'i');
+    loadTURNServers(function () {
+      startCall(type); // retry
+    });
     return;
   }
 
   CallState.callType = type;
   CallState.remoteUserId = S.activeUser.id;
   CallState.remoteUserName = dname(S.activeUser);
+  CallState.remoteProfilePic = S.activeUser.profile_picture || seed(CallState.remoteUserName);
   console.log('Starting call to:', CallState.remoteUserName, 'ID:', CallState.remoteUserId);
 
   // Check permissions first
@@ -2486,7 +3228,7 @@ function startCall(type) {
     }
 
     // Show outgoing call UI
-    $('outgoing-av').src = S.activeUser.profile_picture || seed(S.activeUser.username);
+    $('outgoing-av').src = S.activeUser.profile_picture || seed(CallState.remoteUserName);
     $('outgoing-name').textContent = CallState.remoteUserName;
     $('outgoing-type').innerHTML = type === 'video' ? '<i class="fa-solid fa-video"></i> Video Call' : '<i class="fa-solid fa-phone"></i> Voice Call';
 
@@ -2566,10 +3308,13 @@ function getMediaErrorMessage(err, type) {
   }
 }
 
-function initWebRTC(isInitiator) {
+function initWebRTC(isInitiator, callback) {
+  doInitWebRTC(isInitiator, callback);
+}
+
+function doInitWebRTC(isInitiator, callback) {
   CallState.pc = new RTCPeerConnection(rtcConfig);
 
-  // State monitors
   CallState.pc.oniceconnectionstatechange = function () {
     console.log('ICE State:', CallState.pc.iceConnectionState);
     if (CallState.pc.iceConnectionState === 'failed') {
@@ -2582,7 +3327,6 @@ function initWebRTC(isInitiator) {
     console.log('Connection State:', CallState.pc.connectionState);
   };
 
-  // Add local tracks
   if (CallState.localStream) {
     CallState.localStream.getTracks().forEach(function (track) {
       console.log('Adding local track:', track.kind);
@@ -2590,7 +3334,6 @@ function initWebRTC(isInitiator) {
     });
   }
 
-  // Handle ICE candidates
   CallState.pc.onicecandidate = function (e) {
     if (e.candidate) {
       console.log('Sending ICE candidate');
@@ -2605,7 +3348,6 @@ function initWebRTC(isInitiator) {
     }
   };
 
-  // Handle remote stream
   CallState.pc.ontrack = function (e) {
     console.log('Remote track received:', e.track.kind);
     CallState.remoteStream = e.streams[0];
@@ -2616,7 +3358,16 @@ function initWebRTC(isInitiator) {
         remoteAudio.srcObject = e.streams[0];
         remoteAudio.muted = false;
         remoteAudio.volume = 1.0;
-        remoteAudio.play().catch(function (err) { console.log('Audio play error:', err); });
+        var playPromise = remoteAudio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(function (err) {
+            console.warn('Autoplay blocked, retrying...', err);
+            document.addEventListener('click', function retry() {
+              remoteAudio.play().catch(console.error);
+              document.removeEventListener('click', retry);
+            }, { once: true });
+          });
+        }
       }
     }
 
@@ -2627,10 +3378,10 @@ function initWebRTC(isInitiator) {
         remoteVideo.play().catch(function (err) { console.log('Video play error:', err); });
       }
     }
-  };
+  };;
 
-  // If initiator, create and send offer
   if (isInitiator) {
+
     CallState.pc.createOffer({
       offerToReceiveAudio: true,
       offerToReceiveVideo: CallState.callType === 'video'
@@ -2659,6 +3410,8 @@ function initWebRTC(isInitiator) {
         console.error('Offer error:', err);
         cancelCall();
       });
+  } else {
+    if (callback) callback();
   }
 }
 
@@ -2681,9 +3434,10 @@ function handleIncomingCall(data) {
   CallState.callType = data.call_type;
   CallState.remoteUserId = data.caller_id;
   CallState.remoteUserName = data.caller_name || 'Unknown';
+  CallState.remoteProfilePic = data.caller_profile_picture || seed(data.caller_name || data.caller_username || 'User');
 
   // Show incoming call UI
-  $('incoming-av').src = data.caller_profile_picture || seed(data.caller_username || 'user');
+  $('incoming-av').src = CallState.remoteProfilePic;
   $('incoming-name').textContent = CallState.remoteUserName;
   $('incoming-type').innerHTML = data.call_type === 'video' ? '<i class="fa-solid fa-video"></i> Video Call' : '<i class="fa-solid fa-phone"></i> Voice Call';
   showCallOverlay('incoming-call');
@@ -2721,31 +3475,31 @@ function acceptCall() {
       CallState.localStream = stream;
       $('local-video').srcObject = stream;
 
-      initWebRTC(false);
-
-      // Set remote description
-      if (CallState.remoteSdp) {
-        CallState.pc.setRemoteDescription(new RTCSessionDescription(CallState.remoteSdp))
-          .then(function () {
-            return CallState.pc.createAnswer();
-          })
-          .then(function (answer) {
-            return CallState.pc.setLocalDescription(answer);
-          })
-          .then(function () {
-            var ws = S.globalWs || S.ws;
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({
-                type: 'call_accept',
-                call_id: CallState.callId,
-                caller_id: CallState.remoteUserId,
-                sdp: CallState.pc.localDescription
-              }));
-            }
-            flushPendingIceCandidates();
-            showOngoingCall();
-          });
-      }
+      // SIRF EK BAAR initWebRTC call karein
+      initWebRTC(false, function () {
+        if (CallState.remoteSdp) {
+          CallState.pc.setRemoteDescription(new RTCSessionDescription(CallState.remoteSdp))
+            .then(function () {
+              return CallState.pc.createAnswer();
+            })
+            .then(function (answer) {
+              return CallState.pc.setLocalDescription(answer);
+            })
+            .then(function () {
+              var ws = S.globalWs || S.ws;
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                  type: 'call_accept',
+                  call_id: CallState.callId,
+                  caller_id: CallState.remoteUserId,
+                  sdp: CallState.pc.localDescription
+                }));
+              }
+              flushPendingIceCandidates();
+              showOngoingCall();
+            });
+        }
+      });
     })
     .catch(function (err) {
       console.error('Media error:', err);
@@ -2754,7 +3508,6 @@ function acceptCall() {
       rejectCall();
     });
 }
-
 function rejectCall() {
   stopAllRingtones();
 
@@ -2880,7 +3633,7 @@ function showOngoingCall() {
 
   var ongoingAv = $('ongoing-av');
   if (ongoingAv) {
-    ongoingAv.src = (S.activeUser && S.activeUser.profile_picture) ? S.activeUser.profile_picture : seed(S.activeUser ? S.activeUser.username : 'user');
+    ongoingAv.src = CallState.remoteProfilePic || seed('User');
     ongoingAv.style.display = CallState.callType === 'video' ? 'none' : 'block';
   }
 
@@ -2894,8 +3647,16 @@ function showOngoingCall() {
   updateCallTimer();
 
   if (CallState.callType === 'video') {
-    if ($('local-video')) $('local-video').style.display = 'block';
-    if ($('remote-video')) $('remote-video').style.display = 'block';
+    if ($('local-video')) {
+      $('local-video').style.display = 'block';
+      $('local-video').srcObject = CallState.localStream;
+    }
+    if ($('remote-video')) {
+      $('remote-video').style.display = 'block';
+      if (CallState.remoteStream) {
+        $('remote-video').srcObject = CallState.remoteStream;
+      }
+    }
   } else {
     if ($('local-video')) $('local-video').style.display = 'none';
     if ($('remote-video')) $('remote-video').style.display = 'none';
@@ -2934,6 +3695,8 @@ function toggleCam() {
 
 function toggleSpeaker() {
   CallState.isSpeakerOff = !CallState.isSpeakerOff;
+  var remoteAudio = $('remote-audio');
+  if (remoteAudio) remoteAudio.muted = CallState.isSpeakerOff;
   var remoteVideo = $('remote-video');
   if (remoteVideo) remoteVideo.muted = CallState.isSpeakerOff;
   var btn = document.querySelector('.ctrl-btn[onclick*="toggleSpeaker"]');
@@ -2948,7 +3711,7 @@ function showCallOverlay(id) {
 }
 
 function hideAllCallOverlays() {
-  ['incoming-call', 'outgoing-call', 'ongoing-call'].forEach(function (id) {
+  ['incoming-call', 'outgoing-call', 'ongoing-call', 'gc-incoming-call', 'gc-ongoing-call'].forEach(function (id) {
     var el = $(id);
     if (el) el.classList.remove('active');
   });
@@ -3000,6 +3763,416 @@ function resetCallState() {
   CallState.isMuted = false;
   CallState.isCamOff = false;
   CallState.isSpeakerOff = false;
+  CallState.remoteProfilePic = null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GROUP CALL FUNCTIONALITY (WebRTC Mesh)
+// ═══════════════════════════════════════════════════════════════
+
+var GC = {
+  active: false,
+  groupCallId: null,
+  groupId: null,
+  callType: null,
+  localStream: null,
+  peers: {},         // { peerId: { pc, stream, name, pic } }
+  timerInterval: null,
+  callStartTime: null,
+  isMuted: false,
+  isCamOff: false,
+};
+
+function startGroupCall(type) {
+  if (GC.active) { toast('Already in a call', 'e'); return; }
+  if (!S.activeGroup) return;
+
+  if (!turnReady) {
+    toast('Connecting... please wait', 'i');
+    loadTURNServers(function () { startGroupCall(type); });
+    return;
+  }
+
+  GC.callType = type;
+  GC.groupId = S.activeGroup.id;
+
+  checkMediaPermissions(type).then(function (result) {
+    if (!result.success) { toast(result.error, 'e'); return; }
+    var constraints = { audio: { echoCancellation: true, noiseSuppression: true } };
+    if (type === 'video') constraints.video = { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' };
+
+    navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+      GC.localStream = stream;
+      GC.active = true;
+      // Send start signal via global WS
+      if (S.globalWs && S.globalWs.readyState === 1) {
+        S.globalWs.send(JSON.stringify({
+          type: 'group_call_start',
+          group_id: S.activeGroup.id,
+          call_type: type,
+        }));
+      }
+    }).catch(function (err) {
+      console.error('getUserMedia error:', err);
+      toast('Could not access camera/mic', 'e');
+    });
+  });
+}
+
+function handleGroupCallStarted(data) {
+  GC.groupCallId = data.group_call_id;
+  GC.groupId = data.group_id;
+  GC.callType = data.call_type;
+  GC.callStartTime = Date.now();
+  // Join call on server
+  if (S.globalWs && S.globalWs.readyState === 1) {
+    S.globalWs.send(JSON.stringify({
+      type: 'group_call_join',
+      group_call_id: GC.groupCallId,
+    }));
+  }
+  showGroupCallUI();
+}
+
+function handleGroupCallIncoming(data) {
+  if (GC.active || CallState.isInCall) return; // Already in a call
+  // Show incoming group call overlay
+  $('gc-incoming-name').textContent = data.group_name;
+  $('gc-incoming-type').innerHTML = (data.call_type === 'video' ? '<i class="fa-solid fa-video"></i> Video' : '<i class="fa-solid fa-phone"></i> Voice') + ' Group Call';
+  $('gc-incoming-caller').textContent = data.caller_name + ' is calling...';
+  var av = $('gc-incoming-av');
+  if (av) av.src = data.caller_pic || seed(data.group_name);
+  
+  // Store data for accept
+  GC.pendingIncoming = data;
+  showCallOverlay('gc-incoming-call');
+  var ringtone = $('ringtone');
+  if (ringtone) ringtone.play().catch(function () {});
+}
+
+function acceptGroupCall() {
+  var data = GC.pendingIncoming;
+  if (!data) return;
+  stopAllRingtones();
+  hideAllCallOverlays();
+
+  GC.groupCallId = data.group_call_id;
+  GC.groupId = data.group_id;
+  GC.callType = data.call_type;
+  GC.active = true;
+  GC.callStartTime = Date.now();
+  GC.pendingIncoming = null;
+
+  var constraints = { audio: { echoCancellation: true, noiseSuppression: true } };
+  if (GC.callType === 'video') constraints.video = { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' };
+
+  navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+    GC.localStream = stream;
+    // Join on server
+    if (S.globalWs && S.globalWs.readyState === 1) {
+      S.globalWs.send(JSON.stringify({
+        type: 'group_call_join',
+        group_call_id: GC.groupCallId,
+      }));
+    }
+    showGroupCallUI();
+  }).catch(function () {
+    toast('Could not access camera/mic', 'e');
+    GC.active = false;
+  });
+}
+
+function rejectGroupCall() {
+  GC.pendingIncoming = null;
+  stopAllRingtones();
+  hideAllCallOverlays();
+  playEndSound();
+}
+
+function handleGroupCallJoined(data) {
+  // We joined — create peer connections to all existing participants
+  var participants = data.participants || [];
+  participants.forEach(function (p) {
+    createGroupPeer(p.id, p.name, p.pic, true);
+  });
+}
+
+function handleGroupCallUserJoined(data) {
+  // A new user joined — they will send us an offer, we wait
+  // But let's create their peer entry (they'll initiate)
+  toast(data.user_name + ' joined the call', 's');
+  updateGroupCallParticipantCount();
+}
+
+function handleGroupCallOffer(data) {
+  var fromId = data.from_user_id;
+  // Create peer for this user (we are the receiver of the offer)
+  var peer = GC.peers[fromId];
+  if (!peer) {
+    peer = createGroupPeerConnection(fromId);
+    GC.peers[fromId] = peer;
+  }
+  var pc = peer.pc;
+  pc.setRemoteDescription(new RTCSessionDescription(data.sdp)).then(function () {
+    return pc.createAnswer();
+  }).then(function (answer) {
+    return pc.setLocalDescription(answer);
+  }).then(function () {
+    if (S.globalWs && S.globalWs.readyState === 1) {
+      S.globalWs.send(JSON.stringify({
+        type: 'group_call_answer',
+        group_call_id: GC.groupCallId,
+        target_user_id: fromId,
+        sdp: pc.localDescription,
+      }));
+    }
+    // Flush pending ICE
+    if (peer.pendingIce) {
+      peer.pendingIce.forEach(function (c) { pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {}); });
+      peer.pendingIce = [];
+    }
+  }).catch(function (err) { console.error('Group offer handle error:', err); });
+}
+
+function handleGroupCallAnswer(data) {
+  var fromId = data.from_user_id;
+  var peer = GC.peers[fromId];
+  if (!peer) return;
+  peer.pc.setRemoteDescription(new RTCSessionDescription(data.sdp)).then(function () {
+    if (peer.pendingIce) {
+      peer.pendingIce.forEach(function (c) { peer.pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {}); });
+      peer.pendingIce = [];
+    }
+  }).catch(function (err) { console.error('Group answer error:', err); });
+}
+
+function handleGroupCallIce(data) {
+  var fromId = data.from_user_id;
+  var peer = GC.peers[fromId];
+  if (!peer) {
+    // Peer not created yet, queue
+    if (!GC.pendingIceByUser) GC.pendingIceByUser = {};
+    if (!GC.pendingIceByUser[fromId]) GC.pendingIceByUser[fromId] = [];
+    GC.pendingIceByUser[fromId].push(data.candidate);
+    return;
+  }
+  if (peer.pc.remoteDescription) {
+    peer.pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(function () {});
+  } else {
+    if (!peer.pendingIce) peer.pendingIce = [];
+    peer.pendingIce.push(data.candidate);
+  }
+}
+
+function handleGroupCallUserLeft(data) {
+  var uid = data.user_id;
+  if (GC.peers[uid]) {
+    GC.peers[uid].pc.close();
+    // Remove video/audio element
+    var el = document.getElementById('gc-peer-' + uid);
+    if (el) el.remove();
+    delete GC.peers[uid];
+  }
+  updateGroupCallParticipantCount();
+  // If no peers left, show waiting text
+  if (Object.keys(GC.peers).length === 0) {
+    var grid = $('gc-video-grid');
+    if (grid && !grid.querySelector('.gc-peer-tile')) {
+      // Only us left
+    }
+  }
+}
+
+function createGroupPeer(peerId, name, pic, isInitiator) {
+  var peer = createGroupPeerConnection(peerId);
+  peer.name = name;
+  peer.pic = pic;
+  GC.peers[peerId] = peer;
+
+  if (isInitiator) {
+    var pc = peer.pc;
+    pc.createOffer().then(function (offer) {
+      return pc.setLocalDescription(offer);
+    }).then(function () {
+      if (S.globalWs && S.globalWs.readyState === 1) {
+        S.globalWs.send(JSON.stringify({
+          type: 'group_call_offer',
+          group_call_id: GC.groupCallId,
+          target_user_id: peerId,
+          sdp: pc.localDescription,
+        }));
+      }
+    }).catch(function (err) { console.error('Group offer create error:', err); });
+  }
+  return peer;
+}
+
+function createGroupPeerConnection(peerId) {
+  var pc = new RTCPeerConnection(rtcConfig);
+  var peer = { pc: pc, stream: null, pendingIce: [] };
+
+  // Add pending ICE if any arrived before peer was created
+  if (GC.pendingIceByUser && GC.pendingIceByUser[peerId]) {
+    peer.pendingIce = GC.pendingIceByUser[peerId];
+    delete GC.pendingIceByUser[peerId];
+  }
+
+  // Add local tracks
+  if (GC.localStream) {
+    GC.localStream.getTracks().forEach(function (track) {
+      pc.addTrack(track, GC.localStream);
+    });
+  }
+
+  pc.onicecandidate = function (event) {
+    if (event.candidate && S.globalWs && S.globalWs.readyState === 1) {
+      S.globalWs.send(JSON.stringify({
+        type: 'group_call_ice',
+        group_call_id: GC.groupCallId,
+        target_user_id: peerId,
+        candidate: event.candidate,
+      }));
+    }
+  };
+
+  pc.ontrack = function (event) {
+    peer.stream = event.streams[0];
+    renderGroupCallPeer(peerId, peer);
+  };
+
+  pc.onconnectionstatechange = function () {
+    if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+      console.log('Peer ' + peerId + ' connection ' + pc.connectionState);
+    }
+  };
+
+  return peer;
+}
+
+function renderGroupCallPeer(peerId, peer) {
+  var existing = document.getElementById('gc-peer-' + peerId);
+  if (existing) existing.remove();
+
+  var tile = document.createElement('div');
+  tile.className = 'gc-peer-tile';
+  tile.id = 'gc-peer-' + peerId;
+
+  if (GC.callType === 'video') {
+    var video = document.createElement('video');
+    video.autoplay = true;
+    video.playsInline = true;
+    video.srcObject = peer.stream;
+    tile.appendChild(video);
+  } else {
+    var av = document.createElement('img');
+    av.className = 'gc-peer-av';
+    av.src = peer.pic || seed(peer.name || 'User');
+    tile.appendChild(av);
+    // Audio element
+    var audio = document.createElement('audio');
+    audio.autoplay = true;
+    audio.srcObject = peer.stream;
+    tile.appendChild(audio);
+  }
+
+  var label = document.createElement('div');
+  label.className = 'gc-peer-name';
+  label.textContent = peer.name || 'User';
+  tile.appendChild(label);
+
+  $('gc-video-grid').appendChild(tile);
+  updateGroupCallParticipantCount();
+}
+
+function showGroupCallUI() {
+  hideAllCallOverlays();
+  // Set local video
+  if (GC.callType === 'video' && GC.localStream) {
+    var localVid = $('gc-local-video');
+    if (localVid) localVid.srcObject = GC.localStream;
+  }
+  $('gc-call-name').textContent = S.activeGroup ? S.activeGroup.name : 'Group Call';
+  showCallOverlay('gc-ongoing-call');
+
+  // Start timer
+  GC.callStartTime = GC.callStartTime || Date.now();
+  GC.timerInterval = setInterval(function () {
+    var elapsed = Math.floor((Date.now() - GC.callStartTime) / 1000);
+    var mins = Math.floor(elapsed / 60);
+    var secs = elapsed % 60;
+    $('gc-timer').textContent = (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
+  }, 1000);
+}
+
+function leaveGroupCall() {
+  if (!GC.active) return;
+  // Notify server
+  if (S.globalWs && S.globalWs.readyState === 1) {
+    S.globalWs.send(JSON.stringify({
+      type: 'group_call_leave',
+      group_call_id: GC.groupCallId,
+    }));
+  }
+  cleanupGroupCall();
+  hideAllCallOverlays();
+  playEndSound();
+}
+
+function cleanupGroupCall() {
+  Object.keys(GC.peers).forEach(function (pid) {
+    if (GC.peers[pid].pc) GC.peers[pid].pc.close();
+    var el = document.getElementById('gc-peer-' + pid);
+    if (el) el.remove();
+  });
+  GC.peers = {};
+  if (GC.localStream) {
+    GC.localStream.getTracks().forEach(function (t) { t.stop(); });
+  }
+  if (GC.timerInterval) clearInterval(GC.timerInterval);
+  var grid = $('gc-video-grid');
+  if (grid) grid.innerHTML = '';
+  var localVid = $('gc-local-video');
+  if (localVid) localVid.srcObject = null;
+  GC.active = false;
+  GC.groupCallId = null;
+  GC.groupId = null;
+  GC.callType = null;
+  GC.localStream = null;
+  GC.timerInterval = null;
+  GC.callStartTime = null;
+  GC.isMuted = false;
+  GC.isCamOff = false;
+  GC.pendingIceByUser = {};
+}
+
+function gcToggleMic() {
+  GC.isMuted = !GC.isMuted;
+  if (GC.localStream) {
+    GC.localStream.getAudioTracks().forEach(function (t) { t.enabled = !GC.isMuted; });
+  }
+  var btn = $('gc-mic-btn');
+  if (btn) {
+    btn.classList.toggle('muted', GC.isMuted);
+    btn.innerHTML = GC.isMuted ? '<i class="fa-solid fa-microphone-slash"></i>' : '<i class="fa-solid fa-microphone"></i>';
+  }
+}
+
+function gcToggleCam() {
+  GC.isCamOff = !GC.isCamOff;
+  if (GC.localStream) {
+    GC.localStream.getVideoTracks().forEach(function (t) { t.enabled = !GC.isCamOff; });
+  }
+  var btn = $('gc-cam-btn');
+  if (btn) {
+    btn.classList.toggle('muted', GC.isCamOff);
+    btn.innerHTML = GC.isCamOff ? '<i class="fa-solid fa-video-slash"></i>' : '<i class="fa-solid fa-video"></i>';
+  }
+}
+
+function updateGroupCallParticipantCount() {
+  var count = Object.keys(GC.peers).length + 1; // +1 for self
+  var el = $('gc-participant-count');
+  if (el) el.textContent = count + ' participant' + (count > 1 ? 's' : '');
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -29,3 +29,40 @@ class Call(models.Model):
 
     def __str__(self):
         return f"{self.caller.username} -> {self.receiver.username} ({self.call_type})"
+
+
+class GroupCall(models.Model):
+    CALL_TYPE_CHOICES = (
+        ('voice', 'Voice Call'),
+        ('video', 'Video Call'),
+    )
+    STATUS_CHOICES = (
+        ('active', 'Active'),
+        ('ended', 'Ended'),
+    )
+
+    group = models.ForeignKey('chat.Group', on_delete=models.CASCADE, related_name='group_calls')
+    initiator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='initiated_group_calls')
+    call_type = models.CharField(max_length=10, choices=CALL_TYPE_CHOICES)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='active')
+    started_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-started_at']
+
+    def __str__(self):
+        return f"GroupCall {self.id} in {self.group.name} ({self.call_type})"
+
+
+class GroupCallParticipant(models.Model):
+    group_call = models.ForeignKey(GroupCall, on_delete=models.CASCADE, related_name='participants')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    joined_at = models.DateTimeField(auto_now_add=True)
+    left_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('group_call', 'user')
+
+    def __str__(self):
+        return f"{self.user.username} in GroupCall {self.group_call.id}"

@@ -2,8 +2,8 @@ import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.contrib.auth import get_user_model
-from chat.models import Conversation, Message
-from calls.models import Call
+from chat.models import Conversation, Message, MessageReadReceipt, Group
+from calls.models import Call, GroupCall, GroupCallParticipant
 from datetime import datetime
 
 User = get_user_model()
@@ -78,6 +78,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         if message_type == 'chat.message':
             await self.handle_chat_message(data)
+        elif message_type == 'group_read':
+            await self.handle_group_read(data)
+        elif message_type == 'group_system':
+            await self.handle_group_system(data)
+        elif message_type == 'message_edit':
+            await self.handle_message_edit(data)
         elif message_type == 'call_initiate':
             await self.handle_call_initiate(data)
         elif message_type == 'call_accept':
@@ -90,6 +96,19 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.handle_call_cancel(data)
         elif message_type == 'call_ice':
             await self.handle_call_ice(data)
+        # Group call signaling
+        elif message_type == 'group_call_start':
+            await self.handle_group_call_start(data)
+        elif message_type == 'group_call_join':
+            await self.handle_group_call_join(data)
+        elif message_type == 'group_call_offer':
+            await self.handle_group_call_offer(data)
+        elif message_type == 'group_call_answer':
+            await self.handle_group_call_answer(data)
+        elif message_type == 'group_call_ice':
+            await self.handle_group_call_ice(data)
+        elif message_type == 'group_call_leave':
+            await self.handle_group_call_leave(data)
 
     async def handle_chat_message(self, data):
         message = data['message']
@@ -128,8 +147,75 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'reply_to': reply_to,
                 'reply_data': reply_data,
                 'is_forwarded': is_forwarded,
+                'group_id': group_id,
             }
         )
+
+    async def handle_group_read(self, data):
+        """Handle group message read receipts"""
+        group_id = data.get('group_id')
+        message_ids = data.get('message_ids', [])
+        
+        if not group_id or not message_ids:
+            return
+        
+        read_info = await self.save_group_read_receipts(message_ids, group_id)
+        
+        # Broadcast read receipt to group
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'group_read_receipt',
+                'reader_id': self.user.id,
+                'reader_name': f"{self.user.first_name} {self.user.last_name}".strip() or self.user.username,
+                'message_ids': message_ids,
+                'read_at': datetime.now().isoformat(),
+                'read_counts': read_info.get('read_counts', {}),
+                'member_count': read_info.get('member_count', 0),
+            }
+        )
+
+    async def handle_group_system(self, data):
+        """Handle system messages for group events"""
+        action = data.get('action')
+        group_id = data.get('group_id')
+        target_user_id = data.get('target_user_id')
+        system_message = data.get('system_message', '')
+        
+        if system_message:
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'system_message',
+                    'message': system_message,
+                    'action': action,
+                    'actor_id': self.user.id,
+                    'target_user_id': target_user_id,
+                    'timestamp': datetime.now().isoformat(),
+                }
+            )
+
+    async def handle_message_edit(self, data):
+        """Broadcast message edit to all users in the room"""
+        message_id = data.get('message_id')
+        new_text = data.get('new_text', '')
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'message_edited',
+                'message_id': message_id,
+                'new_text': new_text,
+                'username': self.user.username,
+            }
+        )
+
+    async def message_edited(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'message_edited',
+            'message_id': event['message_id'],
+            'new_text': event['new_text'],
+            'username': event['username'],
+        }))
 
     async def handle_call_initiate(self, data):
         receiver_id = data.get('receiver_id')
@@ -273,6 +359,27 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'status': event.get('status', 'sent'),
         }))
 
+    async def group_read_receipt(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'group_read_receipt',
+            'reader_id': event['reader_id'],
+            'reader_name': event['reader_name'],
+            'message_ids': event['message_ids'],
+            'read_at': event['read_at'],
+            'read_counts': event.get('read_counts', {}),
+            'member_count': event.get('member_count', 0),
+        }))
+
+    async def system_message(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'system_message',
+            'message': event['message'],
+            'action': event.get('action', ''),
+            'actor_id': event.get('actor_id'),
+            'target_user_id': event.get('target_user_id'),
+            'timestamp': event['timestamp'],
+        }))
+
     async def call_incoming(self, event):
         await self.send(text_data=json.dumps({
             'type': 'call_incoming',
@@ -316,6 +423,259 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'candidate': event['candidate'],
         }))
 
+    # ═══════════════════════════════════════════════════════════════
+    # GROUP CALL HANDLERS
+    # ═══════════════════════════════════════════════════════════════
+
+    async def handle_group_call_start(self, data):
+        """Initiator starts a group call — notify all group members"""
+        group_id = data.get('group_id')
+        call_type = data.get('call_type', 'voice')
+        gc = await self.create_group_call(group_id, call_type)
+        if not gc:
+            return
+        member_ids = await self.get_group_member_ids(group_id)
+        caller_pic = self.user.profile_picture.url if self.user.profile_picture else None
+        caller_name = f"{self.user.first_name} {self.user.last_name}".strip() or self.user.username
+        for mid in member_ids:
+            if mid != self.user.id:
+                await self.channel_layer.group_send(
+                    f'user_{mid}',
+                    {
+                        'type': 'group_call_incoming',
+                        'group_call_id': gc.id,
+                        'group_id': group_id,
+                        'group_name': await self.get_group_name(group_id),
+                        'call_type': call_type,
+                        'caller_id': self.user.id,
+                        'caller_name': caller_name,
+                        'caller_pic': caller_pic,
+                    }
+                )
+        # Caller auto-joins
+        await self.send(text_data=json.dumps({
+            'type': 'group_call_started',
+            'group_call_id': gc.id,
+            'group_id': group_id,
+            'call_type': call_type,
+        }))
+
+    async def handle_group_call_join(self, data):
+        """A member joins the group call — send offers to existing participants"""
+        gc_id = data.get('group_call_id')
+        await self.add_group_call_participant(gc_id)
+        participant_ids = await self.get_group_call_participant_ids(gc_id)
+        user_name = f"{self.user.first_name} {self.user.last_name}".strip() or self.user.username
+        user_pic = self.user.profile_picture.url if self.user.profile_picture else None
+        # Notify existing participants that a new user joined
+        for pid in participant_ids:
+            if pid != self.user.id:
+                await self.channel_layer.group_send(
+                    f'user_{pid}',
+                    {
+                        'type': 'group_call_user_joined',
+                        'group_call_id': gc_id,
+                        'user_id': self.user.id,
+                        'user_name': user_name,
+                        'user_pic': user_pic,
+                    }
+                )
+        # Send joiner the list of existing participants
+        participants = await self.get_group_call_participants_info(gc_id)
+        await self.send(text_data=json.dumps({
+            'type': 'group_call_joined',
+            'group_call_id': gc_id,
+            'participants': [p for p in participants if p['id'] != self.user.id],
+        }))
+
+    async def handle_group_call_offer(self, data):
+        target_id = data.get('target_user_id')
+        await self.channel_layer.group_send(
+            f'user_{target_id}',
+            {
+                'type': 'group_call_offer_relay',
+                'group_call_id': data.get('group_call_id'),
+                'from_user_id': self.user.id,
+                'sdp': data.get('sdp'),
+            }
+        )
+
+    async def handle_group_call_answer(self, data):
+        target_id = data.get('target_user_id')
+        await self.channel_layer.group_send(
+            f'user_{target_id}',
+            {
+                'type': 'group_call_answer_relay',
+                'group_call_id': data.get('group_call_id'),
+                'from_user_id': self.user.id,
+                'sdp': data.get('sdp'),
+            }
+        )
+
+    async def handle_group_call_ice(self, data):
+        target_id = data.get('target_user_id')
+        await self.channel_layer.group_send(
+            f'user_{target_id}',
+            {
+                'type': 'group_call_ice_relay',
+                'group_call_id': data.get('group_call_id'),
+                'from_user_id': self.user.id,
+                'candidate': data.get('candidate'),
+            }
+        )
+
+    async def handle_group_call_leave(self, data):
+        gc_id = data.get('group_call_id')
+        await self.mark_group_call_left(gc_id)
+        participant_ids = await self.get_group_call_participant_ids(gc_id)
+        for pid in participant_ids:
+            if pid != self.user.id:
+                await self.channel_layer.group_send(
+                    f'user_{pid}',
+                    {
+                        'type': 'group_call_user_left',
+                        'group_call_id': gc_id,
+                        'user_id': self.user.id,
+                    }
+                )
+        # End call if no active participants
+        active_count = await self.get_active_participant_count(gc_id)
+        if active_count == 0:
+            await self.end_group_call(gc_id)
+
+    # Group call event forwarders
+    async def group_call_incoming(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'group_call_incoming',
+            'group_call_id': event['group_call_id'],
+            'group_id': event['group_id'],
+            'group_name': event['group_name'],
+            'call_type': event['call_type'],
+            'caller_id': event['caller_id'],
+            'caller_name': event['caller_name'],
+            'caller_pic': event.get('caller_pic'),
+        }))
+
+    async def group_call_user_joined(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'group_call_user_joined',
+            'group_call_id': event['group_call_id'],
+            'user_id': event['user_id'],
+            'user_name': event['user_name'],
+            'user_pic': event.get('user_pic'),
+        }))
+
+    async def group_call_offer_relay(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'group_call_offer',
+            'group_call_id': event['group_call_id'],
+            'from_user_id': event['from_user_id'],
+            'sdp': event['sdp'],
+        }))
+
+    async def group_call_answer_relay(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'group_call_answer',
+            'group_call_id': event['group_call_id'],
+            'from_user_id': event['from_user_id'],
+            'sdp': event['sdp'],
+        }))
+
+    async def group_call_ice_relay(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'group_call_ice',
+            'group_call_id': event['group_call_id'],
+            'from_user_id': event['from_user_id'],
+            'candidate': event['candidate'],
+        }))
+
+    async def group_call_user_left(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'group_call_user_left',
+            'group_call_id': event['group_call_id'],
+            'user_id': event['user_id'],
+        }))
+
+    # Group call DB helpers
+    @database_sync_to_async
+    def create_group_call(self, group_id, call_type):
+        try:
+            group = Group.objects.get(id=group_id)
+            gc = GroupCall.objects.create(group=group, initiator=self.user, call_type=call_type)
+            GroupCallParticipant.objects.create(group_call=gc, user=self.user)
+            return gc
+        except Group.DoesNotExist:
+            return None
+
+    @database_sync_to_async
+    def add_group_call_participant(self, gc_id):
+        try:
+            gc = GroupCall.objects.get(id=gc_id, status='active')
+            GroupCallParticipant.objects.get_or_create(group_call=gc, user=self.user)
+        except GroupCall.DoesNotExist:
+            pass
+
+    @database_sync_to_async
+    def get_group_call_participant_ids(self, gc_id):
+        try:
+            return list(GroupCallParticipant.objects.filter(
+                group_call_id=gc_id, left_at__isnull=True
+            ).values_list('user_id', flat=True))
+        except:
+            return []
+
+    @database_sync_to_async
+    def get_group_call_participants_info(self, gc_id):
+        try:
+            parts = GroupCallParticipant.objects.filter(
+                group_call_id=gc_id, left_at__isnull=True
+            ).select_related('user')
+            return [{
+                'id': p.user.id,
+                'name': f"{p.user.first_name} {p.user.last_name}".strip() or p.user.username,
+                'pic': p.user.profile_picture.url if p.user.profile_picture else None,
+            } for p in parts]
+        except:
+            return []
+
+    @database_sync_to_async
+    def mark_group_call_left(self, gc_id):
+        try:
+            p = GroupCallParticipant.objects.get(group_call_id=gc_id, user=self.user, left_at__isnull=True)
+            p.left_at = datetime.now()
+            p.save()
+        except GroupCallParticipant.DoesNotExist:
+            pass
+
+    @database_sync_to_async
+    def get_active_participant_count(self, gc_id):
+        return GroupCallParticipant.objects.filter(group_call_id=gc_id, left_at__isnull=True).count()
+
+    @database_sync_to_async
+    def end_group_call(self, gc_id):
+        try:
+            gc = GroupCall.objects.get(id=gc_id)
+            gc.status = 'ended'
+            gc.ended_at = datetime.now()
+            gc.save()
+        except GroupCall.DoesNotExist:
+            pass
+
+    @database_sync_to_async
+    def get_group_member_ids(self, group_id):
+        try:
+            group = Group.objects.get(id=group_id)
+            return list(group.members.values_list('id', flat=True))
+        except Group.DoesNotExist:
+            return []
+
+    @database_sync_to_async
+    def get_group_name(self, group_id):
+        try:
+            return Group.objects.get(id=group_id).name
+        except Group.DoesNotExist:
+            return 'Group'
+
     async def user_join(self, event):
         await self.send(text_data=json.dumps({
             'type': 'user.join',
@@ -351,7 +711,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def save_group_message(self, message, group_id, reply_to=None):
-        from chat.models import Group
         try:
             group = Group.objects.get(id=group_id)
             msg = Message.objects.create(
@@ -436,3 +795,26 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         except Message.DoesNotExist:
             return None
+
+    @database_sync_to_async
+    def save_group_read_receipts(self, message_ids, group_id=None):
+        """Save read receipts for multiple messages and return read counts"""
+        read_counts = {}
+        member_count = 0
+        if group_id:
+            try:
+                group = Group.objects.get(id=group_id)
+                member_count = group.members.count()
+            except Group.DoesNotExist:
+                pass
+        for msg_id in message_ids:
+            try:
+                msg = Message.objects.get(id=msg_id)
+                if msg.sender != self.user:
+                    MessageReadReceipt.objects.get_or_create(
+                        message=msg, user=self.user
+                    )
+                    read_counts[str(msg_id)] = msg.read_receipts.count()
+            except Message.DoesNotExist:
+                pass
+        return {'read_counts': read_counts, 'member_count': member_count}

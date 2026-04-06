@@ -7,10 +7,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.shortcuts import render
 from django.db.models import Q
 from django.utils import timezone
+from datetime import timedelta
 
 from accounts.models import CustomUser
 from accounts.serializers import UserSerializer, RegisterSerializer, LoginSerializer
-from chat.models import Conversation, Message, Group, Reaction
+from chat.models import Conversation, Message, Group, GroupMembership, ConversationClear, Reaction, MessageReadReceipt
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
@@ -59,7 +60,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def conversations(self, request):
-        """Get all conversations for current user"""
+        """Get all conversations for current user (DMs + groups with messages)"""
         user = request.user
         conversations = Conversation.objects.filter(
             Q(participant1=user) | Q(participant2=user)
@@ -68,14 +69,56 @@ class UserViewSet(viewsets.ModelViewSet):
         result = []
         for conv in conversations:
             other_user = conv.participant2 if conv.participant1 == user else conv.participant1
-            last_message = conv.messages.last()
+            msgs = conv.messages
+            # Filter by cleared_at
+            clear = ConversationClear.objects.filter(user=user, conversation=conv).first()
+            if clear:
+                msgs = msgs.filter(timestamp__gte=clear.cleared_at)
+            last_message = msgs.order_by('-timestamp').first()
+            if not last_message:
+                continue  # Skip empty/cleared conversations
+            unread_count = msgs.filter(is_read=False).exclude(sender=user).count()
             result.append({
                 'id': conv.id,
+                'type': 'dm',
                 'user': UserSerializer(other_user).data,
                 'last_message': last_message.content if last_message else None,
                 'last_message_time': last_message.timestamp.isoformat() if last_message else conv.updated_at.isoformat(),
-                'updated_at': conv.updated_at.isoformat()
+                'updated_at': conv.updated_at.isoformat(),
+                'unread_count': unread_count,
             })
+        
+        # Include groups with messages
+        groups = Group.objects.filter(members=user)
+        for group in groups:
+            # Filter by join time or cleared time
+            membership = GroupMembership.objects.filter(user=user, group=group).first()
+            joined_at = membership.joined_at if membership else group.created_at
+            visible_from = membership.cleared_at if membership and membership.cleared_at and membership.cleared_at > joined_at else joined_at
+            last_message = group.messages.filter(timestamp__gte=visible_from).order_by('-timestamp').first()
+            if not last_message:
+                continue  # Only show groups with messages in Chats tab
+            # Unread = messages after visible_from, not sent by me AND not read by me
+            unread_count = group.messages.filter(timestamp__gte=visible_from).exclude(sender=user).exclude(
+                read_receipts__user=user
+            ).count()
+            result.append({
+                'id': group.id,
+                'type': 'group',
+                'group': {
+                    'id': group.id,
+                    'name': group.name,
+                    'members': UserSerializer(group.members.all(), many=True).data,
+                    'group_picture': group.group_picture.url if group.group_picture else None,
+                },
+                'last_message': last_message.content if last_message else None,
+                'last_message_time': last_message.timestamp.isoformat() if last_message else group.updated_at.isoformat(),
+                'updated_at': group.updated_at.isoformat(),
+                'unread_count': unread_count,
+            })
+        
+        # Sort by last_message_time descending (newest first)
+        result.sort(key=lambda x: x['last_message_time'], reverse=True)
         return Response(result)
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
@@ -123,7 +166,12 @@ class UserViewSet(viewsets.ModelViewSet):
                 participant1_id=participants[0],
                 participant2_id=participants[1]
             )
-            messages = conversation.messages.select_related('sender', 'reply_to', 'reply_to__sender').order_by('timestamp')[:100]
+            messages = conversation.messages.select_related('sender', 'reply_to', 'reply_to__sender').order_by('timestamp')
+            # Filter by cleared_at if user has cleared this chat
+            clear = ConversationClear.objects.filter(user=user, conversation=conversation).first()
+            if clear:
+                messages = messages.filter(timestamp__gte=clear.cleared_at)
+            messages = messages[:100]
             result = []
             for msg in messages:
                 # Get reactions
@@ -156,6 +204,7 @@ class UserViewSet(viewsets.ModelViewSet):
                     'timestamp': msg.timestamp.isoformat(),
                     'is_read': msg.is_read,
                     'read_at': msg.read_at.isoformat() if msg.read_at else None,
+                    'is_edited': msg.is_edited,
                     'reactions': reaction_data,
                     'reply_data': reply_data
                 })
@@ -173,7 +222,15 @@ class UserViewSet(viewsets.ModelViewSet):
         
         result = []
         for group in groups:
-            last_message = group.messages.last()
+            # Filter by join time or cleared time
+            membership = GroupMembership.objects.filter(user=user, group=group).first()
+            joined_at = membership.joined_at if membership else group.created_at
+            visible_from = membership.cleared_at if membership and membership.cleared_at and membership.cleared_at > joined_at else joined_at
+            last_message = group.messages.filter(timestamp__gte=visible_from).order_by('-timestamp').first()
+            # Unread = messages after visible_from, not sent by me AND not read by me
+            unread_count = group.messages.filter(timestamp__gte=visible_from).exclude(sender=user).exclude(
+                read_receipts__user=user
+            ).count()
             result.append({
                 'id': group.id,
                 'name': group.name,
@@ -184,7 +241,8 @@ class UserViewSet(viewsets.ModelViewSet):
                 'last_message': last_message.content if last_message else None,
                 'last_message_time': last_message.timestamp.isoformat() if last_message else None,
                 'created_at': group.created_at.isoformat(),
-                'updated_at': group.updated_at.isoformat()
+                'updated_at': group.updated_at.isoformat(),
+                'unread_count': unread_count,
             })
         return Response(result)
 
@@ -210,12 +268,14 @@ class UserViewSet(viewsets.ModelViewSet):
         # Add creator as member and admin
         group.members.add(user)
         group.admins.add(user)
+        GroupMembership.objects.get_or_create(user=user, group=group)
         
         # Add other members
         for member_id in member_ids:
             try:
                 member = CustomUser.objects.get(id=member_id)
                 group.members.add(member)
+                GroupMembership.objects.get_or_create(user=member, group=group)
             except CustomUser.DoesNotExist:
                 pass
         
@@ -242,6 +302,7 @@ class UserViewSet(viewsets.ModelViewSet):
         try:
             member = CustomUser.objects.get(id=member_id)
             group.members.add(member)
+            GroupMembership.objects.get_or_create(user=member, group=group)
             return Response({'message': 'Member added successfully'})
         except CustomUser.DoesNotExist:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -259,10 +320,237 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response({'error': 'You are not a member of this group'}, status=status.HTTP_400_BAD_REQUEST)
         
         group.members.remove(user)
+        GroupMembership.objects.filter(user=user, group=group).delete()
         if user in group.admins.all():
             group.admins.remove(user)
         
+        # Create system message
+        Message.objects.create(
+            group=group,
+            sender=user,
+            content=f'{user.first_name or user.username} left the group',
+            message_type='text'
+        )
+        
         return Response({'message': 'Left group successfully'})
+
+    @action(detail=False, methods=['post'], url_path='groups/(?P<group_id>[^/.]+)/remove_member', permission_classes=[IsAuthenticated])
+    def remove_group_member(self, request, group_id=None):
+        """Remove a member from a group (admin only)"""
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if request.user not in group.admins.all():
+            return Response({'error': 'Only admins can remove members'}, status=status.HTTP_403_FORBIDDEN)
+        
+        member_id = request.data.get('user_id')
+        try:
+            member = CustomUser.objects.get(id=member_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if member not in group.members.all():
+            return Response({'error': 'User is not a member'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Cannot remove yourself via this endpoint
+        if member == request.user:
+            return Response({'error': 'Use leave endpoint to leave'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        group.members.remove(member)
+        GroupMembership.objects.filter(user=member, group=group).delete()
+        if member in group.admins.all():
+            group.admins.remove(member)
+        
+        admin_name = request.user.first_name or request.user.username
+        member_name = member.first_name or member.username
+        Message.objects.create(
+            group=group,
+            sender=request.user,
+            content=f'{admin_name} removed {member_name}',
+            message_type='text'
+        )
+        
+        return Response({
+            'message': 'Member removed',
+            'members': UserSerializer(group.members.all(), many=True).data,
+            'admins': [a.id for a in group.admins.all()]
+        })
+
+    @action(detail=False, methods=['post'], url_path='groups/(?P<group_id>[^/.]+)/make_admin', permission_classes=[IsAuthenticated])
+    def make_group_admin(self, request, group_id=None):
+        """Make a member an admin"""
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if request.user not in group.admins.all():
+            return Response({'error': 'Only admins can promote members'}, status=status.HTTP_403_FORBIDDEN)
+        
+        member_id = request.data.get('user_id')
+        try:
+            member = CustomUser.objects.get(id=member_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if member not in group.members.all():
+            return Response({'error': 'User is not a member'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        group.admins.add(member)
+        return Response({
+            'message': 'Admin added',
+            'admins': [a.id for a in group.admins.all()]
+        })
+
+    @action(detail=False, methods=['post'], url_path='groups/(?P<group_id>[^/.]+)/remove_admin', permission_classes=[IsAuthenticated])
+    def remove_group_admin(self, request, group_id=None):
+        """Remove admin status from a member"""
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if request.user not in group.admins.all():
+            return Response({'error': 'Only admins can demote admins'}, status=status.HTTP_403_FORBIDDEN)
+        
+        member_id = request.data.get('user_id')
+        try:
+            member = CustomUser.objects.get(id=member_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        group.admins.remove(member)
+        return Response({
+            'message': 'Admin removed',
+            'admins': [a.id for a in group.admins.all()]
+        })
+
+    @action(detail=False, methods=['get'], url_path='groups/(?P<group_id>[^/.]+)/info', permission_classes=[IsAuthenticated])
+    def group_info(self, request, group_id=None):
+        """Get detailed group info"""
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if request.user not in group.members.all():
+            return Response({'error': 'You are not a member'}, status=status.HTTP_403_FORBIDDEN)
+        
+        members_data = []
+        for m in group.members.all():
+            members_data.append({
+                'id': m.id,
+                'username': m.username,
+                'first_name': m.first_name,
+                'last_name': m.last_name,
+                'profile_picture': m.profile_picture.url if m.profile_picture else None,
+                'is_online': m.is_online,
+                'last_seen': m.last_seen.isoformat() if m.last_seen else None,
+                'is_admin': m in group.admins.all()
+            })
+        
+        return Response({
+            'id': group.id,
+            'name': group.name,
+            'description': group.description,
+            'group_picture': group.group_picture.url if group.group_picture else None,
+            'created_by': group.created_by.id,
+            'members': members_data,
+            'admins': [a.id for a in group.admins.all()],
+            'created_at': group.created_at.isoformat(),
+            'member_count': group.members.count()
+        })
+
+    @action(detail=False, methods=['post'], url_path='groups/(?P<group_id>[^/.]+)/mark_read', permission_classes=[IsAuthenticated])
+    def mark_group_read(self, request, group_id=None):
+        """Mark all unread group messages as read by current user"""
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        user = request.user
+        # Get all messages in group not sent by this user that don't have a read receipt
+        unread_msgs = Message.objects.filter(group=group).exclude(sender=user).exclude(
+            read_receipts__user=user
+        )
+        
+        receipts = []
+        for msg in unread_msgs:
+            receipt, created = MessageReadReceipt.objects.get_or_create(
+                message=msg, user=user
+            )
+            if created:
+                receipts.append(receipt)
+        
+        # Also update the legacy is_read field if all members have read
+        member_count = group.members.count()
+        for msg in unread_msgs:
+            read_count = msg.read_receipts.count()
+            if read_count >= member_count - 1:  # -1 for sender
+                msg.is_read = True
+                msg.read_at = timezone.now()
+                msg.save(update_fields=['is_read', 'read_at'])
+        
+        return Response({'marked_read': len(receipts)})
+
+    @action(detail=False, methods=['get'], url_path='groups/messages/(?P<message_id>[^/.]+)/info', permission_classes=[IsAuthenticated])
+    def group_message_info(self, request, message_id=None):
+        """Get message info with per-user read/delivered status for group messages"""
+        try:
+            msg = Message.objects.select_related('group', 'sender').get(id=message_id)
+        except Message.DoesNotExist:
+            return Response({'error': 'Message not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if not msg.group:
+            # Direct message - return simple info
+            return Response({
+                'id': msg.id,
+                'content': msg.content,
+                'sent_at': msg.timestamp.isoformat(),
+                'delivered_at': msg.delivered_at.isoformat() if msg.delivered_at else None,
+                'read_at': msg.read_at.isoformat() if msg.read_at else None,
+                'is_read': msg.is_read,
+                'read_by': [],
+                'delivered_to': []
+            })
+        
+        group = msg.group
+        members = group.members.exclude(id=msg.sender.id)
+        
+        read_receipts = {r.user_id: r.read_at for r in msg.read_receipts.select_related('user').all()}
+        
+        read_by = []
+        delivered_to = []
+        
+        for member in members:
+            member_data = {
+                'id': member.id,
+                'username': member.username,
+                'first_name': member.first_name,
+                'last_name': member.last_name,
+                'profile_picture': member.profile_picture.url if member.profile_picture else None,
+            }
+            if member.id in read_receipts:
+                member_data['read_at'] = read_receipts[member.id].isoformat()
+                read_by.append(member_data)
+            else:
+                member_data['delivered_at'] = msg.timestamp.isoformat()
+                delivered_to.append(member_data)
+        
+        return Response({
+            'id': msg.id,
+            'content': msg.content,
+            'message_type': msg.message_type,
+            'sent_at': msg.timestamp.isoformat(),
+            'sender': UserSerializer(msg.sender).data,
+            'read_by': read_by,
+            'delivered_to': delivered_to,
+            'total_members': members.count(),
+            'read_count': len(read_by),
+        })
 
     @action(detail=False, methods=['get'], url_path='groups/(?P<group_id>[^/.]+)/messages', permission_classes=[IsAuthenticated])
     def group_messages(self, request, group_id=None):
@@ -275,8 +563,14 @@ class UserViewSet(viewsets.ModelViewSet):
         if request.user not in group.members.all():
             return Response({'error': 'You are not a member of this group'}, status=status.HTTP_403_FORBIDDEN)
         
-        messages = Message.objects.filter(group=group).order_by('timestamp')[:100]
+        # Only show messages from after the user joined or last cleared
+        membership = GroupMembership.objects.filter(user=request.user, group=group).first()
+        joined_at = membership.joined_at if membership else group.created_at
+        visible_from = membership.cleared_at if membership and membership.cleared_at and membership.cleared_at > joined_at else joined_at
+        
+        messages = Message.objects.filter(group=group, timestamp__gte=visible_from).select_related('sender', 'reply_to', 'reply_to__sender').order_by('timestamp')[:200]
         result = []
+        member_count = group.members.count()
         for msg in messages:
             # Get reactions
             reactions = msg.reactions.all()
@@ -287,6 +581,19 @@ class UserViewSet(viewsets.ModelViewSet):
                 reaction_data[r.emoji]['count'] += 1
                 reaction_data[r.emoji]['users'].append(r.user.username)
             
+            # Read receipt count for group ticks
+            read_count = msg.read_receipts.count() if msg.sender == request.user else 0
+            all_read = read_count >= (member_count - 1) if msg.sender == request.user else False
+            
+            # Reply data
+            reply_data = None
+            if msg.reply_to:
+                reply_sender_name = f"{msg.reply_to.sender.first_name} {msg.reply_to.sender.last_name}".strip() or msg.reply_to.sender.username
+                reply_data = {
+                    'text': msg.reply_to.content or '',
+                    'sender': reply_sender_name
+                }
+            
             result.append({
                 'id': msg.id,
                 'message': msg.content,
@@ -296,10 +603,14 @@ class UserViewSet(viewsets.ModelViewSet):
                 'file_size': msg.file_size,
                 'username': msg.sender.username,
                 'display_name': f"{msg.sender.first_name} {msg.sender.last_name}".strip() or msg.sender.username,
+                'profile_picture': msg.sender.profile_picture.url if msg.sender.profile_picture else None,
                 'timestamp': msg.timestamp.isoformat(),
-                'is_read': msg.is_read,
+                'is_read': all_read,
                 'read_at': msg.read_at.isoformat() if msg.read_at else None,
-                'reactions': reaction_data
+                'read_count': read_count,
+                'is_edited': msg.is_edited,
+                'reactions': reaction_data,
+                'reply_data': reply_data
             })
         return Response(result)
 
@@ -495,7 +806,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path=r'messages/(?P<message_id>\d+)/edit', permission_classes=[IsAuthenticated])
     def edit_message(self, request, message_id=None):
-        """Edit a message (only by sender)"""
+        """Edit a message (only by sender, within 3 hours)"""
         try:
             message = Message.objects.get(id=message_id)
             
@@ -507,17 +818,24 @@ class UserViewSet(viewsets.ModelViewSet):
             if message.message_type != 'text':
                 return Response({'error': 'Only text messages can be edited'}, status=status.HTTP_400_BAD_REQUEST)
             
+            # 3-hour time limit
+            if timezone.now() - message.timestamp > timedelta(hours=3):
+                return Response({'error': 'Messages can only be edited within 3 hours'}, status=status.HTTP_400_BAD_REQUEST)
+            
             new_content = request.data.get('message', '').strip()
             if not new_content:
                 return Response({'error': 'Message cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
             
             message.content = new_content
+            message.is_edited = True
             message.save()
             
             return Response({
                 'success': True,
                 'message_id': message_id,
-                'content': message.content
+                'content': message.content,
+                'is_edited': True,
+                'group_id': message.group_id,
             })
         except Message.DoesNotExist:
             return Response({'error': 'Message not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -711,6 +1029,96 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response({'success': True})
         except Exception as e:
             return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=False, methods=['post'], url_path='delete_conversation/(?P<user_id>[^/.]+)', permission_classes=[IsAuthenticated])
+    def delete_conversation(self, request, user_id=None):
+        """Clear chat for current user only (not for other user)"""
+        me = request.user
+        try:
+            other = CustomUser.objects.get(id=user_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        participants = sorted([me.id, other.id])
+        try:
+            conv = Conversation.objects.get(participant1_id=participants[0], participant2_id=participants[1])
+            ConversationClear.objects.update_or_create(
+                user=me, conversation=conv,
+                defaults={'cleared_at': timezone.now()}
+            )
+        except Conversation.DoesNotExist:
+            pass
+        return Response({'success': True})
+
+    @action(detail=False, methods=['post'], url_path='delete_group/(?P<group_id>[^/.]+)', permission_classes=[IsAuthenticated])
+    def delete_group(self, request, group_id=None):
+        """Clear group chat for current user only"""
+        try:
+            grp = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+        if request.user not in grp.members.all():
+            return Response({'error': 'You are not a member'}, status=status.HTTP_403_FORBIDDEN)
+        membership = GroupMembership.objects.filter(user=request.user, group=grp).first()
+        if membership:
+            membership.cleared_at = timezone.now()
+            membership.save()
+        return Response({'success': True})
+
+    @action(detail=False, methods=['get'], url_path='contact_media/(?P<user_id>[^/.]+)', permission_classes=[IsAuthenticated])
+    def contact_media(self, request, user_id=None):
+        """Get all media files shared in a conversation with a user"""
+        me = request.user
+        try:
+            other = CustomUser.objects.get(id=user_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        participants = sorted([me.id, other.id])
+        try:
+            conv = Conversation.objects.get(participant1_id=participants[0], participant2_id=participants[1])
+        except Conversation.DoesNotExist:
+            return Response([])
+        msgs = Message.objects.filter(
+            conversation=conv,
+            message_type__in=['image', 'video', 'audio', 'file', 'voice']
+        ).order_by('-timestamp')[:100]
+        result = []
+        for m in msgs:
+            result.append({
+                'id': m.id,
+                'type': m.message_type,
+                'url': m.file.url if m.file else None,
+                'name': m.file_name,
+                'size': m.file_size,
+                'timestamp': m.timestamp.isoformat(),
+                'sender_id': m.sender_id,
+            })
+        return Response(result)
+
+    @action(detail=False, methods=['get'], url_path='group_media/(?P<group_id>[^/.]+)', permission_classes=[IsAuthenticated])
+    def group_media(self, request, group_id=None):
+        """Get all media files shared in a group"""
+        try:
+            grp = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+        if request.user not in grp.members.all():
+            return Response({'error': 'Not a member'}, status=status.HTTP_403_FORBIDDEN)
+        msgs = Message.objects.filter(
+            group=grp,
+            message_type__in=['image', 'video', 'audio', 'file', 'voice']
+        ).order_by('-timestamp')[:100]
+        result = []
+        for m in msgs:
+            result.append({
+                'id': m.id,
+                'type': m.message_type,
+                'url': m.file.url if m.file else None,
+                'name': m.file_name,
+                'size': m.file_size,
+                'timestamp': m.timestamp.isoformat(),
+                'sender_id': m.sender_id,
+            })
+        return Response(result)
 
 
 def index(request):

@@ -24,7 +24,7 @@
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
     crossorigin="anonymous">
-<link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260309c">
+<link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260406k">
 </head>
 
 <body>
@@ -41,16 +41,20 @@
         <div class="my-av-wrap" onclick="openProfile()" style="cursor:pointer;">
           <img class="my-av" id="my-av" src="" alt="" style="display:none;">
           <div id="my-av-init"
-            style="display:none;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.25);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;">
+            style="display:none;width:36px;height:36px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;">
             U</div>
         </div>
         <span class="sb-title" id="sb-username">SkyChat</span>
         <div class="sb-hdr-icons">
-          <button class="icon-btn" onclick="testMediaPermissions()" title="Test Camera/Mic"><i
-              class="fa-solid fa-video"></i></button>
-          <button class="icon-btn" title="Notifications"><i class="fa-regular fa-bell"></i></button>
-          <button class="icon-btn" onclick="doLogout()" title="Sign Out"><i
-              class="fa-solid fa-right-from-bracket"></i></button>
+          <button class="icon-btn" onclick="openNewChat()" title="New Chat"><i class="fa-solid fa-comment-medical"></i></button>
+          <div class="sb-menu-wrap">
+            <button class="icon-btn" onclick="toggleSbMenu(event)" title="Menu"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+            <div class="sb-dropdown" id="sb-dropdown">
+              <div class="sb-drop-item" onclick="openNewGroup()"><i class="fa-solid fa-users"></i> New group</div>
+              <div class="sb-drop-item" onclick="openNewChat()"><i class="fa-solid fa-comment-medical"></i> New chat</div>
+              <div class="sb-drop-item" onclick="doLogout()"><i class="fa-solid fa-right-from-bracket"></i> Log out</div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="sb-search">
@@ -60,10 +64,10 @@
         </div>
       </div>
       <div class="sb-tabs">
-        <button class="sb-tab on" onclick="swTab('chats',this)"><i class="fa-regular fa-comment-dots"></i>
-          Chats</button>
-        <button class="sb-tab" onclick="swTab('groups',this)"><i class="fa-solid fa-users"></i> Groups</button>
-        <button class="sb-tab" onclick="swTab('calls',this)"><i class="fa-solid fa-phone"></i> Calls</button>
+        <button class="sb-tab on" onclick="swTab('chats',this)">Chats</button>
+        <button class="sb-tab" onclick="swTab('unread',this)">Unread</button>
+        <button class="sb-tab" onclick="swTab('groups',this)">Groups</button>
+        <button class="sb-tab" onclick="swTab('calls',this)">Calls</button>
       </div>
       <div class="conv-list" id="conv-list">
         <div style="padding:28px;text-align:center;color:var(--sub);font-size:13px;">
@@ -81,6 +85,59 @@
         <h3>SkyChat Web</h3>
         <p>Select a conversation to start chatting, or start a new one.</p>
         <span><i class="fa-solid fa-lock" style="color:var(--blue);"></i> End-to-end encrypted</span>
+      </div>
+      <!-- INFO SIDE PANEL -->
+      <div id="info-panel" class="info-panel">
+        <div class="ip-header">
+          <button class="icon-btn" onclick="closeInfoPanel()"><i class="fa-solid fa-xmark"></i></button>
+          <span class="ip-header-title" id="ip-header-title">Contact info</span>
+        </div>
+        <div class="ip-body" id="ip-body">
+          <div class="ip-profile">
+            <img class="ip-avatar" id="ip-avatar" src="" alt="">
+            <div class="ip-name" id="ip-name"></div>
+            <div class="ip-sub" id="ip-sub"></div>
+          </div>
+          <div class="ip-actions" id="ip-actions">
+            <button class="ip-action-btn" id="ip-search-btn" onclick="closeInfoPanel()">
+              <i class="fa-solid fa-magnifying-glass"></i><span>Search</span>
+            </button>
+            <button class="ip-action-btn" id="ip-video-btn" onclick="startCall('video')">
+              <i class="fa-solid fa-video"></i><span>Video</span>
+            </button>
+            <button class="ip-action-btn" id="ip-voice-btn" onclick="startCall('voice')">
+              <i class="fa-solid fa-phone"></i><span>Voice</span>
+            </button>
+          </div>
+          <div class="ip-section" id="ip-about-section">
+            <div class="ip-section-title">About</div>
+            <div class="ip-about" id="ip-about"></div>
+          </div>
+          <div class="ip-section">
+            <div class="ip-section-header">
+              <div class="ip-section-title">Media, links and docs</div>
+              <span class="ip-media-count" id="ip-media-count"></span>
+            </div>
+            <div class="ip-media-grid" id="ip-media-grid">
+              <div style="padding:12px;text-align:center;color:var(--sub);font-size:13px;">No media yet</div>
+            </div>
+          </div>
+          <!-- Group-specific sections -->
+          <div class="ip-section" id="ip-members-section" style="display:none;">
+            <div class="ip-section-header">
+              <div class="ip-section-title">Members</div>
+              <button class="gi-action-btn" id="ip-add-member-btn" onclick="addGroupMember(S.activeGroup && S.activeGroup.id)" title="Add member" style="display:none;">
+                <i class="fa-solid fa-user-plus"></i>
+              </button>
+            </div>
+            <div id="ip-members"></div>
+          </div>
+          <div class="ip-section" id="ip-leave-section" style="display:none;">
+            <button class="gi-leave-btn" id="ip-leave-btn">
+              <i class="fa-solid fa-right-from-bracket"></i> Exit Group
+            </button>
+          </div>
+        </div>
       </div>
       <div id="chat-view">
         <div id="chat-topbar">
@@ -101,7 +158,14 @@
                 class="fa-solid fa-video"></i></button>
             <button class="icon-btn" title="Voice Call" onclick="startCall('voice')"><i
                 class="fa-solid fa-phone"></i></button>
-            <button class="icon-btn" title="More"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+            <div class="tb-menu-wrap">
+              <button class="icon-btn" title="More" onclick="toggleTbMenu(event)"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+              <div class="tb-dropdown" id="tb-dropdown">
+                <div class="sb-drop-item" onclick="closeTbMenu();openContactOrGroupInfo()"><i class="fa-solid fa-circle-info"></i> Info</div>
+                <div class="sb-drop-item" onclick="closeTbMenu();closeChat()"><i class="fa-solid fa-xmark"></i> Close chat</div>
+                <div class="sb-drop-item danger" onclick="closeTbMenu();deleteCurrentChat()"><i class="fa-solid fa-trash"></i> Delete chat</div>
+              </div>
+            </div>
           </div>
         </div>
         <div id="msg-area"></div>
@@ -199,7 +263,7 @@
 
   <!-- MESSAGE INFO MODAL -->
   <div class="modal-bg" id="mi-modal">
-    <div class="modal">
+    <div class="modal" style="max-width:420px;">
       <div class="modal-title"><i class="fa-solid fa-circle-info"></i>Message Info</div>
       <div id="mi-content" style="padding:8px 0;">
         <div style="background:var(--bg);padding:12px;border-radius:10px;margin-bottom:16px;">
@@ -209,16 +273,58 @@
           <span class="msg-info-label">Sent</span>
           <span class="msg-info-value" id="mi-sent">-</span>
         </div>
-        <div class="msg-info-row">
-          <span class="msg-info-label">Delivered</span>
-          <span class="msg-info-value blue" id="mi-delivered">-</span>
+        <div id="mi-simple-info">
+          <div class="msg-info-row">
+            <span class="msg-info-label">Delivered</span>
+            <span class="msg-info-value blue" id="mi-delivered">-</span>
+          </div>
+          <div class="msg-info-row">
+            <span class="msg-info-label">Seen</span>
+            <span class="msg-info-value blue" id="mi-seen">-</span>
+          </div>
         </div>
-        <div class="msg-info-row">
-          <span class="msg-info-label">Seen</span>
-          <span class="msg-info-value blue" id="mi-seen">-</span>
-        </div>
+        <div id="mi-read-by" style="display:none;max-height:200px;overflow-y:auto;"></div>
+        <div id="mi-delivered-to" style="display:none;max-height:200px;overflow-y:auto;"></div>
       </div>
       <div class="modal-foot"><button class="mbtn mbtn-cancel" onclick="closeM('mi-modal')">Close</button></div>
+    </div>
+  </div>
+
+  <!-- GROUP INFO MODAL -->
+  <div class="modal-bg" id="gi-modal">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-title"><i class="fa-solid fa-users"></i>Group Info</div>
+      <div style="text-align:center;padding:16px 0;">
+        <img id="gi-av" src="" style="width:80px;height:80px;border-radius:50%;border:3px solid var(--blue);object-fit:cover;" alt="">
+        <div id="gi-name" style="font-size:20px;font-weight:700;margin-top:10px;"></div>
+        <div id="gi-desc" style="font-size:13px;color:var(--sub);margin-top:4px;"></div>
+        <div id="gi-count" style="font-size:12px;color:var(--sub);margin-top:4px;"></div>
+        <div style="font-size:11px;color:var(--sub);margin-top:2px;">Created <span id="gi-created"></span></div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--divider);margin-bottom:8px;">
+        <span style="font-weight:600;font-size:14px;color:var(--text);">Members</span>
+        <button class="gi-action-btn" id="gi-add-btn" onclick="addGroupMember(S.activeGroup && S.activeGroup.id)" title="Add member" style="display:none;">
+          <i class="fa-solid fa-user-plus"></i>
+        </button>
+      </div>
+      <div id="gi-members" style="max-height:350px;overflow-y:auto;"></div>
+      <div style="padding:12px 0;border-top:1px solid var(--divider);margin-top:8px;">
+        <button class="gi-leave-btn" id="gi-leave-btn" onclick="leaveGroup(S.activeGroup && S.activeGroup.id)">
+          <i class="fa-solid fa-right-from-bracket"></i> Exit Group
+        </button>
+      </div>
+      <div class="modal-foot"><button class="mbtn mbtn-cancel" onclick="closeM('gi-modal')">Close</button></div>
+    </div>
+  </div>
+
+  <!-- ADD GROUP MEMBER MODAL -->
+  <div class="modal-bg" id="gam-modal">
+    <div class="modal" style="max-width:380px;">
+      <div class="modal-title"><i class="fa-solid fa-user-plus"></i>Add Member</div>
+      <div class="user-list" id="gam-list">
+        <div style="padding:16px;text-align:center;color:var(--sub);"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>
+      </div>
+      <div class="modal-foot"><button class="mbtn mbtn-cancel" onclick="closeM('gam-modal')">Cancel</button></div>
     </div>
   </div>
 
@@ -327,6 +433,7 @@
   <div class="call-overlay" id="ongoing-call">
     <div class="call-screen">
       <audio id="remote-audio" autoplay playsinline></audio>
+      <video id="remote-video" autoplay playsinline></video>
       <video id="local-video" autoplay playsinline muted></video>
       <div class="call-info">
         <img class="call-avatar-sm" id="ongoing-av" src="" alt="">
@@ -346,6 +453,44 @@
         <button class="ctrl-btn" id="speaker-btn" onclick="toggleSpeaker()">
           <i class="fa-solid fa-volume-high"></i>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- GROUP CALL: INCOMING -->
+  <div class="call-overlay" id="gc-incoming-call">
+    <div class="call-card incoming">
+      <div class="call-ripple"></div>
+      <img class="call-avatar" id="gc-incoming-av" src="" alt="">
+      <div class="call-name" id="gc-incoming-name">Group</div>
+      <div class="call-type" id="gc-incoming-type">Group Call</div>
+      <div class="call-status" id="gc-incoming-caller"></div>
+      <div class="call-buttons">
+        <button class="call-btn reject" onclick="rejectGroupCall()"><i class="fa-solid fa-phone-slash"></i></button>
+        <button class="call-btn accept" onclick="acceptGroupCall()"><i class="fa-solid fa-phone"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- GROUP CALL: ONGOING -->
+  <div class="call-overlay" id="gc-ongoing-call">
+    <div class="gc-call-screen">
+      <div class="gc-header">
+        <div class="call-name" id="gc-call-name">Group Call</div>
+        <div class="call-timer" id="gc-timer">00:00</div>
+        <div class="gc-participant-count" id="gc-participant-count">1 participant</div>
+      </div>
+      <div class="gc-video-grid" id="gc-video-grid">
+        <!-- Local tile -->
+        <div class="gc-peer-tile gc-local-tile">
+          <video id="gc-local-video" autoplay playsinline muted></video>
+          <div class="gc-peer-name">You</div>
+        </div>
+      </div>
+      <div class="call-controls">
+        <button class="ctrl-btn" id="gc-mic-btn" onclick="gcToggleMic()"><i class="fa-solid fa-microphone"></i></button>
+        <button class="ctrl-btn" id="gc-cam-btn" onclick="gcToggleCam()"><i class="fa-solid fa-video"></i></button>
+        <button class="ctrl-btn end" onclick="leaveGroupCall()"><i class="fa-solid fa-phone-slash"></i></button>
       </div>
     </div>
   </div>
@@ -417,7 +562,7 @@
   <!-- TOASTS -->
   <div id="toasts"></div>
 
-<script src="{% static 'js/chat.js' %}?v=20260309c"></script>
+<script src="{% static 'js/chat.js' %}?v=20260406k"></script>
 
   <!-- Service Worker Registration -->
   <script>
