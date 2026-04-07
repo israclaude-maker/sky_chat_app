@@ -1674,7 +1674,18 @@ body {
     touch-action: manipulation;
     -webkit-tap-highlight-color: rgba(0,0,0,0.1);
   }
-  .info-panel { display: none !important; }
+  .info-panel {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    width: 100% !important;
+    min-width: 100% !important;
+    border-left: none;
+  }
+  .info-panel.open {
+    display: flex !important;
+  }
 }
 /* ═══════════════════════════════════════════════════════════════
    PROFILE MODAL STYLES
