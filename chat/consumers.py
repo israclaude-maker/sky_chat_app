@@ -124,6 +124,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.handle_screen_offer(data)
         elif message_type == 'screen_answer':
             await self.handle_screen_answer(data)
+        elif message_type == 'screen_toggle':
+            await self.handle_screen_toggle(data)
 
     async def handle_chat_message(self, data):
         message = data['message']
@@ -612,6 +614,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             'type': 'screen_answer',
             'sdp': event['sdp'],
+        }))
+
+    async def handle_screen_toggle(self, data):
+        target_user_id = data.get('target_user_id')
+        sharing = data.get('sharing', False)
+        await self.channel_layer.group_send(
+            f'user_{target_user_id}',
+            {
+                'type': 'screen_toggle',
+                'sharing': sharing,
+            }
+        )
+
+    async def screen_toggle(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'screen_toggle',
+            'sharing': event['sharing'],
         }))
 
     # ═══════════════════════════════════════════════════════════════

@@ -568,6 +568,8 @@ function connectGlobalWS() {
         handleScreenOffer(data);
       } else if (data.type === 'screen_answer') {
         handleScreenAnswer(data);
+      } else if (data.type === 'screen_toggle') {
+        handleScreenToggle(data);
       }
       // Group call events
       else if (data.type === 'group_call_notify') {
@@ -3728,9 +3730,16 @@ function doInitWebRTC(isInitiator, callback) {
         remoteVideo.srcObject = e.streams[0];
         remoteVideo.style.display = 'block';
         remoteVideo.play().catch(function (err) { console.log('Video play error:', err); });
+        // Detect screen share: voice call getting video = always screen share
+        // Video call getting new track via renegotiation = screen share
+        var isScreen = (CallState.callType === 'voice') ||
+          (e.track.label && e.track.label.toLowerCase().indexOf('screen') !== -1);
+        if (isScreen) remoteVideo.classList.add('screen-share');
+        else remoteVideo.classList.remove('screen-share');
       }
       // Track ended = screen share stopped on remote
       e.track.onended = function () {
+        if (remoteVideo) remoteVideo.classList.remove('screen-share');
         if (CallState.callType === 'voice' && remoteVideo) {
           remoteVideo.style.display = 'none';
         }
@@ -4031,6 +4040,16 @@ function handleScreenAnswer(data) {
     .catch(function (err) { console.error('Screen answer error:', err); });
 }
 
+function handleScreenToggle(data) {
+  var remoteVideo = $('remote-video');
+  if (!remoteVideo) return;
+  if (data.sharing) {
+    remoteVideo.classList.add('screen-share');
+  } else {
+    remoteVideo.classList.remove('screen-share');
+  }
+}
+
 function showOngoingCall() {
   // If minimized, update PIP state instead of showing full overlay
   if (callMinimized && minimizedOverlayId === 'outgoing-call') {
@@ -4150,6 +4169,15 @@ function startScreenShare() {
     if (videoSender) {
       CallState.originalVideoTrack = videoSender.track;
       videoSender.replaceTrack(screenTrack);
+      // Tell remote to switch to screen-share display mode
+      var ws = S.globalWs || S.ws;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'screen_toggle',
+          target_user_id: CallState.remoteUserId,
+          sharing: true
+        }));
+      }
     } else {
       // Voice call — no video sender exists, add track + renegotiate
       CallState.screenSender = CallState.pc.addTrack(screenTrack, screenStream);
@@ -4195,6 +4223,15 @@ function stopScreenShare() {
         senders[i].replaceTrack(CallState.originalVideoTrack);
         break;
       }
+    }
+    // Tell remote to switch back to normal display mode
+    var ws = S.globalWs || S.ws;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'screen_toggle',
+        target_user_id: CallState.remoteUserId,
+        sharing: false
+      }));
     }
   } else if (CallState.screenSender && CallState.pc) {
     // Voice call — remove the screen track and renegotiate

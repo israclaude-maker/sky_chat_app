@@ -1116,6 +1116,9 @@ body {
   object-fit: cover;
   background: #0f172a;
 }
+#remote-video.screen-share {
+  object-fit: contain;
+}
 
 #local-video {
   position: absolute;
