@@ -539,6 +539,13 @@ function connectGlobalWS() {
           function () { window.focus(); },
           true // isCall
         );
+        // Native Android notification
+        if (window.AndroidBridge) {
+          AndroidBridge.showCallNotification(
+            'Incoming ' + (data.call_type === 'video' ? 'Video' : 'Voice') + ' Call',
+            data.caller_name + ' is calling...'
+          );
+        }
       } else if (data.type === 'call_accepted') {
         handleCallAccepted(data);
       } else if (data.type === 'call_rejected') {
@@ -2281,6 +2288,10 @@ function handleNewMessageNotify(data) {
       function () { window.focus(); },
       false
     );
+    // Native Android notification
+    if (window.AndroidBridge) {
+      AndroidBridge.showMessageNotification(title, data.message);
+    }
   }
 }
 
@@ -4545,9 +4556,13 @@ function handleGroupCallNotify(data) {
   updateGroupCallBanner();
   // Show persistent popup notification with Join button
   showGroupCallPopup(data);
+  // Native Android notification (for APK)
+  var callLabel = data.call_type === 'video' ? 'Video' : 'Voice';
+  if (window.AndroidBridge) {
+    AndroidBridge.showCallNotification(data.group_name, data.caller_name + ' started a ' + callLabel + ' call');
+  }
   // Show browser notification when tab is in background
   if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-    var callLabel = data.call_type === 'video' ? 'Video' : 'Voice';
     var n = new Notification(data.group_name, {
       body: data.caller_name + ' started a ' + callLabel + ' call',
       icon: data.caller_pic || '/static/icons/icon-192x192.png',
