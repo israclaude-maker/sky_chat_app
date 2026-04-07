@@ -198,7 +198,13 @@ public class KeepAliveService extends Service {
             JSONObject data = new JSONObject(text);
             String type = data.optString("type", "");
 
-            // Check if app is in foreground — skip native notif if it is
+            // Always handle call cancel events
+            if ("call_ended".equals(type) || "call_cancelled".equals(type) || "call_rejected".equals(type)) {
+                cancelCallNotification();
+                return;
+            }
+
+            // Skip other notifications when app is in foreground
             if (MainActivity.isAppInForeground) return;
 
             switch (type) {
@@ -210,30 +216,34 @@ public class KeepAliveService extends Service {
                     );
                     break;
 
-                case "group_call_notify":
-                    showCallNotification(
-                        data.optString("group_name", "Group"),
-                        data.optString("caller_name", "Someone") + " — " +
-                            (data.optString("call_type", "voice").equals("video") ? "Video" : "Voice") + " Call"
-                    );
+                case "group_call_notify": {
+                    String gName = safeStr(data, "group_name", "Group");
+                    String cName = safeStr(data, "caller_name", "Someone");
+                    String cType = data.optString("call_type", "voice").equals("video") ? "Video" : "Voice";
+                    showCallNotification(gName, cName + " \u2014 " + cType + " Call");
                     break;
+                }
 
-                case "new_message_notify":
-                    String senderName = data.optString("sender_name", "Unknown");
-                    String groupName = data.optString("group_name", "");
+                case "new_message_notify": {
+                    String senderName = safeStr(data, "sender_name", "Unknown");
+                    String groupName = safeStr(data, "group_name", "");
+                    String msgText = safeStr(data, "message", "New message");
                     String title = groupName.isEmpty() ? senderName : senderName + " in " + groupName;
-                    showMessageNotification(title, data.optString("message", "New message"));
+                    showMessageNotification(title, msgText);
                     break;
-
-                case "call_ended":
-                case "call_cancelled":
-                case "call_rejected":
-                    cancelCallNotification();
-                    break;
+                }
             }
         } catch (Exception e) {
             Log.e(TAG, "Parse error: " + e.getMessage());
         }
+    }
+
+    // Safe string extractor — handles JSON null and literal "null"
+    private String safeStr(JSONObject obj, String key, String fallback) {
+        if (obj.isNull(key)) return fallback;
+        String val = obj.optString(key, fallback);
+        if ("null".equals(val) || val.isEmpty()) return fallback;
+        return val;
     }
 
     private void showCallNotification(String callerName, String callType) {
