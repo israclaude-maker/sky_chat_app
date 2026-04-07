@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit;
 public class KeepAliveService extends Service {
 
     private static final String TAG = "KeepAlive";
-    private static final String CHANNEL_ID = "skychat_keepalive";
+    private static final String CHANNEL_ID = "skychat_bg_v2";
     private static final String CHANNEL_CALL = "skychat_calls";
     private static final String CHANNEL_MSG = "skychat_messages";
     private static final String WS_BASE = "wss://sky-chat.duckdns.org/ws/chat/";
@@ -62,12 +62,11 @@ public class KeepAliveService extends Service {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("SkyChat")
-            .setContentText("Connected — receiving messages")
             .setSmallIcon(R.mipmap.ic_launcher)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .setContentIntent(pi)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(true)
             .build();
 
         startForeground(1, notification);
@@ -85,11 +84,18 @@ public class KeepAliveService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager nm = getSystemService(NotificationManager.class);
 
-            // Keep-alive channel (silent)
+            // Delete old channel that was cached with wrong settings
+            nm.deleteNotificationChannel("skychat_keepalive");
+
+            // Keep-alive channel (completely silent & hidden)
             NotificationChannel keepCh = new NotificationChannel(
-                CHANNEL_ID, "Background Service", NotificationManager.IMPORTANCE_LOW);
+                CHANNEL_ID, "Background Service", NotificationManager.IMPORTANCE_MIN);
             keepCh.setDescription("Keeps SkyChat connected");
             keepCh.setShowBadge(false);
+            keepCh.enableVibration(false);
+            keepCh.enableLights(false);
+            keepCh.setSound(null, null);
+            keepCh.setLockscreenVisibility(Notification.VISIBILITY_SECRET);
             nm.createNotificationChannel(keepCh);
 
             // Calls channel

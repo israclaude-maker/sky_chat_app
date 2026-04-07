@@ -48,6 +48,7 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileUploadCallback;
     private int msgNotifId = 2000;
     public static boolean isAppInForeground = false;
+    private String pendingCallAction = null; // saved until WebView is ready
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -115,7 +116,24 @@ public class MainActivity extends Activity {
 
         webView.addJavascriptInterface(new WebAppInterface(), "AndroidBridge");
 
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                // Execute pending call action after page loads
+                if (pendingCallAction != null) {
+                    final String action = pendingCallAction;
+                    pendingCallAction = null;
+                    // Wait a bit for JS to initialize
+                    view.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            executeCallAction(action);
+                        }
+                    }, 2000);
+                }
+            }
+        });
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
@@ -158,11 +176,40 @@ public class MainActivity extends Activity {
         });
 
         webView.loadUrl(APP_URL);
+
+        // Handle call action if app was launched from notification
+        Intent launchIntent = getIntent();
+        if (launchIntent != null && launchIntent.hasExtra("call_action")) {
+            pendingCallAction = launchIntent.getStringExtra("call_action");
+        }
+    }
+
+    private void executeCallAction(String action) {
+        if (webView == null || action == null) return;
+        if ("answer".equals(action)) {
+            webView.evaluateJavascript(
+                "(function(){" +
+                "  if(typeof acceptCall==='function'){acceptCall();return 'ok';}" +
+                "  return 'no acceptCall';" +
+                "})()", null);
+        } else if ("decline".equals(action)) {
+            webView.evaluateJavascript(
+                "(function(){" +
+                "  if(typeof rejectCall==='function'){rejectCall();return 'ok';}" +
+                "  return 'no rejectCall';" +
+                "})()", null);
+        }
+        // Cancel call notification
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        nm.cancel(CallActionReceiver.CALL_NOTIFICATION_ID);
     }
 
     private void createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager nm = getSystemService(NotificationManager.class);
+
+            // Delete old cached channel
+            nm.deleteNotificationChannel("skychat_keepalive");
 
             // Call channel - HIGH importance, vibrate, ringtone sound
             NotificationChannel callCh = new NotificationChannel(
@@ -412,10 +459,8 @@ public class MainActivity extends Activity {
         // Handle call answer/decline from notification
         if (intent != null && intent.hasExtra("call_action")) {
             String action = intent.getStringExtra("call_action");
-            if ("answer".equals(action)) {
-                webView.evaluateJavascript("if(typeof acceptCall==='function')acceptCall();", null);
-            } else if ("decline".equals(action)) {
-                webView.evaluateJavascript("if(typeof rejectCall==='function')rejectCall();", null);
+            if ("answer".equals(action) || "decline".equals(action)) {
+                executeCallAction(action);
             }
         }
     }
