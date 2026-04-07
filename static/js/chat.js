@@ -285,7 +285,8 @@ function refreshAccessToken() {
     localStorage.setItem('access_token', data.access);
     // Update Android service with new token
     if (window.AndroidBridge && AndroidBridge.saveCredentials && S.user) {
-      AndroidBridge.saveCredentials(data.access, S.user.id);
+      var rt = localStorage.getItem('refresh_token') || '';
+      AndroidBridge.saveCredentials(data.access, S.user.id, rt);
     }
     return data.access;
   }).catch(function (e) { _refreshPromise = null; throw e; });
@@ -336,7 +337,8 @@ function init() {
 
       // Save credentials to Android for background service
       if (window.AndroidBridge && AndroidBridge.saveCredentials) {
-        AndroidBridge.saveCredentials(S.token, S.user.id);
+        var rt = localStorage.getItem('refresh_token') || '';
+        AndroidBridge.saveCredentials(S.token, S.user.id, rt);
       }
 
       // Header mein user ka naam

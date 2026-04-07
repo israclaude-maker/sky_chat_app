@@ -76,11 +76,11 @@ public class KeepAliveService extends Service {
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("SkyChat")
-            .setContentText("Tap to open")
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setContentIntent(pi)
             .setOngoing(true)
             .setSilent(true)
+            .setShowWhen(false)
             .build();
 
         startForeground(1, notification);
@@ -166,11 +166,11 @@ public class KeepAliveService extends Service {
     private void connectWebSocket() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String token = prefs.getString("token", null);
+        String refreshToken = prefs.getString("refresh_token", null);
         int userId = prefs.getInt("user_id", -1);
 
         if (token == null || userId == -1) {
             Log.d(TAG, "No token/userId saved, waiting...");
-            // Retry in 5s in case user is logging in
             reconnectHandler.postDelayed(new Runnable() {
                 @Override
                 public void run() {
@@ -180,16 +180,87 @@ public class KeepAliveService extends Service {
             return;
         }
 
+        // Always refresh token before connecting to ensure it's valid
+        if (refreshToken != null && !refreshToken.isEmpty()) {
+            refreshTokenAndConnect(refreshToken, userId);
+        } else {
+            doConnect(token, userId);
+        }
+    }
+
+    private void refreshTokenAndConnect(final String refreshToken, final int userId) {
+        // Use OkHttp to refresh the JWT token
+        OkHttpClient client = new OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build();
+
+        okhttp3.MediaType JSON_TYPE = okhttp3.MediaType.parse("application/json; charset=utf-8");
+        String body = "{\"refresh\":\"" + refreshToken + "\"}";
+        okhttp3.RequestBody reqBody = okhttp3.RequestBody.create(body, JSON_TYPE);
+
+        Request req = new Request.Builder()
+            .url("https://sky-chat.duckdns.org/api/auth/token/refresh/")
+            .post(reqBody)
+            .build();
+
+        client.newCall(req).enqueue(new okhttp3.Callback() {
+            @Override
+            public void onFailure(okhttp3.Call call, java.io.IOException e) {
+                Log.e(TAG, "Token refresh failed: " + e.getMessage());
+                // Try with existing token anyway
+                SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                String oldToken = prefs.getString("token", "");
+                doConnect(oldToken, userId);
+            }
+
+            @Override
+            public void onResponse(okhttp3.Call call, okhttp3.Response response) throws java.io.IOException {
+                try {
+                    String resBody = response.body().string();
+                    if (response.isSuccessful()) {
+                        JSONObject json = new JSONObject(resBody);
+                        String newToken = json.getString("access");
+                        Log.d(TAG, "Token refreshed successfully");
+                        // Save new token
+                        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                        prefs.edit().putString("token", newToken).apply();
+                        doConnect(newToken, userId);
+                    } else {
+                        Log.e(TAG, "Token refresh HTTP " + response.code());
+                        // Use old token
+                        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                        String oldToken = prefs.getString("token", "");
+                        doConnect(oldToken, userId);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Token refresh parse error: " + e.getMessage());
+                    SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                    doConnect(prefs.getString("token", ""), userId);
+                }
+            }
+        });
+    }
+
+    private void doConnect(String token, int userId) {
+        if (!isRunning) return;
+
         String url = WS_BASE + "user_" + userId + "/?token=" + token;
         Log.d(TAG, "Connecting WS: user_" + userId);
+
+        // Close existing connection first
+        if (webSocket != null) {
+            try { webSocket.close(1000, "new connection"); } catch (Exception ignored) {}
+            webSocket = null;
+        }
 
         if (httpClient != null) {
             httpClient.dispatcher().cancelAll();
         }
 
         httpClient = new OkHttpClient.Builder()
-            .readTimeout(0, TimeUnit.MILLISECONDS) // no timeout for WS
-            .pingInterval(30, TimeUnit.SECONDS)    // keep alive ping
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .pingInterval(25, TimeUnit.SECONDS)
             .build();
 
         Request request = new Request.Builder().url(url).build();
@@ -197,13 +268,12 @@ public class KeepAliveService extends Service {
         webSocket = httpClient.newWebSocket(request, new WebSocketListener() {
             @Override
             public void onOpen(WebSocket ws, Response response) {
-                Log.d(TAG, "WebSocket connected");
-                reconnectDelay = 3000; // reset
+                Log.d(TAG, "WebSocket CONNECTED");
+                reconnectDelay = 3000;
             }
 
             @Override
             public void onMessage(WebSocket ws, String text) {
-                Log.d(TAG, "WS message: " + text.substring(0, Math.min(text.length(), 100)));
                 handleMessage(text);
             }
 
@@ -211,12 +281,14 @@ public class KeepAliveService extends Service {
             public void onClosing(WebSocket ws, int code, String reason) {
                 Log.d(TAG, "WS closing: " + code + " " + reason);
                 ws.close(1000, null);
+                webSocket = null;
                 scheduleReconnect();
             }
 
             @Override
             public void onFailure(WebSocket ws, Throwable t, Response response) {
-                Log.e(TAG, "WS failed: " + t.getMessage());
+                Log.e(TAG, "WS failed: " + (t != null ? t.getMessage() : "unknown"));
+                webSocket = null;
                 scheduleReconnect();
             }
         });
@@ -297,27 +369,27 @@ public class KeepAliveService extends Service {
 
     private void showCallNotification(String callerName, String callType) {
         Intent openIntent = new Intent(this, MainActivity.class);
-        openIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent openPi = PendingIntent.getActivity(this, 0, openIntent,
+        openIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent openPi = PendingIntent.getActivity(this, 100, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         // Full-screen intent for lock screen
         Intent fullIntent = new Intent(this, MainActivity.class);
-        fullIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        fullIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         fullIntent.putExtra("call_action", "show");
-        PendingIntent fullPi = PendingIntent.getActivity(this, 1, fullIntent,
+        PendingIntent fullPi = PendingIntent.getActivity(this, 101, fullIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         // Answer
         Intent answerIntent = new Intent(this, CallActionReceiver.class);
         answerIntent.setAction(CallActionReceiver.ACTION_ANSWER);
-        PendingIntent answerPi = PendingIntent.getBroadcast(this, 2, answerIntent,
+        PendingIntent answerPi = PendingIntent.getBroadcast(this, 102, answerIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         // Decline
         Intent declineIntent = new Intent(this, CallActionReceiver.class);
         declineIntent.setAction(CallActionReceiver.ACTION_DECLINE);
-        PendingIntent declinePi = PendingIntent.getBroadcast(this, 3, declineIntent,
+        PendingIntent declinePi = PendingIntent.getBroadcast(this, 103, declineIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_CALL)
@@ -345,8 +417,8 @@ public class KeepAliveService extends Service {
 
     private void showMessageNotification(String senderName, String message) {
         Intent openIntent = new Intent(this, MainActivity.class);
-        openIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent openPi = PendingIntent.getActivity(this, 10, openIntent,
+        openIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent openPi = PendingIntent.getActivity(this, 200, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         Person sender = new Person.Builder()
@@ -425,9 +497,11 @@ public class KeepAliveService extends Service {
     // Called from MainActivity when token is updated
     public void reconnect() {
         if (webSocket != null) {
-            webSocket.close(1000, "reconnecting");
+            try { webSocket.close(1000, "reconnecting"); } catch (Exception ignored) {}
+            webSocket = null;
         }
         reconnectDelay = 1000;
+        reconnectHandler.removeCallbacksAndMessages(null);
         reconnectHandler.postDelayed(new Runnable() {
             @Override
             public void run() {

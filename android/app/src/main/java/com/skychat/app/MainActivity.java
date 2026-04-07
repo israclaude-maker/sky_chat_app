@@ -244,9 +244,13 @@ public class MainActivity extends Activity {
 
     public class WebAppInterface {
         @JavascriptInterface
-        public void saveCredentials(String token, int userId) {
+        public void saveCredentials(String token, int userId, String refreshToken) {
             SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
-            prefs.edit().putString("token", token).putInt("user_id", userId).apply();
+            prefs.edit()
+                .putString("token", token)
+                .putInt("user_id", userId)
+                .putString("refresh_token", refreshToken)
+                .apply();
             // Tell service to reconnect with new token
             Intent svc = new Intent(MainActivity.this, KeepAliveService.class);
             svc.setAction("RECONNECT");
