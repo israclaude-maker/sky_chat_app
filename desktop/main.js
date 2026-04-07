@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, Notification, shell, globalShortcut } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, Notification, shell, globalShortcut, desktopCapturer, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -184,6 +184,26 @@ function createWindow() {
 
     // Remove menu bar
     mainWindow.setMenuBarVisibility(false);
+
+    // Enable screen sharing — auto-pick entire screen
+    mainWindow.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
+        desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
+            // Pick first screen source (entire screen)
+            if (sources.length > 0) {
+                callback({ video: sources[0] });
+            } else {
+                callback({});
+            }
+        }).catch(() => {
+            callback({});
+        });
+    });
+
+    // Grant media permissions (camera, mic)
+    mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+        const allowedPermissions = ['media', 'mediaKeySystem', 'notifications', 'fullscreen'];
+        callback(allowedPermissions.includes(permission));
+    });
     
     // Load the Django server URL  
     console.log('Loading URL:', SERVER_URL);
