@@ -144,6 +144,10 @@ document.addEventListener('keydown', function (e) {
 var $ = function (id) { return document.getElementById(id); };
 var go = function (p) { window.location.href = p; };
 var doLogout = function () {
+  // Clear Android service credentials on logout
+  if (window.AndroidBridge && AndroidBridge.logout) {
+    AndroidBridge.logout();
+  }
   localStorage.clear();
   sessionStorage.clear();
   // Clear service worker cache
@@ -279,6 +283,10 @@ function refreshAccessToken() {
   }).then(function (data) {
     S.token = data.access;
     localStorage.setItem('access_token', data.access);
+    // Update Android service with new token
+    if (window.AndroidBridge && AndroidBridge.saveCredentials && S.user) {
+      AndroidBridge.saveCredentials(data.access, S.user.id);
+    }
     return data.access;
   }).catch(function (e) { _refreshPromise = null; throw e; });
   return _refreshPromise;
@@ -325,6 +333,11 @@ function init() {
     .then(function (user) {
       if (!user) return;
       S.user = user;
+
+      // Save credentials to Android for background service
+      if (window.AndroidBridge && AndroidBridge.saveCredentials) {
+        AndroidBridge.saveCredentials(S.token, S.user.id);
+      }
 
       // Header mein user ka naam
       var fullName = ((S.user.first_name || '') + ' ' + (S.user.last_name || '')).trim() || S.user.username;

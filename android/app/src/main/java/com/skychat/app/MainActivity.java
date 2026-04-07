@@ -6,6 +6,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -46,7 +47,7 @@ public class MainActivity extends Activity {
     private PermissionRequest pendingPermissionRequest;
     private ValueCallback<Uri[]> fileUploadCallback;
     private int msgNotifId = 2000;
-    private boolean isInForeground = false;
+    public static boolean isAppInForeground = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -66,16 +67,6 @@ public class MainActivity extends Activity {
             startForegroundService(serviceIntent);
         } else {
             startService(serviceIntent);
-        }
-
-        // Request battery optimization exemption
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-            if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                Intent batteryIntent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                batteryIntent.setData(Uri.parse("package:" + getPackageName()));
-                startActivity(batteryIntent);
-            }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -204,6 +195,20 @@ public class MainActivity extends Activity {
 
     public class WebAppInterface {
         @JavascriptInterface
+        public void saveCredentials(String token, int userId) {
+            SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
+            prefs.edit().putString("token", token).putInt("user_id", userId).apply();
+            // Tell service to reconnect with new token
+            Intent svc = new Intent(MainActivity.this, KeepAliveService.class);
+            svc.setAction("RECONNECT");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(svc);
+            } else {
+                startService(svc);
+            }
+        }
+
+        @JavascriptInterface
         public void showCallNotification(String callerName, String callType) {
             showCallNotif(callerName, callType);
         }
@@ -239,7 +244,15 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public boolean isBackground() {
-            return !isInForeground;
+            return !isAppInForeground;
+        }
+
+        @JavascriptInterface
+        public void logout() {
+            SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
+            prefs.edit().clear().apply();
+            // Stop the service on logout
+            stopService(new Intent(MainActivity.this, KeepAliveService.class));
         }
     }
 
@@ -378,7 +391,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        isInForeground = true;
+        isAppInForeground = true;
         webView.onResume();
         // Cancel message notifications when user opens the app (like WhatsApp)
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -387,7 +400,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
-        isInForeground = false;
+        isAppInForeground = false;
         // Do NOT pause webView — keep WebSocket alive in background
         super.onPause();
     }
@@ -409,9 +422,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        // Stop the keep-alive service when app is destroyed
-        Intent serviceIntent = new Intent(this, KeepAliveService.class);
-        stopService(serviceIntent);
+        // Do NOT stop service — it should keep running for notifications
         super.onDestroy();
     }
 }
