@@ -11,6 +11,10 @@ import android.content.SharedPreferences;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.media.RingtoneManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -41,21 +45,29 @@ public class KeepAliveService extends Service {
     private static final String WS_BASE = "wss://sky-chat.duckdns.org/ws/chat/";
     public static final String PREFS_NAME = "skychat_prefs";
 
+    public static KeepAliveService instance = null;
+
     private PowerManager.WakeLock wakeLock;
     private OkHttpClient httpClient;
     private WebSocket webSocket;
     private Handler reconnectHandler;
     private boolean isRunning = false;
-    private int reconnectDelay = 3000; // start 3s, max 30s
+    private int reconnectDelay = 3000;
+    private ConnectivityManager.NetworkCallback networkCallback;
+
+    // Store last incoming call info for Decline button
+    private int lastCallId = -1;
+    private int lastCallerId = -1;
 
     @Override
     public void onCreate() {
         super.onCreate();
+        instance = this;
         Log.d(TAG, "Service onCreate");
         reconnectHandler = new Handler(Looper.getMainLooper());
         createChannels();
 
-        // Foreground notification
+        // Foreground notification (Android requirement — cannot be removed)
         Intent intent = new Intent(this, MainActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent pi = PendingIntent.getActivity(this, 0, intent,
@@ -63,6 +75,8 @@ public class KeepAliveService extends Service {
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("SkyChat")
+            .setContentText("Tap to open")
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setContentIntent(pi)
             .setOngoing(true)
@@ -76,8 +90,36 @@ public class KeepAliveService extends Service {
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "skychat:keepalive");
         wakeLock.acquire();
 
+        // Network change listener — reconnect when WiFi/data changes
+        registerNetworkCallback();
+
         isRunning = true;
         connectWebSocket();
+    }
+
+    private void registerNetworkCallback() {
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        NetworkRequest request = new NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build();
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onAvailable(Network network) {
+                Log.d(TAG, "Network available — reconnecting");
+                reconnectDelay = 1000;
+                reconnectHandler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isRunning && (webSocket == null)) connectWebSocket();
+                    }
+                }, 2000);
+            }
+            @Override
+            public void onLost(Network network) {
+                Log.d(TAG, "Network lost");
+            }
+        };
+        cm.registerNetworkCallback(request, networkCallback);
     }
 
     private void createChannels() {
@@ -209,6 +251,9 @@ public class KeepAliveService extends Service {
 
             switch (type) {
                 case "call_incoming":
+                    // Store call info for Decline button
+                    lastCallId = data.optInt("call_id", -1);
+                    lastCallerId = data.optInt("caller_id", -1);
                     showCallNotification(
                         data.optString("caller_name", "Unknown"),
                         data.optString("call_type", "voice").equals("video")
@@ -335,6 +380,26 @@ public class KeepAliveService extends Service {
         nm.cancel(CallActionReceiver.CALL_NOTIFICATION_ID);
     }
 
+    // Called from CallActionReceiver to reject call via WebSocket
+    public void rejectCallViaWs() {
+        cancelCallNotification();
+        if (webSocket != null && lastCallId != -1) {
+            try {
+                JSONObject msg = new JSONObject();
+                msg.put("type", "call_reject");
+                msg.put("call_id", lastCallId);
+                msg.put("caller_id", lastCallerId);
+                msg.put("reason", "rejected");
+                webSocket.send(msg.toString());
+                Log.d(TAG, "Sent call_reject via WS");
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to send reject: " + e.getMessage());
+            }
+        }
+        lastCallId = -1;
+        lastCallerId = -1;
+    }
+
     // Called from MainActivity when token is updated
     public void reconnect() {
         if (webSocket != null) {
@@ -360,33 +425,26 @@ public class KeepAliveService extends Service {
     @Override
     public void onDestroy() {
         Log.d(TAG, "Service destroyed");
+        instance = null;
         isRunning = false;
         reconnectHandler.removeCallbacksAndMessages(null);
         if (webSocket != null) webSocket.close(1000, "service stopped");
         if (httpClient != null) httpClient.dispatcher().cancelAll();
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
-
-        // Restart service (START_STICKY backup)
-        Intent restartIntent = new Intent(this, KeepAliveService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(restartIntent);
-        } else {
-            startService(restartIntent);
+        if (networkCallback != null) {
+            try {
+                ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+                cm.unregisterNetworkCallback(networkCallback);
+            } catch (Exception ignored) {}
         }
         super.onDestroy();
     }
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        // App swiped from recents — restart service
-        Log.d(TAG, "Task removed, restarting service");
-        Intent restartIntent = new Intent(this, KeepAliveService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(restartIntent);
-        } else {
-            startService(restartIntent);
-        }
+        Log.d(TAG, "Task removed");
         super.onTaskRemoved(rootIntent);
+        // START_STICKY handles restart automatically
     }
 
     @Override

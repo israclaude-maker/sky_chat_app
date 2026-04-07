@@ -19,16 +19,18 @@ public class CallActionReceiver extends BroadcastReceiver {
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         nm.cancel(CALL_NOTIFICATION_ID);
 
-        // Open app
-        Intent appIntent = new Intent(context, MainActivity.class);
-        appIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-
-        if (ACTION_ANSWER.equals(action)) {
-            appIntent.putExtra("call_action", "answer");
-        } else if (ACTION_DECLINE.equals(action)) {
-            appIntent.putExtra("call_action", "decline");
+        if (ACTION_DECLINE.equals(action)) {
+            // Reject call directly via service WebSocket — no need to open app
+            if (KeepAliveService.instance != null) {
+                KeepAliveService.instance.rejectCallViaWs();
+            }
+            return; // Don't open app
         }
 
+        // Answer — open app
+        Intent appIntent = new Intent(context, MainActivity.class);
+        appIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        appIntent.putExtra("call_action", "answer");
         context.startActivity(appIntent);
     }
 }
