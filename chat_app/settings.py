@@ -25,7 +25,7 @@ import os
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-1-#o5cmxwt@idwn@-@95zdap5mf4we#(cjwt3jb0g0m8&s@&-w')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'False') == 'True'
+DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = ['*']
 
@@ -49,6 +49,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'chat_app.middleware.SuppressCancelledErrorMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
@@ -196,3 +197,12 @@ CHANNEL_LAYERS = {
 AUTH_USER_MODEL = 'accounts.CustomUser'
 
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Web Push (VAPID) Configuration
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', 'BFwzOGrwPr-b4BkdXVwjAvVWaFKEe8Bv0iTAHUEWbPFvlTNPmOiwVY-VyKi3EX_sOxCnGlflgnBBKXSqPcKqrtw')
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '''-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgqz0r4EVAfvGCFP6O
+d92J890cZ4vO2EHcDunOeyJqS4qhRANCAARcMzhq8D6/m+AZHV1cIwL1VmhShHvA
+b9IkwB1BFmzxb5UzT5josFWPlciotxF/7DsQpxpX5YJwQSl0qj3Cqq7c
+-----END PRIVATE KEY-----''')
+VAPID_ADMIN_EMAIL = os.environ.get('VAPID_ADMIN_EMAIL', 'mailto:admin@skychat.app')

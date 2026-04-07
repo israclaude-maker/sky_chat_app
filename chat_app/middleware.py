@@ -2,8 +2,30 @@ from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
 from rest_framework_simplejwt.tokens import AccessToken
 from django.contrib.auth import get_user_model
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
+
+
+class SuppressCancelledErrorMiddleware:
+    """Suppress CancelledError noise from asgiref when clients disconnect."""
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        return self.get_response(request)
+
+    async def __acall__(self, request):
+        try:
+            response = await self.get_response(request)
+            return response
+        except asyncio.CancelledError:
+            logger.debug("Client disconnected (CancelledError suppressed)")
+            from django.http import HttpResponse
+            return HttpResponse(status=499)
 
 @database_sync_to_async
 def get_user_from_token(token_key):

@@ -24,7 +24,7 @@
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
     crossorigin="anonymous">
-<link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260406k">
+<link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260407n">
 </head>
 
 <body>
@@ -167,6 +167,13 @@
               </div>
             </div>
           </div>
+        </div>
+        <!-- GROUP CALL JOIN BANNER -->
+        <div class="gc-join-banner" id="gc-join-banner" style="display:none;">
+          <div class="gc-banner-info">
+            <span class="gc-banner-text" id="gc-banner-text"></span>
+          </div>
+          <button class="gc-banner-join-btn" onclick="joinGroupCallFromBanner()">Join</button>
         </div>
         <div id="msg-area"></div>
         <div class="typing-row" id="typing-row">
@@ -412,6 +419,9 @@
 
   <!-- OUTGOING CALL MODAL -->
   <div class="call-overlay" id="outgoing-call">
+    <button class="call-minimize-btn" onclick="minimizeCall()" title="Minimize">
+      <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
+    </button>
     <div class="call-card outgoing">
       <div class="call-ripple"></div>
       <img class="call-avatar" id="outgoing-av" src="" alt="">
@@ -431,6 +441,9 @@
 
   <!-- ONGOING CALL SCREEN -->
   <div class="call-overlay" id="ongoing-call">
+    <button class="call-minimize-btn" onclick="minimizeCall()" title="Minimize">
+      <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
+    </button>
     <div class="call-screen">
       <audio id="remote-audio" autoplay playsinline></audio>
       <video id="remote-video" autoplay playsinline></video>
@@ -447,6 +460,9 @@
         <button class="ctrl-btn" id="cam-btn" onclick="toggleCam()">
           <i class="fa-solid fa-video"></i>
         </button>
+        <button class="ctrl-btn" id="screen-btn" onclick="toggleScreenShare()" title="Share Screen">
+          <i class="fa-solid fa-display"></i>
+        </button>
         <button class="ctrl-btn end" onclick="endCall()">
           <i class="fa-solid fa-phone-slash"></i>
         </button>
@@ -457,46 +473,67 @@
     </div>
   </div>
 
-  <!-- GROUP CALL: INCOMING -->
-  <div class="call-overlay" id="gc-incoming-call">
-    <div class="call-card incoming">
-      <div class="call-ripple"></div>
-      <img class="call-avatar" id="gc-incoming-av" src="" alt="">
-      <div class="call-name" id="gc-incoming-name">Group</div>
-      <div class="call-type" id="gc-incoming-type">Group Call</div>
-      <div class="call-status" id="gc-incoming-caller"></div>
-      <div class="call-buttons">
-        <button class="call-btn reject" onclick="rejectGroupCall()"><i class="fa-solid fa-phone-slash"></i></button>
-        <button class="call-btn accept" onclick="acceptGroupCall()"><i class="fa-solid fa-phone"></i></button>
-      </div>
-    </div>
-  </div>
-
   <!-- GROUP CALL: ONGOING -->
   <div class="call-overlay" id="gc-ongoing-call">
+    <button class="call-minimize-btn" onclick="minimizeGroupCall()" title="Minimize">
+      <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
+    </button>
     <div class="gc-call-screen">
       <div class="gc-header">
         <div class="call-name" id="gc-call-name">Group Call</div>
         <div class="call-timer" id="gc-timer">00:00</div>
         <div class="gc-participant-count" id="gc-participant-count">1 participant</div>
       </div>
+      <div class="gc-waiting" id="gc-waiting">
+        <div class="gc-waiting-icon"><i class="fa-solid fa-users"></i></div>
+        <div class="gc-waiting-text">Waiting for others to join...</div>
+      </div>
       <div class="gc-video-grid" id="gc-video-grid">
         <!-- Local tile -->
-        <div class="gc-peer-tile gc-local-tile">
+        <div class="gc-peer-tile gc-local-tile" id="gc-local-tile">
           <video id="gc-local-video" autoplay playsinline muted></video>
+          <img class="gc-peer-av" id="gc-local-av" src="" alt="" style="display:none;">
           <div class="gc-peer-name">You</div>
         </div>
       </div>
       <div class="call-controls">
         <button class="ctrl-btn" id="gc-mic-btn" onclick="gcToggleMic()"><i class="fa-solid fa-microphone"></i></button>
         <button class="ctrl-btn" id="gc-cam-btn" onclick="gcToggleCam()"><i class="fa-solid fa-video"></i></button>
+        <button class="ctrl-btn" id="gc-screen-btn" onclick="gcToggleScreenShare()" title="Share Screen"><i class="fa-solid fa-display"></i></button>
         <button class="ctrl-btn end" onclick="leaveGroupCall()"><i class="fa-solid fa-phone-slash"></i></button>
       </div>
     </div>
   </div>
 
+  <!-- FLOATING PIP CALL WIDGET (WhatsApp style) -->
+  <div class="call-pip" id="call-pip" onclick="expandCall()">
+    <div class="call-pip-video-wrap" id="pip-video-wrap">
+      <video id="pip-remote-video" autoplay playsinline></video>
+    </div>
+    <div class="call-pip-voice" id="pip-voice-wrap">
+      <img class="call-pip-avatar" id="pip-avatar" src="" alt="">
+      <div class="call-pip-pulse"></div>
+    </div>
+    <div class="call-pip-info">
+      <div class="call-pip-name" id="pip-name">User</div>
+      <div class="call-pip-timer" id="pip-timer">00:00</div>
+    </div>
+    <div class="call-pip-actions">
+      <button class="call-pip-btn pip-end" onclick="event.stopPropagation(); pipEndCall();" title="End Call">
+        <i class="fa-solid fa-phone-slash"></i>
+      </button>
+      <button class="call-pip-btn pip-mic" id="pip-mic-btn" onclick="event.stopPropagation(); toggleMic(); updatePipMic();" title="Mute">
+        <i class="fa-solid fa-microphone"></i>
+      </button>
+      <button class="call-pip-btn pip-expand" onclick="event.stopPropagation(); expandCall();" title="Expand">
+        <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
+      </button>
+    </div>
+  </div>
+
   <!-- Ringtones -->
-  <audio id="ringtone" loop>
+  <audio id="ringtone" loop preload="auto">
+    <source src="{% static 'ringtone.wav' %}" type="audio/wav">
     <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
   </audio>
   <audio id="ringback">
@@ -562,7 +599,7 @@
   <!-- TOASTS -->
   <div id="toasts"></div>
 
-<script src="{% static 'js/chat.js' %}?v=20260406k"></script>
+<script src="{% static 'js/chat.js' %}?v=20260407n"></script>
 
   <!-- Service Worker Registration -->
   <script>

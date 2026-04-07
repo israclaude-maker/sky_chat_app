@@ -9,9 +9,10 @@ from django.db.models import Q
 from django.utils import timezone
 from datetime import timedelta
 
-from accounts.models import CustomUser
+from accounts.models import CustomUser, PushSubscription
 from accounts.serializers import UserSerializer, RegisterSerializer, LoginSerializer
 from chat.models import Conversation, Message, Group, GroupMembership, ConversationClear, Reaction, MessageReadReceipt
+from chat.push import send_push_notification
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
@@ -906,10 +907,12 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='call_history', permission_classes=[IsAuthenticated])
     def call_history(self, request):
-        """Get call history for current user - both made and received calls"""
-        from calls.models import Call
+        """Get call history for current user - both made and received calls, plus group calls"""
+        from calls.models import Call, GroupCall, GroupCallParticipant
         
         user = request.user
+        
+        # 1:1 calls
         calls = Call.objects.filter(
             Q(caller=user) | Q(receiver=user)
         ).order_by('-created_at')[:50]
@@ -921,6 +924,7 @@ class UserViewSet(viewsets.ModelViewSet):
             
             result.append({
                 'id': call.id,
+                'type': 'dm',
                 'is_outgoing': is_outgoing,
                 'call_type': call.call_type,
                 'status': call.status,
@@ -937,7 +941,59 @@ class UserViewSet(viewsets.ModelViewSet):
                 'ended_at': call.ended_at.isoformat() if call.ended_at else None,
             })
         
-        return Response(result)
+        # Group calls the user participated in
+        gc_participant_ids = GroupCallParticipant.objects.filter(
+            user=user
+        ).values_list('group_call_id', flat=True)
+        
+        group_calls = GroupCall.objects.filter(
+            id__in=gc_participant_ids
+        ).select_related('group', 'initiator').order_by('-started_at')[:50]
+        
+        for gc in group_calls:
+            participants = list(
+                GroupCallParticipant.objects.filter(group_call=gc)
+                .select_related('user')
+                .order_by('joined_at')
+            )
+            participant_list = []
+            for p in participants:
+                pname = f"{p.user.first_name} {p.user.last_name}".strip() or p.user.username
+                participant_list.append({
+                    'id': p.user.id,
+                    'name': pname,
+                    'profile_picture': p.user.profile_picture.url if p.user.profile_picture else None,
+                })
+            
+            duration = 0
+            if gc.ended_at and gc.started_at:
+                duration = int((gc.ended_at - gc.started_at).total_seconds())
+            
+            result.append({
+                'id': gc.id,
+                'type': 'group',
+                'call_type': gc.call_type,
+                'status': gc.status,
+                'group': {
+                    'id': gc.group.id,
+                    'name': gc.group.name,
+                    'group_picture': gc.group.group_picture.url if gc.group.group_picture else None,
+                },
+                'initiator': {
+                    'id': gc.initiator.id,
+                    'name': f"{gc.initiator.first_name} {gc.initiator.last_name}".strip() or gc.initiator.username,
+                },
+                'participants': participant_list,
+                'duration': duration,
+                'created_at': gc.started_at.isoformat(),
+                'started_at': gc.started_at.isoformat(),
+                'ended_at': gc.ended_at.isoformat() if gc.ended_at else None,
+            })
+        
+        # Sort combined list by created_at descending
+        result.sort(key=lambda x: x['created_at'], reverse=True)
+        
+        return Response(result[:50])
 
     # ================= PROFILE UPDATE =================
 
@@ -1120,6 +1176,31 @@ class UserViewSet(viewsets.ModelViewSet):
             })
         return Response(result)
 
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def vapid_public_key(self, request):
+        from django.conf import settings
+        return Response({'public_key': settings.VAPID_PUBLIC_KEY})
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def push_subscribe(self, request):
+        endpoint = request.data.get('endpoint')
+        p256dh = request.data.get('p256dh')
+        auth = request.data.get('auth')
+        if not endpoint or not p256dh or not auth:
+            return Response({'error': 'Missing fields'}, status=status.HTTP_400_BAD_REQUEST)
+        sub, created = PushSubscription.objects.update_or_create(
+            endpoint=endpoint,
+            defaults={'user': request.user, 'p256dh': p256dh, 'auth': auth}
+        )
+        return Response({'status': 'ok', 'created': created})
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def push_unsubscribe(self, request):
+        endpoint = request.data.get('endpoint')
+        if endpoint:
+            PushSubscription.objects.filter(user=request.user, endpoint=endpoint).delete()
+        return Response({'status': 'ok'})
+
 
 def index(request):
     return render(request, 'accounts/index.html')
@@ -1168,6 +1249,15 @@ class MessageViewSet(viewsets.ViewSet):
             file_name=file.name,
             file_size=file.size
         )
+
+        # Send push notification to receiver
+        sender_name = f"{user.first_name} {user.last_name}".strip() or user.username
+        file_label = {'image': '📷 Photo', 'video': '🎥 Video', 'audio': '🎵 Audio'}.get(msg_type, '📎 ' + file.name)
+        sender_pic = user.profile_picture.url if user.profile_picture else None
+        send_push_notification(
+            receiver.id, sender_name, file_label,
+            url='/chat/', icon=sender_pic, tag=f'skychat-dm-{user.id}'
+        )
         
         return Response({
             'id': msg.id,
@@ -1208,6 +1298,14 @@ class MessageViewSet(viewsets.ViewSet):
             file_name=file.name,
             file_size=file.size,
             content=str(duration)  # Store duration in content
+        )
+
+        # Send push notification to receiver
+        sender_name = f"{user.first_name} {user.last_name}".strip() or user.username
+        sender_pic = user.profile_picture.url if user.profile_picture else None
+        send_push_notification(
+            receiver.id, sender_name, '🎤 Voice message',
+            url='/chat/', icon=sender_pic, tag=f'skychat-dm-{user.id}'
         )
         
         return Response({

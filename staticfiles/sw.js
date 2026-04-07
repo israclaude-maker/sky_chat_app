@@ -1,5 +1,5 @@
 // SkyChat Service Worker - Final Version (No Cache for App Files)
-const CACHE_NAME = 'skychat-v4';
+const CACHE_NAME = 'skychat-v5';
 
 // Sirf icons aur fonts cache honge
 const STATIC_ASSETS = [
@@ -110,39 +110,78 @@ self.addEventListener('fetch', function(e) {
 // Push Notifications
 self.addEventListener('push', function(e) {
   console.log('[SW] Push received');
-  var data = { title: 'SkyChat', body: 'New message received' };
+  var data = { title: 'SkyChat', body: 'New message received', icon: '/static/icons/icon-192x192.png', tag: 'skychat', url: '/chat/' };
   if (e.data) {
     try { data = e.data.json(); }
     catch(err) { data.body = e.data.text(); }
   }
+
+  var isCall = (data.tag || '').indexOf('call') !== -1;
+
   e.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: '/static/icons/icon-192x192.png',
-      badge: '/static/icons/icon-72x72.png',
-      vibrate: [100, 50, 100],
-      data: { url: data.url || '/' },
-      actions: [
-        { action: 'open', title: 'Open' },
-        { action: 'close', title: 'Close' }
-      ]
+    // Check if any client (tab) is focused — skip notification if foreground
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clientList) {
+      var hasFocused = false;
+      for (var i = 0; i < clientList.length; i++) {
+        if (clientList[i].visibilityState === 'visible' && clientList[i].focused) {
+          hasFocused = true;
+          break;
+        }
+      }
+      // If app is focused, don't show push (in-app notification handles it)
+      // But ALWAYS show for calls (important)
+      if (hasFocused && !isCall) {
+        console.log('[SW] App is focused, skipping push notification');
+        return;
+      }
+
+      var options = {
+        body: data.body,
+        icon: data.icon || '/static/icons/icon-192x192.png',
+        badge: '/static/icons/icon-72x72.png',
+        vibrate: isCall ? [200, 100, 200, 100, 200, 100, 200] : [100, 50, 100],
+        data: { url: data.url || '/chat/' },
+        tag: data.tag || 'skychat',
+        renotify: true,
+        requireInteraction: isCall,
+        silent: false,
+        actions: isCall
+          ? [{ action: 'answer', title: 'Answer' }, { action: 'decline', title: 'Decline' }]
+          : [{ action: 'open', title: 'Open' }, { action: 'close', title: 'Dismiss' }]
+      };
+
+      return self.registration.showNotification(data.title, options);
     })
   );
 });
 
 // Notification Click
 self.addEventListener('notificationclick', function(e) {
-  console.log('[SW] Notification click');
+  console.log('[SW] Notification click', e.action);
   e.notification.close();
-  if (e.action === 'close') return;
+  if (e.action === 'close' || e.action === 'decline') return;
+
+  var targetUrl = (e.notification.data && e.notification.data.url) || '/chat/';
+
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then(function(clientList) {
+        // Find existing SkyChat tab and focus it
         for (var i = 0; i < clientList.length; i++) {
-          if ('focus' in clientList[i]) return clientList[i].focus();
+          var client = clientList[i];
+          if (client.url.indexOf('/chat') !== -1 && 'focus' in client) {
+            return client.focus();
+          }
         }
+        // No existing tab — find any tab on same origin
+        for (var i = 0; i < clientList.length; i++) {
+          if ('navigate' in clientList[i]) {
+            return clientList[i].navigate(targetUrl).then(function(c) { return c.focus(); });
+          }
+        }
+        // No tabs at all — open new
         if (clients.openWindow) {
-          return clients.openWindow(e.notification.data.url || '/');
+          return clients.openWindow(targetUrl);
         }
       })
   );
