@@ -564,6 +564,10 @@ function connectGlobalWS() {
         handleCallCancelled(data);
       } else if (data.type === 'call_ice') {
         handleIceCandidate(data);
+      } else if (data.type === 'screen_offer') {
+        handleScreenOffer(data);
+      } else if (data.type === 'screen_answer') {
+        handleScreenAnswer(data);
       }
       // Group call events
       else if (data.type === 'group_call_notify') {
@@ -3466,6 +3470,7 @@ var CallState = {
   remoteProfilePic: null,
   isScreenSharing: false,
   screenStream: null,
+  screenSender: null,
   originalVideoTrack: null
 };
 
@@ -3721,8 +3726,25 @@ function doInitWebRTC(isInitiator, callback) {
       var remoteVideo = $('remote-video');
       if (remoteVideo) {
         remoteVideo.srcObject = e.streams[0];
+        remoteVideo.style.display = 'block';
         remoteVideo.play().catch(function (err) { console.log('Video play error:', err); });
       }
+      // Track ended = screen share stopped on remote
+      e.track.onended = function () {
+        if (CallState.callType === 'voice' && remoteVideo) {
+          remoteVideo.style.display = 'none';
+        }
+      };
+      e.track.onmute = function () {
+        if (CallState.callType === 'voice' && remoteVideo) {
+          remoteVideo.style.display = 'none';
+        }
+      };
+      e.track.onunmute = function () {
+        if (remoteVideo) {
+          remoteVideo.style.display = 'block';
+        }
+      };
     }
   };;
 
@@ -3978,6 +4000,37 @@ function flushPendingIceCandidates() {
   pendingIceCandidates = [];
 }
 
+// Screen share renegotiation handlers
+function handleScreenOffer(data) {
+  if (!CallState.pc || !CallState.isInCall) return;
+  console.log('Received screen_offer, renegotiating...');
+  CallState.pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
+    .then(function () {
+      return CallState.pc.createAnswer();
+    })
+    .then(function (answer) {
+      return CallState.pc.setLocalDescription(answer);
+    })
+    .then(function () {
+      var ws = S.globalWs || S.ws;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'screen_answer',
+          target_user_id: CallState.remoteUserId,
+          sdp: CallState.pc.localDescription
+        }));
+      }
+    })
+    .catch(function (err) { console.error('Screen offer handling error:', err); });
+}
+
+function handleScreenAnswer(data) {
+  if (!CallState.pc || !CallState.isInCall) return;
+  console.log('Received screen_answer');
+  CallState.pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
+    .catch(function (err) { console.error('Screen answer error:', err); });
+}
+
 function showOngoingCall() {
   // If minimized, update PIP state instead of showing full overlay
   if (callMinimized && minimizedOverlayId === 'outgoing-call') {
@@ -4097,9 +4150,22 @@ function startScreenShare() {
     if (videoSender) {
       CallState.originalVideoTrack = videoSender.track;
       videoSender.replaceTrack(screenTrack);
-    } else if (CallState.pc.addTrack) {
-      // Voice call — no video sender exists, add one
-      CallState.pc.addTrack(screenTrack, screenStream);
+    } else {
+      // Voice call — no video sender exists, add track + renegotiate
+      CallState.screenSender = CallState.pc.addTrack(screenTrack, screenStream);
+      // Renegotiate so remote side receives the new video track
+      CallState.pc.createOffer().then(function (offer) {
+        return CallState.pc.setLocalDescription(offer);
+      }).then(function () {
+        var ws = S.globalWs || S.ws;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'screen_offer',
+            target_user_id: CallState.remoteUserId,
+            sdp: CallState.pc.localDescription
+          }));
+        }
+      }).catch(function (err) { console.error('Screen share renegotiation error:', err); });
     }
     // Show screen in local video preview
     var localVid = $('local-video');
@@ -4121,7 +4187,7 @@ function stopScreenShare() {
     CallState.screenStream.getTracks().forEach(function (t) { t.stop(); });
     CallState.screenStream = null;
   }
-  // Restore camera track
+  // Restore camera track or remove screen sender
   if (CallState.originalVideoTrack && CallState.pc) {
     var senders = CallState.pc.getSenders();
     for (var i = 0; i < senders.length; i++) {
@@ -4130,6 +4196,22 @@ function stopScreenShare() {
         break;
       }
     }
+  } else if (CallState.screenSender && CallState.pc) {
+    // Voice call — remove the screen track and renegotiate
+    try { CallState.pc.removeTrack(CallState.screenSender); } catch (e) {}
+    CallState.screenSender = null;
+    CallState.pc.createOffer().then(function (offer) {
+      return CallState.pc.setLocalDescription(offer);
+    }).then(function () {
+      var ws = S.globalWs || S.ws;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'screen_offer',
+          target_user_id: CallState.remoteUserId,
+          sdp: CallState.pc.localDescription
+        }));
+      }
+    }).catch(function (err) { console.error('Screen stop renegotiation error:', err); });
   }
   // Restore local video preview
   var localVid = $('local-video');
@@ -4221,6 +4303,7 @@ function resetCallState() {
   CallState.remoteProfilePic = null;
   CallState.isScreenSharing = false;
   CallState.screenStream = null;
+  CallState.screenSender = null;
   CallState.originalVideoTrack = null;
 }
 

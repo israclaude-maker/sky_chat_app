@@ -120,6 +120,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.handle_group_call_ice(data)
         elif message_type == 'group_call_leave':
             await self.handle_group_call_leave(data)
+        elif message_type == 'screen_offer':
+            await self.handle_screen_offer(data)
+        elif message_type == 'screen_answer':
+            await self.handle_screen_answer(data)
 
     async def handle_chat_message(self, data):
         message = data['message']
@@ -571,6 +575,43 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             'type': 'call_ice',
             'candidate': event['candidate'],
+        }))
+
+    # Screen share renegotiation
+    async def handle_screen_offer(self, data):
+        target_user_id = data.get('target_user_id')
+        sdp = data.get('sdp')
+        await self.channel_layer.group_send(
+            f'user_{target_user_id}',
+            {
+                'type': 'screen_offer',
+                'sdp': sdp,
+                'sender_id': self.user.id,
+            }
+        )
+
+    async def handle_screen_answer(self, data):
+        target_user_id = data.get('target_user_id')
+        sdp = data.get('sdp')
+        await self.channel_layer.group_send(
+            f'user_{target_user_id}',
+            {
+                'type': 'screen_answer',
+                'sdp': sdp,
+            }
+        )
+
+    async def screen_offer(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'screen_offer',
+            'sdp': event['sdp'],
+            'sender_id': event['sender_id'],
+        }))
+
+    async def screen_answer(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'screen_answer',
+            'sdp': event['sdp'],
         }))
 
     # ═══════════════════════════════════════════════════════════════
