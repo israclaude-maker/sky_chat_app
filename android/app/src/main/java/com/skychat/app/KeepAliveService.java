@@ -243,6 +243,10 @@ public class KeepAliveService extends Service {
             // Always handle call cancel events
             if ("call_ended".equals(type) || "call_cancelled".equals(type) || "call_rejected".equals(type)) {
                 cancelCallNotification();
+                lastCallId = -1;
+                lastCallerId = -1;
+                // Tell WebView to stop ringtone
+                stopRingtoneInWebView();
                 return;
             }
 
@@ -378,6 +382,24 @@ public class KeepAliveService extends Service {
     private void cancelCallNotification() {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.cancel(CallActionReceiver.CALL_NOTIFICATION_ID);
+    }
+
+    private void stopRingtoneInWebView() {
+        // Run JS in WebView to stop ringtone + hide call overlay
+        if (MainActivity.webViewRef != null) {
+            final android.webkit.WebView wv = MainActivity.webViewRef;
+            new Handler(Looper.getMainLooper()).post(new Runnable() {
+                @Override
+                public void run() {
+                    wv.evaluateJavascript(
+                        "(function(){" +
+                        "  if(typeof stopAllRingtones==='function') stopAllRingtones();" +
+                        "  if(typeof hideAllCallOverlays==='function') hideAllCallOverlays();" +
+                        "  if(typeof cleanupCall==='function') cleanupCall();" +
+                        "})()", null);
+                }
+            });
+        }
     }
 
     // Called from CallActionReceiver to reject call via WebSocket

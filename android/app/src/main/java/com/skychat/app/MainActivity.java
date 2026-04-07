@@ -44,6 +44,7 @@ public class MainActivity extends Activity {
     private static final String CHANNEL_CALL = "skychat_calls";
     private static final String CHANNEL_MSG = "skychat_messages";
     private WebView webView;
+    public static WebView webViewRef = null; // for service to inject JS
     private PermissionRequest pendingPermissionRequest;
     private ValueCallback<Uri[]> fileUploadCallback;
     private int msgNotifId = 2000;
@@ -99,6 +100,7 @@ public class MainActivity extends Activity {
         }
 
         webView = findViewById(com.skychat.app.R.id.webView);
+        webViewRef = webView;
         webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null);
 
         WebSettings settings = webView.getSettings();
