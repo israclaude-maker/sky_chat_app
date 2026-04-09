@@ -120,6 +120,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.handle_group_call_ice(data)
         elif message_type == 'group_call_leave':
             await self.handle_group_call_leave(data)
+        elif message_type == 'gc_screen_toggle':
+            await self.handle_gc_screen_toggle(data)
         elif message_type == 'screen_offer':
             await self.handle_screen_offer(data)
         elif message_type == 'screen_answer':
@@ -737,6 +739,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         )
 
+    async def handle_gc_screen_toggle(self, data):
+        target_id = data.get('target_user_id')
+        await self.channel_layer.group_send(
+            f'user_{target_id}',
+            {
+                'type': 'gc_screen_toggle_relay',
+                'group_call_id': data.get('group_call_id'),
+                'from_user_id': self.user.id,
+                'sharing': data.get('sharing', False),
+            }
+        )
+
     async def handle_group_call_leave(self, data):
         gc_id = data.get('group_call_id')
         await self.mark_group_call_left(gc_id)
@@ -820,6 +834,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'group_call_id': event['group_call_id'],
             'from_user_id': event['from_user_id'],
             'candidate': event['candidate'],
+        }))
+
+    async def gc_screen_toggle_relay(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'gc_screen_toggle',
+            'group_call_id': event['group_call_id'],
+            'from_user_id': event['from_user_id'],
+            'sharing': event['sharing'],
         }))
 
     async def group_call_user_left(self, event):
