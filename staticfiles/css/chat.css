@@ -1128,14 +1128,21 @@ body {
 }
 /* Group call screen share tile */
 .gc-peer-tile.screen-share {
-  aspect-ratio: auto;
-  width: 100% !important;
+  aspect-ratio: auto !important;
+  width: calc(100% - 16px) !important;
+  max-width: 100% !important;
   height: auto !important;
-  min-height: 200px;
-  max-height: 80vh;
+  min-height: 300px;
+  max-height: 75vh;
+  flex-shrink: 0;
+  order: -1; /* show screen share first in grid */
 }
 .gc-peer-tile.screen-share video {
   object-fit: contain;
+  width: 100%;
+  height: 100%;
+  min-height: 300px;
+  max-height: 75vh;
   transition: transform 0.1s ease;
   transform-origin: center center;
   cursor: grab;
@@ -2310,7 +2317,7 @@ body {
 .gc-video-grid {
   flex: 1; display: flex; flex-wrap: wrap; gap: 8px; padding: 12px;
   align-items: center; justify-content: center; align-content: center;
-  overflow: hidden;
+  overflow: auto;
 }
 .gc-peer-tile {
   background: #16213e; border-radius: 14px; overflow: hidden;
