@@ -1115,9 +1115,33 @@ body {
   height: 100%;
   object-fit: cover;
   background: #0f172a;
+  transition: transform 0.1s ease;
+  transform-origin: center center;
+  cursor: grab;
 }
 #remote-video.screen-share {
   object-fit: contain;
+  cursor: grab;
+}
+#remote-video.screen-share:active {
+  cursor: grabbing;
+}
+/* Group call screen share tile */
+.gc-peer-tile.screen-share {
+  aspect-ratio: auto;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 200px;
+  max-height: 80vh;
+}
+.gc-peer-tile.screen-share video {
+  object-fit: contain;
+  transition: transform 0.1s ease;
+  transform-origin: center center;
+  cursor: grab;
+}
+.gc-peer-tile.screen-share video:active {
+  cursor: grabbing;
 }
 
 #local-video {

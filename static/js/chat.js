@@ -4732,21 +4732,44 @@ function playGcRingtone() {
   var ringtone = $('ringtone');
   console.log('[GC-DEBUG] playGcRingtone called, ringtone element=', ringtone, 'readyState=', ringtone ? ringtone.readyState : 'N/A');
   if (!ringtone) return;
-  // If audio not loaded yet, load it first
+
+  // Force volume and unmute
+  ringtone.muted = false;
+  ringtone.volume = 1.0;
+  ringtone.loop = true;
+
+  function tryPlay() {
+    ringtone.currentTime = 0;
+    var p = ringtone.play();
+    if (p && p.then) {
+      p.then(function() {
+        console.log('[GC-DEBUG] Ringtone playing OK');
+      }).catch(function (e) {
+        console.warn('[GC-DEBUG] Ringtone play FAILED:', e);
+        // Vibrate as fallback if audio blocked
+        if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 500]);
+        // Retry on next user interaction
+        function retryOnInteract() {
+          ringtone.play().catch(function () {});
+          document.removeEventListener('click', retryOnInteract, true);
+          document.removeEventListener('touchstart', retryOnInteract, true);
+        }
+        document.addEventListener('click', retryOnInteract, true);
+        document.addEventListener('touchstart', retryOnInteract, true);
+      });
+    }
+  }
+
   if (ringtone.readyState < 2) {
     ringtone.load();
     ringtone.addEventListener('canplay', function onCanPlay() {
       ringtone.removeEventListener('canplay', onCanPlay);
-      ringtone.currentTime = 0;
-      ringtone.play().then(function() {
-        console.log('[GC-DEBUG] Ringtone playing OK (after load)');
-      }).catch(function (e) { console.warn('[GC-DEBUG] Ringtone play FAILED after load:', e); });
+      tryPlay();
     }, { once: true });
+    // Also tryPlay in case canplay already fired
+    setTimeout(tryPlay, 300);
   } else {
-    ringtone.currentTime = 0;
-    ringtone.play().then(function() {
-      console.log('[GC-DEBUG] Ringtone playing OK');
-    }).catch(function (e) { console.warn('[GC-DEBUG] Ringtone play FAILED:', e); });
+    tryPlay();
   }
 }
 
@@ -5578,6 +5601,146 @@ document.head.appendChild(notifStyle);
 
 // Initialize on load
 requestNotificationPermission();
+
+// ═══ SCREEN SHARE ZOOM/PAN ═══
+(function initScreenShareZoom() {
+  var zoomState = {};
+
+  function getState(el) {
+    if (!zoomState[el.id]) zoomState[el.id] = { scale: 1, panX: 0, panY: 0, dragging: false, startX: 0, startY: 0 };
+    return zoomState[el.id];
+  }
+
+  function applyTransform(el, st) {
+    el.style.transform = 'scale(' + st.scale + ') translate(' + st.panX + 'px, ' + st.panY + 'px)';
+  }
+
+  function resetZoom(el) {
+    var st = getState(el);
+    st.scale = 1; st.panX = 0; st.panY = 0;
+    el.style.transform = '';
+  }
+
+  // Wheel zoom on any screen-share video
+  document.addEventListener('wheel', function (e) {
+    var el = e.target.closest('video');
+    if (!el) return;
+    // Only zoom on screen share videos
+    var isScreenShare = el.id === 'remote-video' && el.classList.contains('screen-share');
+    var isGcScreenShare = el.closest('.gc-peer-tile.screen-share');
+    if (!isScreenShare && !isGcScreenShare) return;
+
+    e.preventDefault();
+    if (!el.id) el.id = 'zv-' + Date.now();
+    var st = getState(el);
+    var delta = e.deltaY > 0 ? -0.15 : 0.15;
+    st.scale = Math.max(1, Math.min(5, st.scale + delta));
+    if (st.scale <= 1) { st.panX = 0; st.panY = 0; }
+    applyTransform(el, st);
+  }, { passive: false });
+
+  // Touch pinch-to-zoom
+  var pinchDist = 0;
+  document.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 2) return;
+    var el = e.target.closest('video');
+    if (!el) return;
+    var isScreenShare = el.id === 'remote-video' && el.classList.contains('screen-share');
+    var isGcScreenShare = el.closest('.gc-peer-tile.screen-share');
+    if (!isScreenShare && !isGcScreenShare) return;
+    pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function (e) {
+    if (e.touches.length !== 2 || !pinchDist) return;
+    var el = e.target.closest('video');
+    if (!el) return;
+    var isScreenShare = el.id === 'remote-video' && el.classList.contains('screen-share');
+    var isGcScreenShare = el.closest('.gc-peer-tile.screen-share');
+    if (!isScreenShare && !isGcScreenShare) return;
+
+    e.preventDefault();
+    if (!el.id) el.id = 'zv-' + Date.now();
+    var st = getState(el);
+    var newDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    var ratio = newDist / pinchDist;
+    st.scale = Math.max(1, Math.min(5, st.scale * ratio));
+    if (st.scale <= 1) { st.panX = 0; st.panY = 0; }
+    pinchDist = newDist;
+    applyTransform(el, st);
+  }, { passive: false });
+
+  document.addEventListener('touchend', function () { pinchDist = 0; });
+
+  // Mouse drag to pan when zoomed
+  document.addEventListener('mousedown', function (e) {
+    var el = e.target.closest('video');
+    if (!el) return;
+    var isScreenShare = el.id === 'remote-video' && el.classList.contains('screen-share');
+    var isGcScreenShare = el.closest('.gc-peer-tile.screen-share');
+    if (!isScreenShare && !isGcScreenShare) return;
+    if (!el.id) el.id = 'zv-' + Date.now();
+    var st = getState(el);
+    if (st.scale <= 1) return;
+    st.dragging = true;
+    st.startX = e.clientX - st.panX;
+    st.startY = e.clientY - st.panY;
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', function (e) {
+    var el = e.target.closest('video');
+    if (!el || !el.id) return;
+    var st = zoomState[el.id];
+    if (!st || !st.dragging) return;
+    st.panX = e.clientX - st.startX;
+    st.panY = e.clientY - st.startY;
+    applyTransform(el, st);
+  });
+
+  document.addEventListener('mouseup', function () {
+    Object.keys(zoomState).forEach(function (k) { zoomState[k].dragging = false; });
+  });
+
+  // Double-click to reset zoom
+  document.addEventListener('dblclick', function (e) {
+    var el = e.target.closest('video');
+    if (!el) return;
+    var isScreenShare = el.id === 'remote-video' && el.classList.contains('screen-share');
+    var isGcScreenShare = el.closest('.gc-peer-tile.screen-share');
+    if (!isScreenShare && !isGcScreenShare) return;
+    resetZoom(el);
+  });
+
+  // Touch pan (single finger when zoomed)
+  var touchPanEl = null;
+  document.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 1) return;
+    var el = e.target.closest('video');
+    if (!el) return;
+    var isScreenShare = el.id === 'remote-video' && el.classList.contains('screen-share');
+    var isGcScreenShare = el.closest('.gc-peer-tile.screen-share');
+    if (!isScreenShare && !isGcScreenShare) return;
+    if (!el.id) el.id = 'zv-' + Date.now();
+    var st = getState(el);
+    if (st.scale <= 1) return;
+    touchPanEl = el;
+    st.startX = e.touches[0].clientX - st.panX;
+    st.startY = e.touches[0].clientY - st.panY;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function (e) {
+    if (!touchPanEl || e.touches.length !== 1) return;
+    var st = zoomState[touchPanEl.id];
+    if (!st || st.scale <= 1) return;
+    e.preventDefault();
+    st.panX = e.touches[0].clientX - st.startX;
+    st.panY = e.touches[0].clientY - st.panY;
+    applyTransform(touchPanEl, st);
+  }, { passive: false });
+
+  document.addEventListener('touchend', function () { touchPanEl = null; });
+})();
 
 // Unlock audio playback on first user interaction (required by browsers)
 (function unlockAudio() {
