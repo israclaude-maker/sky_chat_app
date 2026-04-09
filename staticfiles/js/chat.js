@@ -5743,16 +5743,32 @@ requestNotificationPermission();
 })();
 
 // ═══ ANDROID WEBVIEW SCREEN SHARE POLYFILL ═══
-(function() {
-  if (!window.AndroidBridge || typeof window.AndroidBridge.startScreenCapture !== 'function') return;
-  if (!HTMLCanvasElement.prototype.captureStream) return;
+(function initAndroidScreenShare() {
+  // Check if we're in Android WebView with our bridge
+  var bridge = window.AndroidBridge;
+  if (!bridge) {
+    console.log('[ScreenShare] No AndroidBridge found — not in APK');
+    return;
+  }
+
+  // Check if bridge has screen capture method (don't use typeof, Java bridge methods may not report as function)
+  var hasCapture = false;
+  try { bridge.startScreenCapture; hasCapture = true; } catch(e) {}
+  if (!hasCapture) {
+    console.log('[ScreenShare] AndroidBridge has no startScreenCapture');
+    return;
+  }
+
+  console.log('[ScreenShare] Android APK detected, setting up screen share polyfill');
 
   var _screenCanvas = null;
   var _screenCtx = null;
   var _screenStream = null;
+  var _frameCount = 0;
 
   window._onScreenFrame = function(dataUrl) {
-    if (!_screenCanvas) return;
+    if (!_screenCanvas || !_screenCtx) return;
+    _frameCount++;
     var img = new Image();
     img.onload = function() {
       if (!_screenCanvas || !_screenCtx) return;
@@ -5762,67 +5778,107 @@ requestNotificationPermission();
       }
       _screenCtx.drawImage(img, 0, 0);
       // Resolve getDisplayMedia promise on first frame
-      if (window._screenResolve) {
-        window._screenResolve(_screenStream);
+      if (window._screenResolve && _screenStream) {
+        console.log('[ScreenShare] First frame received, resolving stream');
+        var resolve = window._screenResolve;
         window._screenResolve = null;
         window._screenReject = null;
+        resolve(_screenStream);
       }
     };
     img.src = dataUrl;
   };
 
   window._stopAndroidScreenCapture = function() {
+    console.log('[ScreenShare] Stopping capture, frames sent: ' + _frameCount);
     _screenCanvas = null;
     _screenCtx = null;
     _screenStream = null;
-    try { window.AndroidBridge.stopScreenCapture(); } catch(e) {}
+    _frameCount = 0;
+    try { bridge.stopScreenCapture(); } catch(e) { console.warn('[ScreenShare] stopScreenCapture error:', e); }
   };
 
-  // Override getDisplayMedia for Android WebView
-  navigator.mediaDevices.getDisplayMedia = function() {
-    return new Promise(function(resolve, reject) {
-      _screenCanvas = document.createElement('canvas');
-      _screenCanvas.width = 540;
-      _screenCanvas.height = 960;
-      _screenCtx = _screenCanvas.getContext('2d');
-      _screenCtx.fillStyle = '#000';
-      _screenCtx.fillRect(0, 0, 540, 960);
+  // Override getDisplayMedia
+  var _origGetDisplayMedia = navigator.mediaDevices.getDisplayMedia;
 
-      _screenStream = _screenCanvas.captureStream(15);
+  navigator.mediaDevices.getDisplayMedia = function(constraints) {
+    console.log('[ScreenShare] getDisplayMedia called on Android');
 
-      // Override track.stop() to also stop native capture
-      var videoTrack = _screenStream.getVideoTracks()[0];
-      if (videoTrack) {
-        var origStop = videoTrack.stop.bind(videoTrack);
-        videoTrack.stop = function() {
-          origStop();
-          window._stopAndroidScreenCapture();
-        };
+    // Check if captureStream is available
+    var testCanvas = document.createElement('canvas');
+    if (typeof testCanvas.captureStream !== 'function') {
+      console.warn('[ScreenShare] captureStream not available, trying fallback');
+      // Try original if it exists
+      if (_origGetDisplayMedia) {
+        return _origGetDisplayMedia.call(navigator.mediaDevices, constraints);
       }
+      return Promise.reject(new Error('Screen sharing not supported on this device'));
+    }
 
-      window._screenResolve = resolve;
-      window._screenReject = function(err) {
-        _screenCanvas = null;
-        _screenCtx = null;
-        _screenStream = null;
-        reject(new Error(err || 'Screen capture denied'));
-        window._screenResolve = null;
-        window._screenReject = null;
-      };
+    return new Promise(function(resolve, reject) {
+      try {
+        _frameCount = 0;
+        _screenCanvas = document.createElement('canvas');
+        _screenCanvas.width = 540;
+        _screenCanvas.height = 960;
+        _screenCtx = _screenCanvas.getContext('2d');
+        // Draw initial black frame so captureStream has content
+        _screenCtx.fillStyle = '#000';
+        _screenCtx.fillRect(0, 0, 540, 960);
+        _screenCtx.fillStyle = '#fff';
+        _screenCtx.font = '20px sans-serif';
+        _screenCtx.textAlign = 'center';
+        _screenCtx.fillText('Starting screen share...', 270, 480);
 
-      // Trigger native screen capture permission dialog
-      window.AndroidBridge.startScreenCapture();
+        _screenStream = _screenCanvas.captureStream(10);
+        console.log('[ScreenShare] Canvas stream created, tracks:', _screenStream.getVideoTracks().length);
 
-      // Timeout after 30s
-      setTimeout(function() {
-        if (window._screenReject) {
-          window._screenReject('timeout');
+        // Override track.stop() to also stop native capture
+        var videoTrack = _screenStream.getVideoTracks()[0];
+        if (videoTrack) {
+          var origStop = videoTrack.stop.bind(videoTrack);
+          videoTrack.stop = function() {
+            console.log('[ScreenShare] Track.stop() called');
+            origStop();
+            window._stopAndroidScreenCapture();
+            // Fire ended event
+            if (typeof videoTrack.onended === 'function') {
+              videoTrack.onended();
+            }
+          };
         }
-      }, 30000);
+
+        window._screenResolve = resolve;
+        window._screenReject = function(err) {
+          console.warn('[ScreenShare] Rejected:', err);
+          _screenCanvas = null;
+          _screenCtx = null;
+          _screenStream = null;
+          window._screenResolve = null;
+          window._screenReject = null;
+          reject(new Error(err || 'Screen capture denied'));
+        };
+
+        // Trigger native screen capture permission dialog
+        console.log('[ScreenShare] Calling native startScreenCapture...');
+        bridge.startScreenCapture();
+
+        // Timeout after 15s
+        setTimeout(function() {
+          if (window._screenReject) {
+            console.warn('[ScreenShare] Timed out waiting for frames');
+            window._screenReject('timeout');
+          }
+        }, 15000);
+
+      } catch(e) {
+        console.error('[ScreenShare] Setup error:', e);
+        reject(e);
+      }
     });
   };
 
-  console.log('[SkyChat] Android screen share polyfill ready');
+  console.log('[ScreenShare] Android polyfill installed successfully');
 })();
 
 // Unlock audio playback on first user interaction (required by browsers)

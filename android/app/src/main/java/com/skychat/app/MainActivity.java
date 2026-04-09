@@ -26,6 +26,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.util.Log;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
@@ -325,17 +326,27 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void startScreenCapture() {
+            Log.d("SkyChat", "startScreenCapture called from JS");
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    projectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-                    startActivityForResult(projectionManager.createScreenCaptureIntent(), SCREEN_CAPTURE_REQUEST);
+                    try {
+                        projectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+                        startActivityForResult(projectionManager.createScreenCaptureIntent(), SCREEN_CAPTURE_REQUEST);
+                    } catch (Exception e) {
+                        Log.e("SkyChat", "startScreenCapture error", e);
+                        if (webView != null) {
+                            webView.evaluateJavascript(
+                                "if(window._screenReject){window._screenReject('Launch failed');}", null);
+                        }
+                    }
                 }
             });
         }
 
         @JavascriptInterface
         public void stopScreenCapture() {
+            Log.d("SkyChat", "stopScreenCapture called from JS");
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
@@ -454,6 +465,7 @@ public class MainActivity extends Activity {
 
         // Screen capture result
         if (requestCode == SCREEN_CAPTURE_REQUEST) {
+            Log.d("SkyChat", "Screen capture result: " + resultCode);
             if (resultCode == RESULT_OK && data != null) {
                 // Start foreground service first (required for Android 10+)
                 Intent svc = new Intent(MainActivity.this, ScreenCaptureService.class);
@@ -462,23 +474,30 @@ public class MainActivity extends Activity {
                 } else {
                     startService(svc);
                 }
-                // Delay slightly to ensure service is running
+                // Delay to ensure service is running before creating projection
                 final int rc = resultCode;
                 final Intent rd = new Intent(data);
                 webView.postDelayed(new Runnable() {
                     @Override
                     public void run() {
                         try {
+                            Log.d("SkyChat", "Creating MediaProjection...");
                             mediaProjection = projectionManager.getMediaProjection(rc, rd);
-                            startFrameCapture();
+                            if (mediaProjection != null) {
+                                Log.d("SkyChat", "MediaProjection created OK");
+                                startFrameCapture();
+                            } else {
+                                Log.e("SkyChat", "MediaProjection is null!");
+                                webView.evaluateJavascript(
+                                    "if(window._screenReject){window._screenReject('projection null');}", null);
+                            }
                         } catch (Exception e) {
-                            e.printStackTrace();
+                            Log.e("SkyChat", "MediaProjection error", e);
                             webView.evaluateJavascript(
-                                "if(window._screenReject){window._screenReject('Failed to start');window._screenReject=null;}",
-                                null);
+                                "if(window._screenReject){window._screenReject('Failed: " + e.getMessage().replace("'", "") + "');}", null);
                         }
                     }
-                }, 300);
+                }, 500);
             } else {
                 // User denied
                 if (webView != null) {
@@ -564,11 +583,15 @@ public class MainActivity extends Activity {
 
     // ── Screen Capture Methods ──
     private void startFrameCapture() {
-        if (mediaProjection == null) return;
+        if (mediaProjection == null) {
+            Log.e("SkyChat", "mediaProjection is null!");
+            return;
+        }
+        Log.d("SkyChat", "Starting frame capture...");
         DisplayMetrics metrics = getResources().getDisplayMetrics();
         float ratio = (float) metrics.heightPixels / metrics.widthPixels;
-        int w = 540;
-        int h = (int) (540 * ratio);
+        int w = 480;
+        int h = (int) (480 * ratio);
         int dpi = metrics.densityDpi;
 
         imageReader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2);
@@ -579,6 +602,7 @@ public class MainActivity extends Activity {
 
         isCapturing = true;
         frameHandler = new Handler(Looper.getMainLooper());
+        Log.d("SkyChat", "Frame capture started, resolution: " + w + "x" + h);
         scheduleFrameCapture();
     }
 
@@ -617,16 +641,31 @@ public class MainActivity extends Activity {
                 bitmap = cropped;
             }
 
+            // Scale down further for performance
+            if (bitmap.getWidth() > 480) {
+                float s = 480f / bitmap.getWidth();
+                Bitmap scaled = Bitmap.createScaledBitmap(bitmap, 480, (int)(bitmap.getHeight() * s), false);
+                bitmap.recycle();
+                bitmap = scaled;
+            }
+
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 35, baos);
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 30, baos);
             bitmap.recycle();
 
-            String base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
-            webView.evaluateJavascript(
-                "if(window._onScreenFrame){window._onScreenFrame('data:image/jpeg;base64," + base64 + "');}",
-                null);
+            final String base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (webView != null) {
+                        webView.evaluateJavascript(
+                            "if(window._onScreenFrame){window._onScreenFrame('data:image/jpeg;base64," + base64 + "');}",
+                            null);
+                    }
+                }
+            });
         } catch (Exception e) {
-            // Skip this frame
+            Log.e("SkyChat", "captureFrame error", e);
         } finally {
             image.close();
         }
