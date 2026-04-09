@@ -590,8 +590,8 @@ public class MainActivity extends Activity {
         Log.d("SkyChat", "Starting frame capture...");
         DisplayMetrics metrics = getResources().getDisplayMetrics();
         float ratio = (float) metrics.heightPixels / metrics.widthPixels;
-        int w = 480;
-        int h = (int) (480 * ratio);
+        int w = 720;
+        int h = (int) (720 * ratio);
         int dpi = metrics.densityDpi;
 
         imageReader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2);
@@ -614,7 +614,7 @@ public class MainActivity extends Activity {
                 captureFrame();
                 scheduleFrameCapture();
             }
-        }, 100); // ~10fps
+        }, 80); // ~12fps
     }
 
     private void captureFrame() {
@@ -641,16 +641,16 @@ public class MainActivity extends Activity {
                 bitmap = cropped;
             }
 
-            // Scale down further for performance
-            if (bitmap.getWidth() > 480) {
-                float s = 480f / bitmap.getWidth();
-                Bitmap scaled = Bitmap.createScaledBitmap(bitmap, 480, (int)(bitmap.getHeight() * s), false);
+            // Scale down for performance
+            if (bitmap.getWidth() > 720) {
+                float s = 720f / bitmap.getWidth();
+                Bitmap scaled = Bitmap.createScaledBitmap(bitmap, 720, (int)(bitmap.getHeight() * s), false);
                 bitmap.recycle();
                 bitmap = scaled;
             }
 
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 30, baos);
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 55, baos);
             bitmap.recycle();
 
             final String base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);

@@ -5819,18 +5819,18 @@ requestNotificationPermission();
       try {
         _frameCount = 0;
         _screenCanvas = document.createElement('canvas');
-        _screenCanvas.width = 540;
-        _screenCanvas.height = 960;
+        _screenCanvas.width = 720;
+        _screenCanvas.height = 1280;
         _screenCtx = _screenCanvas.getContext('2d');
         // Draw initial black frame so captureStream has content
         _screenCtx.fillStyle = '#000';
-        _screenCtx.fillRect(0, 0, 540, 960);
+        _screenCtx.fillRect(0, 0, 720, 1280);
         _screenCtx.fillStyle = '#fff';
-        _screenCtx.font = '20px sans-serif';
+        _screenCtx.font = '24px sans-serif';
         _screenCtx.textAlign = 'center';
-        _screenCtx.fillText('Starting screen share...', 270, 480);
+        _screenCtx.fillText('Starting screen share...', 360, 640);
 
-        _screenStream = _screenCanvas.captureStream(10);
+        _screenStream = _screenCanvas.captureStream(15);
         console.log('[ScreenShare] Canvas stream created, tracks:', _screenStream.getVideoTracks().length);
 
         // Override track.stop() to also stop native capture
