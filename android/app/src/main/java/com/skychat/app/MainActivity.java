@@ -11,15 +11,26 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.PixelFormat;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
 import android.media.AudioAttributes;
+import android.media.Image;
+import android.media.ImageReader;
 import android.media.RingtoneManager;
+import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
+import android.util.Base64;
+import android.util.DisplayMetrics;
 import android.view.KeyEvent;
 import android.view.Window;
 import android.view.WindowManager;
@@ -36,11 +47,15 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.app.Person;
 import androidx.core.graphics.drawable.IconCompat;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
+
 public class MainActivity extends Activity {
 
     private static final String APP_URL = "https://sky-chat.duckdns.org/chat/";
     private static final int PERMISSION_REQUEST_CODE = 1001;
     private static final int FILE_CHOOSER_REQUEST = 1002;
+    private static final int SCREEN_CAPTURE_REQUEST = 1003;
     private static final String CHANNEL_CALL = "skychat_calls";
     private static final String CHANNEL_MSG = "skychat_messages";
     private WebView webView;
@@ -50,6 +65,14 @@ public class MainActivity extends Activity {
     private int msgNotifId = 2000;
     public static boolean isAppInForeground = false;
     private String pendingCallAction = null; // saved until WebView is ready
+
+    // Screen capture fields
+    private MediaProjectionManager projectionManager;
+    private MediaProjection mediaProjection;
+    private VirtualDisplay virtualDisplay;
+    private ImageReader imageReader;
+    private Handler frameHandler;
+    private boolean isCapturing = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -301,6 +324,27 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void startScreenCapture() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    projectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+                    startActivityForResult(projectionManager.createScreenCaptureIntent(), SCREEN_CAPTURE_REQUEST);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void stopScreenCapture() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    stopCapture();
+                }
+            });
+        }
+
+        @JavascriptInterface
         public void logout() {
             SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
             prefs.edit().clear().apply();
@@ -407,6 +451,46 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+
+        // Screen capture result
+        if (requestCode == SCREEN_CAPTURE_REQUEST) {
+            if (resultCode == RESULT_OK && data != null) {
+                // Start foreground service first (required for Android 10+)
+                Intent svc = new Intent(MainActivity.this, ScreenCaptureService.class);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(svc);
+                } else {
+                    startService(svc);
+                }
+                // Delay slightly to ensure service is running
+                final int rc = resultCode;
+                final Intent rd = new Intent(data);
+                webView.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            mediaProjection = projectionManager.getMediaProjection(rc, rd);
+                            startFrameCapture();
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                            webView.evaluateJavascript(
+                                "if(window._screenReject){window._screenReject('Failed to start');window._screenReject=null;}",
+                                null);
+                        }
+                    }
+                }, 300);
+            } else {
+                // User denied
+                if (webView != null) {
+                    webView.evaluateJavascript(
+                        "if(window._screenReject){window._screenReject('denied');window._screenReject=null;}",
+                        null);
+                }
+            }
+            return;
+        }
+
+        // File chooser result
         if (requestCode == FILE_CHOOSER_REQUEST && fileUploadCallback != null) {
             Uri[] results = null;
             if (resultCode == RESULT_OK && data != null && data.getDataString() != null) {
@@ -473,7 +557,101 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        // Do NOT stop service — it should keep running for notifications
+        stopCapture();
+        // Do NOT stop KeepAlive service — it should keep running for notifications
         super.onDestroy();
+    }
+
+    // ── Screen Capture Methods ──
+    private void startFrameCapture() {
+        if (mediaProjection == null) return;
+        DisplayMetrics metrics = getResources().getDisplayMetrics();
+        float ratio = (float) metrics.heightPixels / metrics.widthPixels;
+        int w = 540;
+        int h = (int) (540 * ratio);
+        int dpi = metrics.densityDpi;
+
+        imageReader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2);
+        virtualDisplay = mediaProjection.createVirtualDisplay(
+            "SkyChat-Screen", w, h, dpi,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            imageReader.getSurface(), null, null);
+
+        isCapturing = true;
+        frameHandler = new Handler(Looper.getMainLooper());
+        scheduleFrameCapture();
+    }
+
+    private void scheduleFrameCapture() {
+        if (!isCapturing || frameHandler == null) return;
+        frameHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                captureFrame();
+                scheduleFrameCapture();
+            }
+        }, 100); // ~10fps
+    }
+
+    private void captureFrame() {
+        if (!isCapturing || imageReader == null || webView == null) return;
+        Image image = imageReader.acquireLatestImage();
+        if (image == null) return;
+
+        try {
+            Image.Plane[] planes = image.getPlanes();
+            ByteBuffer buffer = planes[0].getBuffer();
+            int pixelStride = planes[0].getPixelStride();
+            int rowStride = planes[0].getRowStride();
+            int imgW = image.getWidth();
+            int imgH = image.getHeight();
+            int rowPadding = rowStride - pixelStride * imgW;
+
+            Bitmap bitmap = Bitmap.createBitmap(
+                imgW + rowPadding / pixelStride, imgH, Bitmap.Config.ARGB_8888);
+            bitmap.copyPixelsFromBuffer(buffer);
+
+            if (rowPadding > 0) {
+                Bitmap cropped = Bitmap.createBitmap(bitmap, 0, 0, imgW, imgH);
+                bitmap.recycle();
+                bitmap = cropped;
+            }
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 35, baos);
+            bitmap.recycle();
+
+            String base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+            webView.evaluateJavascript(
+                "if(window._onScreenFrame){window._onScreenFrame('data:image/jpeg;base64," + base64 + "');}",
+                null);
+        } catch (Exception e) {
+            // Skip this frame
+        } finally {
+            image.close();
+        }
+    }
+
+    private void stopCapture() {
+        isCapturing = false;
+        if (frameHandler != null) {
+            frameHandler.removeCallbacksAndMessages(null);
+            frameHandler = null;
+        }
+        if (virtualDisplay != null) {
+            virtualDisplay.release();
+            virtualDisplay = null;
+        }
+        if (imageReader != null) {
+            imageReader.close();
+            imageReader = null;
+        }
+        if (mediaProjection != null) {
+            mediaProjection.stop();
+            mediaProjection = null;
+        }
+        try {
+            stopService(new Intent(this, ScreenCaptureService.class));
+        } catch (Exception e) { /* ignore */ }
     }
 }

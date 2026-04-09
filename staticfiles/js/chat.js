@@ -5742,6 +5742,89 @@ requestNotificationPermission();
   document.addEventListener('touchend', function () { touchPanEl = null; });
 })();
 
+// ═══ ANDROID WEBVIEW SCREEN SHARE POLYFILL ═══
+(function() {
+  if (!window.AndroidBridge || typeof window.AndroidBridge.startScreenCapture !== 'function') return;
+  if (!HTMLCanvasElement.prototype.captureStream) return;
+
+  var _screenCanvas = null;
+  var _screenCtx = null;
+  var _screenStream = null;
+
+  window._onScreenFrame = function(dataUrl) {
+    if (!_screenCanvas) return;
+    var img = new Image();
+    img.onload = function() {
+      if (!_screenCanvas || !_screenCtx) return;
+      if (_screenCanvas.width !== img.width || _screenCanvas.height !== img.height) {
+        _screenCanvas.width = img.width;
+        _screenCanvas.height = img.height;
+      }
+      _screenCtx.drawImage(img, 0, 0);
+      // Resolve getDisplayMedia promise on first frame
+      if (window._screenResolve) {
+        window._screenResolve(_screenStream);
+        window._screenResolve = null;
+        window._screenReject = null;
+      }
+    };
+    img.src = dataUrl;
+  };
+
+  window._stopAndroidScreenCapture = function() {
+    _screenCanvas = null;
+    _screenCtx = null;
+    _screenStream = null;
+    try { window.AndroidBridge.stopScreenCapture(); } catch(e) {}
+  };
+
+  // Override getDisplayMedia for Android WebView
+  navigator.mediaDevices.getDisplayMedia = function() {
+    return new Promise(function(resolve, reject) {
+      _screenCanvas = document.createElement('canvas');
+      _screenCanvas.width = 540;
+      _screenCanvas.height = 960;
+      _screenCtx = _screenCanvas.getContext('2d');
+      _screenCtx.fillStyle = '#000';
+      _screenCtx.fillRect(0, 0, 540, 960);
+
+      _screenStream = _screenCanvas.captureStream(15);
+
+      // Override track.stop() to also stop native capture
+      var videoTrack = _screenStream.getVideoTracks()[0];
+      if (videoTrack) {
+        var origStop = videoTrack.stop.bind(videoTrack);
+        videoTrack.stop = function() {
+          origStop();
+          window._stopAndroidScreenCapture();
+        };
+      }
+
+      window._screenResolve = resolve;
+      window._screenReject = function(err) {
+        _screenCanvas = null;
+        _screenCtx = null;
+        _screenStream = null;
+        reject(new Error(err || 'Screen capture denied'));
+        window._screenResolve = null;
+        window._screenReject = null;
+      };
+
+      // Trigger native screen capture permission dialog
+      window.AndroidBridge.startScreenCapture();
+
+      // Timeout after 30s
+      setTimeout(function() {
+        if (window._screenReject) {
+          window._screenReject('timeout');
+        }
+      }, 30000);
+    });
+  };
+
+  console.log('[SkyChat] Android screen share polyfill ready');
+})();
+
 // Unlock audio playback on first user interaction (required by browsers)
 (function unlockAudio() {
   var audioIds = ['ringtone', 'ringback', 'callend'];
