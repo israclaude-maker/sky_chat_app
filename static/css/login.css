@@ -150,6 +150,27 @@ body {
 }
 
 /* Form Groups */
+.form-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.form-row .form-group {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+@media (max-width: 500px) {
+  .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+  .form-row .form-group {
+    margin-bottom: 20px;
+  }
+}
+
 .form-group {
   margin-bottom: 20px;
 }
