@@ -463,6 +463,9 @@
         <button class="ctrl-btn" id="screen-btn" onclick="toggleScreenShare()" title="Share Screen">
           <i class="fa-solid fa-display"></i>
         </button>
+        <button class="ctrl-btn" id="add-user-btn" onclick="openAddUserToCall()" title="Add User">
+          <i class="fa-solid fa-user-plus"></i>
+        </button>
         <button class="ctrl-btn end" onclick="endCall()">
           <i class="fa-solid fa-phone-slash"></i>
         </button>
@@ -500,8 +503,26 @@
         <button class="ctrl-btn" id="gc-mic-btn" onclick="gcToggleMic()"><i class="fa-solid fa-microphone"></i></button>
         <button class="ctrl-btn" id="gc-cam-btn" onclick="gcToggleCam()"><i class="fa-solid fa-video"></i></button>
         <button class="ctrl-btn" id="gc-screen-btn" onclick="gcToggleScreenShare()" title="Share Screen"><i class="fa-solid fa-display"></i></button>
+        <button class="ctrl-btn" id="gc-add-user-btn" onclick="openAddUserToCall()" title="Add User"><i class="fa-solid fa-user-plus"></i></button>
         <button class="ctrl-btn end" onclick="leaveGroupCall()"><i class="fa-solid fa-phone-slash"></i></button>
       </div>
+    </div>
+  </div>
+
+  <!-- ADD USER TO CALL MODAL -->
+  <div class="add-user-call-overlay" id="add-user-call-overlay" style="display:none;">
+    <div class="add-user-call-modal">
+      <div class="add-user-call-header">
+        <h3><i class="fa-solid fa-user-plus"></i> Add to Call</h3>
+        <button class="add-user-call-close" onclick="closeAddUserToCall()">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="add-user-call-search">
+        <i class="fa-solid fa-search"></i>
+        <input type="text" id="add-user-call-input" placeholder="Search users..." oninput="filterAddUserList()">
+      </div>
+      <div class="add-user-call-list" id="add-user-call-list"></div>
     </div>
   </div>
 
@@ -525,8 +546,8 @@
       <button class="call-pip-btn pip-mic" id="pip-mic-btn" onclick="event.stopPropagation(); toggleMic(); updatePipMic();" title="Mute">
         <i class="fa-solid fa-microphone"></i>
       </button>
-      <button class="call-pip-btn pip-expand" onclick="event.stopPropagation(); expandCall();" title="Expand">
-        <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
+      <button class="call-pip-btn pip-cam" id="pip-cam-btn" onclick="event.stopPropagation(); pipToggleCam();" title="Camera">
+        <i class="fa-solid fa-video"></i>
       </button>
     </div>
   </div>

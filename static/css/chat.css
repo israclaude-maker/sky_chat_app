@@ -1425,6 +1425,15 @@ body {
   transform: scale(1.1);
   box-shadow: 0 6px 16px rgba(239, 68, 68, 0.5);
 }
+.call-pip-btn.pip-cam {
+  background: rgba(255,255,255,0.15);
+}
+.call-pip-btn.pip-cam:hover {
+  background: rgba(255,255,255,0.25);
+}
+.call-pip-btn.pip-cam.muted {
+  background: #ff4444;
+}
 .call-pip-btn.pip-mic {
   background: rgba(255,255,255,0.15);
 }
@@ -1434,12 +1443,126 @@ body {
 .call-pip-btn.pip-mic.muted {
   background: rgba(239, 68, 68, 0.7);
 }
-.call-pip-btn.pip-expand {
-  background: rgba(255,255,255,0.15);
+
+/* Add User to Call Modal */
+.add-user-call-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
 }
-.call-pip-btn.pip-expand:hover {
-  background: rgba(255,255,255,0.25);
+.add-user-call-modal {
+  background: var(--bg-primary, #1f2c33);
+  border-radius: 16px;
+  width: 380px;
+  max-width: 90vw;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
 }
+.add-user-call-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.add-user-call-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #e9edef;
+}
+.add-user-call-header h3 i {
+  margin-right: 8px;
+  color: #25d366;
+}
+.add-user-call-close {
+  background: none;
+  border: none;
+  color: #aaa;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+.add-user-call-close:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+.add-user-call-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.add-user-call-search i {
+  color: #8696a0;
+  font-size: 14px;
+}
+.add-user-call-search input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: #e9edef;
+  font-size: 14px;
+  outline: none;
+}
+.add-user-call-search input::placeholder {
+  color: #8696a0;
+}
+.add-user-call-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 8px 0;
+}
+.add-user-call-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.add-user-call-item:hover {
+  background: rgba(255,255,255,0.06);
+}
+.add-user-call-item img {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.add-user-call-info {
+  flex: 1;
+  min-width: 0;
+}
+.add-user-call-name {
+  color: #e9edef;
+  font-size: 14px;
+  font-weight: 500;
+}
+.add-user-call-username {
+  color: #8696a0;
+  font-size: 12px;
+}
+.add-user-call-icon {
+  color: #25d366;
+  font-size: 16px;
+}
+.add-user-call-empty {
+  text-align: center;
+  color: #8696a0;
+  padding: 30px;
+  font-size: 14px;
+}
+
 
 /* Draggable PIP */
 .call-pip.dragging {

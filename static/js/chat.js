@@ -4506,6 +4506,99 @@ function updatePipMic() {
   btn.innerHTML = muted ? '<i class="fa-solid fa-microphone-slash"></i>' : '<i class="fa-solid fa-microphone"></i>';
 }
 
+function pipToggleCam() {
+  if (minimizedOverlayId === 'gc-ongoing-call') {
+    gcToggleCam();
+  } else {
+    toggleCam();
+  }
+  updatePipCam();
+}
+
+function updatePipCam() {
+  var btn = $('pip-cam-btn');
+  if (!btn) return;
+  var camOff = minimizedOverlayId === 'gc-ongoing-call' ? GC.isCamOff : CallState.isCamOff;
+  btn.classList.toggle('muted', camOff);
+  btn.innerHTML = camOff ? '<i class="fa-solid fa-video-slash"></i>' : '<i class="fa-solid fa-video"></i>';
+}
+
+// ═══ ADD USER TO CALL ═══
+function openAddUserToCall() {
+  var overlay = $('add-user-call-overlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  $('add-user-call-input').value = '';
+  renderAddUserList(S.allUsers || []);
+  $('add-user-call-input').focus();
+}
+
+function closeAddUserToCall() {
+  var overlay = $('add-user-call-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+function filterAddUserList() {
+  var q = ($('add-user-call-input').value || '').toLowerCase();
+  var filtered = (S.allUsers || []).filter(function (u) {
+    var name = ((u.first_name || '') + ' ' + (u.last_name || '') + ' ' + u.username).toLowerCase();
+    return name.indexOf(q) !== -1;
+  });
+  renderAddUserList(filtered);
+}
+
+function renderAddUserList(users) {
+  var list = $('add-user-call-list');
+  if (!list) return;
+  // Filter out self and already-in-call user
+  var excludeIds = [S.user.id];
+  if (CallState.isInCall && CallState.remoteUserId) excludeIds.push(CallState.remoteUserId);
+  if (GC.active && GC.peers) {
+    Object.keys(GC.peers).forEach(function (id) { excludeIds.push(parseInt(id)); });
+  }
+  var filtered = users.filter(function (u) { return excludeIds.indexOf(u.id) === -1; });
+
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="add-user-call-empty">No users found</div>';
+    return;
+  }
+  var html = '';
+  filtered.forEach(function (u) {
+    var pic = u.profile_picture || seed(dname(u));
+    html += '<div class="add-user-call-item" onclick="inviteUserToCall(' + u.id + ')">' +
+      '<img src="' + pic + '" alt="">' +
+      '<div class="add-user-call-info">' +
+        '<div class="add-user-call-name">' + dname(u) + '</div>' +
+        '<div class="add-user-call-username">@' + u.username + '</div>' +
+      '</div>' +
+      '<i class="fa-solid fa-phone add-user-call-icon"></i>' +
+    '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function inviteUserToCall(userId) {
+  var callType = 'voice';
+  if (GC.active) {
+    callType = GC.callType || 'voice';
+  } else if (CallState.isInCall) {
+    callType = CallState.callType || 'voice';
+  }
+  var ws = S.globalWs || S.ws;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'call_initiate',
+      call_type: callType,
+      receiver_id: userId,
+      sdp: null
+    }));
+    toast('Call invitation sent!', 's');
+  } else {
+    toast('Connection error', 'e');
+  }
+  closeAddUserToCall();
+}
+
 // Draggable PIP
 function makePipDraggable(pip) {
   if (pip._dragInit) return;
