@@ -129,14 +129,22 @@ async function handleSignup(event) {
 
   const firstName = document.getElementById('signup-firstname').value.trim();
   const lastName = document.getElementById('signup-lastname').value.trim();
+  const email = document.getElementById('signup-email').value.trim();
   const username = document.getElementById('signup-username').value.trim();
   const password = document.getElementById('signup-password').value;
   const password2 = document.getElementById('signup-password2').value;
   const button = event.target.querySelector('button[type="submit"]');
 
   // Validation
-  if (!firstName || !username || !password || !password2) {
+  if (!firstName || !email || !username || !password || !password2) {
     showMessage('signup-message', 'Please fill in all required fields', 'error');
+    return;
+  }
+
+  // Basic email validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    showMessage('signup-message', 'Please enter a valid email address', 'error');
     return;
   }
 
@@ -167,6 +175,7 @@ async function handleSignup(event) {
       body: JSON.stringify({
         first_name: firstName,
         last_name: lastName,
+        email: email,
         username: username,
         password: password,
         password2: password2
@@ -184,7 +193,9 @@ async function handleSignup(event) {
       }, 1500);
     } else {
       let errorMsg = 'Registration failed';
-      if (data.username) {
+      if (data.email) {
+        errorMsg = Array.isArray(data.email) ? data.email[0] : data.email;
+      } else if (data.username) {
         errorMsg = 'Username already exists';
       } else if (data.detail) {
         errorMsg = data.detail;
