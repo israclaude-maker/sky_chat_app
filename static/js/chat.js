@@ -3603,6 +3603,14 @@ function startCall(type) {
     var ringback = $('ringback');
     if (ringback) ringback.play().catch(function () { });
 
+    // ── Ring timeout: auto-cancel after 45 seconds if not answered ──
+    CallState.ringTimeout = setTimeout(function () {
+      if (!CallState.isInCall && CallState.remoteUserId) {
+        cancelCall();
+        toast(CallState.remoteUserName + ' is not answering', 'e');
+      }
+    }, 45000);
+
     // Get user media with better constraints
     var constraints = {
       audio: {
@@ -3825,6 +3833,14 @@ function handleIncomingCall(data) {
   var ringtone = $('ringtone');
   if (ringtone) ringtone.play().catch(function () { });
 
+  // ── Ring timeout: auto-dismiss incoming call after 45 seconds ──
+  CallState.ringTimeout = setTimeout(function () {
+    if (!CallState.isInCall && CallState.callId) {
+      rejectCall();
+      toast('Missed call from ' + CallState.remoteUserName, 'e');
+    }
+  }, 45000);
+
   // Store SDP for later
   CallState.remoteSdp = data.sdp;
 }
@@ -3832,6 +3848,7 @@ function handleIncomingCall(data) {
 function acceptCall() {
   hideAllCallOverlays();
   stopAllRingtones();
+  if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
   if (window.AndroidBridge) AndroidBridge.cancelCallNotification();
 
   CallState.isInCall = true;
@@ -3943,6 +3960,7 @@ function endCall() {
 
 function handleCallAccepted(data) {
   stopAllRingtones();
+  if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
   CallState.isInCall = true;
   CallState.callId = data.call_id;
 
@@ -3958,13 +3976,16 @@ function handleCallAccepted(data) {
 }
 function handleCallRejected(data) {
   stopAllRingtones();
+  if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
   hideAllCallOverlays();
   cleanupCall();
   playEndSound();
 
   var reason = data.reason || 'rejected';
   if (reason === 'busy') {
-    toast('User is busy', 'e');
+    toast('User is busy on another call', 'e');
+  } else if (reason === 'no_answer') {
+    toast('No answer', 'e');
   } else {
     toast('Call declined', 'e');
   }
@@ -4309,6 +4330,7 @@ function playEndSound() {
 }
 
 function cleanupCall() {
+  if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
   if (CallState.screenStream) {
     CallState.screenStream.getTracks().forEach(function (t) { t.stop(); });
   }
@@ -4344,6 +4366,7 @@ function resetCallState() {
   CallState.screenStream = null;
   CallState.screenSender = null;
   CallState.originalVideoTrack = null;
+  if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -54,10 +54,15 @@ public class KeepAliveService extends Service {
     private boolean isRunning = false;
     private int reconnectDelay = 3000;
     private ConnectivityManager.NetworkCallback networkCallback;
+    private boolean isConnecting = false;
+    private Handler aliveCheckHandler;
+    private static final long ALIVE_CHECK_INTERVAL = 120000; // 2 minutes
 
     // Store last incoming call info for Decline button
     private int lastCallId = -1;
     private int lastCallerId = -1;
+    private Runnable callTimeoutRunnable = null;
+    private static final long CALL_RING_TIMEOUT = 45000; // 45 seconds
 
     @Override
     public void onCreate() {
@@ -67,7 +72,7 @@ public class KeepAliveService extends Service {
         reconnectHandler = new Handler(Looper.getMainLooper());
         createChannels();
 
-        // Foreground notification (Android requirement — cannot be removed)
+        // Foreground notification (Android requirement — made as hidden as possible)
         Intent intent = new Intent(this, MainActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent pi = PendingIntent.getActivity(this, 0, intent,
@@ -75,12 +80,12 @@ public class KeepAliveService extends Service {
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("SkyChat")
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setContentIntent(pi)
             .setOngoing(true)
             .setSilent(true)
             .setShowWhen(false)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
             .build();
 
         startForeground(1, notification);
@@ -94,7 +99,25 @@ public class KeepAliveService extends Service {
         registerNetworkCallback();
 
         isRunning = true;
+        aliveCheckHandler = new Handler(Looper.getMainLooper());
         connectWebSocket();
+        startAliveCheck();
+    }
+
+    // Periodically check that WebSocket is alive, reconnect if not
+    private void startAliveCheck() {
+        aliveCheckHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!isRunning) return;
+                if (webSocket == null && !isConnecting) {
+                    Log.d(TAG, "Alive check: WS dead, reconnecting...");
+                    reconnectDelay = 1000;
+                    connectWebSocket();
+                }
+                if (isRunning) aliveCheckHandler.postDelayed(this, ALIVE_CHECK_INTERVAL);
+            }
+        }, ALIVE_CHECK_INTERVAL);
     }
 
     private void registerNetworkCallback() {
@@ -164,6 +187,11 @@ public class KeepAliveService extends Service {
     }
 
     private void connectWebSocket() {
+        if (isConnecting) {
+            Log.d(TAG, "Already connecting, skip");
+            return;
+        }
+
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String token = prefs.getString("token", null);
         String refreshToken = prefs.getString("refresh_token", null);
@@ -179,6 +207,8 @@ public class KeepAliveService extends Service {
             }, 5000);
             return;
         }
+
+        isConnecting = true;
 
         // Always refresh token before connecting to ensure it's valid
         if (refreshToken != null && !refreshToken.isEmpty()) {
@@ -243,7 +273,7 @@ public class KeepAliveService extends Service {
     }
 
     private void doConnect(String token, int userId) {
-        if (!isRunning) return;
+        if (!isRunning) { isConnecting = false; return; }
 
         String url = WS_BASE + "user_" + userId + "/?token=" + token;
         Log.d(TAG, "Connecting WS: user_" + userId);
@@ -259,7 +289,7 @@ public class KeepAliveService extends Service {
         }
 
         httpClient = new OkHttpClient.Builder()
-            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
             .pingInterval(25, TimeUnit.SECONDS)
             .build();
 
@@ -269,6 +299,7 @@ public class KeepAliveService extends Service {
             @Override
             public void onOpen(WebSocket ws, Response response) {
                 Log.d(TAG, "WebSocket CONNECTED");
+                isConnecting = false;
                 reconnectDelay = 3000;
             }
 
@@ -282,6 +313,7 @@ public class KeepAliveService extends Service {
                 Log.d(TAG, "WS closing: " + code + " " + reason);
                 ws.close(1000, null);
                 webSocket = null;
+                isConnecting = false;
                 scheduleReconnect();
             }
 
@@ -289,6 +321,7 @@ public class KeepAliveService extends Service {
             public void onFailure(WebSocket ws, Throwable t, Response response) {
                 Log.e(TAG, "WS failed: " + (t != null ? t.getMessage() : "unknown"));
                 webSocket = null;
+                isConnecting = false;
                 scheduleReconnect();
             }
         });
@@ -315,10 +348,17 @@ public class KeepAliveService extends Service {
             // Always handle call cancel events
             if ("call_ended".equals(type) || "call_cancelled".equals(type) || "call_rejected".equals(type)) {
                 cancelCallNotification();
+                clearCallTimeout();
                 lastCallId = -1;
                 lastCallerId = -1;
                 // Tell WebView to stop ringtone
                 stopRingtoneInWebView();
+                return;
+            }
+
+            // Clear call timeout if call was accepted
+            if ("call_accepted".equals(type)) {
+                clearCallTimeout();
                 return;
             }
 
@@ -335,6 +375,7 @@ public class KeepAliveService extends Service {
                         data.optString("call_type", "voice").equals("video")
                             ? "Incoming Video Call" : "Incoming Voice Call"
                     );
+                    startCallTimeout();
                     break;
 
                 case "group_call_notify": {
@@ -342,6 +383,7 @@ public class KeepAliveService extends Service {
                     String cName = safeStr(data, "caller_name", "Someone");
                     String cType = data.optString("call_type", "voice").equals("video") ? "Video" : "Voice";
                     showCallNotification(gName, cName + " \u2014 " + cType + " Call");
+                    startCallTimeout();
                     break;
                 }
 
@@ -456,6 +498,42 @@ public class KeepAliveService extends Service {
         nm.cancel(CallActionReceiver.CALL_NOTIFICATION_ID);
     }
 
+    // ── Call ring timeout: auto-dismiss after 45 seconds ──
+    private void startCallTimeout() {
+        clearCallTimeout();
+        callTimeoutRunnable = new Runnable() {
+            @Override
+            public void run() {
+                Log.d(TAG, "Call ring timeout — auto-dismissing");
+                cancelCallNotification();
+                // Reject the call via WebSocket so caller gets notified
+                if (webSocket != null && lastCallId != -1) {
+                    try {
+                        JSONObject msg = new JSONObject();
+                        msg.put("type", "call_reject");
+                        msg.put("call_id", lastCallId);
+                        msg.put("caller_id", lastCallerId);
+                        msg.put("reason", "no_answer");
+                        webSocket.send(msg.toString());
+                    } catch (Exception e) {
+                        Log.e(TAG, "Failed to send timeout reject: " + e.getMessage());
+                    }
+                }
+                lastCallId = -1;
+                lastCallerId = -1;
+                stopRingtoneInWebView();
+            }
+        };
+        reconnectHandler.postDelayed(callTimeoutRunnable, CALL_RING_TIMEOUT);
+    }
+
+    private void clearCallTimeout() {
+        if (callTimeoutRunnable != null) {
+            reconnectHandler.removeCallbacks(callTimeoutRunnable);
+            callTimeoutRunnable = null;
+        }
+    }
+
     private void stopRingtoneInWebView() {
         // Run JS in WebView to stop ringtone + hide call overlay
         if (MainActivity.webViewRef != null) {
@@ -496,6 +574,7 @@ public class KeepAliveService extends Service {
 
     // Called from MainActivity when token is updated
     public void reconnect() {
+        isConnecting = false;
         if (webSocket != null) {
             try { webSocket.close(1000, "reconnecting"); } catch (Exception ignored) {}
             webSocket = null;
@@ -523,7 +602,9 @@ public class KeepAliveService extends Service {
         Log.d(TAG, "Service destroyed");
         instance = null;
         isRunning = false;
+        isConnecting = false;
         reconnectHandler.removeCallbacksAndMessages(null);
+        if (aliveCheckHandler != null) aliveCheckHandler.removeCallbacksAndMessages(null);
         if (webSocket != null) webSocket.close(1000, "service stopped");
         if (httpClient != null) httpClient.dispatcher().cancelAll();
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
