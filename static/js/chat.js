@@ -3746,29 +3746,40 @@ function doInitWebRTC(isInitiator, callback) {
         remoteVideo.srcObject = e.streams[0];
         remoteVideo.style.display = 'block';
         remoteVideo.play().catch(function (err) { console.log('Video play error:', err); });
-        // Detect screen share: voice call getting video = always screen share
-        // Video call getting new track via renegotiation = screen share
-        var isScreen = (CallState.callType === 'voice') ||
-          (e.track.label && e.track.label.toLowerCase().indexOf('screen') !== -1);
+        // Detect screen share by track label (not by call type — camera can be added to voice call)
+        var isScreen = (e.track.label && (
+          e.track.label.toLowerCase().indexOf('screen') !== -1 ||
+          e.track.label.toLowerCase().indexOf('monitor') !== -1 ||
+          e.track.label.toLowerCase().indexOf('display') !== -1 ||
+          e.track.label.toLowerCase().indexOf('window') !== -1
+        ));
         if (isScreen) remoteVideo.classList.add('screen-share');
         else remoteVideo.classList.remove('screen-share');
+        // Also show the avatar area if it's a camera feed in voice call
+        if (!isScreen) {
+          var ongoingAv = $('ongoing-av');
+          if (ongoingAv) ongoingAv.style.display = 'none';
+        }
       }
-      // Track ended = screen share stopped on remote
+      // Track ended = camera/screen share stopped on remote
       e.track.onended = function () {
-        if (remoteVideo) remoteVideo.classList.remove('screen-share');
-        if (CallState.callType === 'voice' && remoteVideo) {
+        if (remoteVideo) {
+          remoteVideo.classList.remove('screen-share');
           remoteVideo.style.display = 'none';
         }
+        // Show avatar again if voice call
+        var ongoingAv = $('ongoing-av');
+        if (ongoingAv) ongoingAv.style.display = 'block';
       };
       e.track.onmute = function () {
-        if (CallState.callType === 'voice' && remoteVideo) {
-          remoteVideo.style.display = 'none';
-        }
+        if (remoteVideo) remoteVideo.style.display = 'none';
+        var ongoingAv = $('ongoing-av');
+        if (ongoingAv) ongoingAv.style.display = 'block';
       };
       e.track.onunmute = function () {
-        if (remoteVideo) {
-          remoteVideo.style.display = 'block';
-        }
+        if (remoteVideo) remoteVideo.style.display = 'block';
+        var ongoingAv = $('ongoing-av');
+        if (ongoingAv) ongoingAv.style.display = 'none';
       };
     }
   };;
@@ -3777,7 +3788,7 @@ function doInitWebRTC(isInitiator, callback) {
 
     CallState.pc.createOffer({
       offerToReceiveAudio: true,
-      offerToReceiveVideo: CallState.callType === 'video'
+      offerToReceiveVideo: true
     })
       .then(function (offer) {
         return CallState.pc.setLocalDescription(offer);
@@ -3850,6 +3861,16 @@ function handleIncomingCall(data) {
   // Store SDP for later
   CallState.remoteSdp = data.sdp;
 
+  // Desktop app: show native call notification with Answer/Decline
+  if (window.DesktopBridge) {
+    DesktopBridge.showCallNotification(
+      CallState.remoteUserName,
+      data.call_type || 'voice',
+      data.call_id,
+      data.caller_id
+    );
+  }
+
   // If user already tapped Answer from notification, auto-accept now that we have SDP
   if (CallState.pendingAnswerFromNotification) {
     CallState.pendingAnswerFromNotification = false;
@@ -3863,6 +3884,7 @@ function acceptCall() {
   stopAllRingtones();
   if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
   if (window.AndroidBridge) AndroidBridge.cancelCallNotification();
+  if (window.DesktopBridge) DesktopBridge.cancelCallNotification();
 
   // If this is a group call invite, join group call instead
   if (CallState.pendingGroupCallId) {
@@ -3954,6 +3976,7 @@ function acceptCall() {
 function rejectCall() {
   stopAllRingtones();
   if (window.AndroidBridge) AndroidBridge.cancelCallNotification();
+  if (window.DesktopBridge) DesktopBridge.cancelCallNotification();
 
   // If it was a group call invite, just dismiss
   if (CallState.pendingGroupCallId) {
@@ -4049,6 +4072,7 @@ function handleCallRejected(data) {
 function handleCallEnded(data) {
   stopAllRingtones();
   if (window.AndroidBridge) AndroidBridge.cancelCallNotification();
+  if (window.DesktopBridge) DesktopBridge.cancelCallNotification();
   hideAllCallOverlays();
   cleanupCall();
   playEndSound();
@@ -4058,6 +4082,7 @@ function handleCallEnded(data) {
 function handleCallCancelled(data) {
   stopAllRingtones();
   if (window.AndroidBridge) AndroidBridge.cancelCallNotification();
+  if (window.DesktopBridge) DesktopBridge.cancelCallNotification();
   hideAllCallOverlays();
   cleanupCall();
   playEndSound();
@@ -4197,13 +4222,71 @@ function toggleMic() {
 }
 
 function toggleCam() {
-  if (!CallState.localStream) return;
-  CallState.isCamOff = !CallState.isCamOff;
-  CallState.localStream.getVideoTracks().forEach(function (t) { t.enabled = !CallState.isCamOff; });
+  if (!CallState.isInCall || !CallState.localStream) return;
+
+  var videoTracks = CallState.localStream.getVideoTracks();
+
+  if (videoTracks.length > 0) {
+    // Already have camera — just toggle enable/disable
+    CallState.isCamOff = !CallState.isCamOff;
+    videoTracks.forEach(function (t) { t.enabled = !CallState.isCamOff; });
+    updateCamButton();
+    updateVideoDisplay();
+  } else {
+    // Voice call — no video track yet. Request camera and add it.
+    navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+    }).then(function (camStream) {
+      var videoTrack = camStream.getVideoTracks()[0];
+      // Add to local stream
+      CallState.localStream.addTrack(videoTrack);
+      // Add to PeerConnection and renegotiate
+      if (CallState.pc) {
+        CallState.pc.addTrack(videoTrack, CallState.localStream);
+        // Renegotiate so remote side receives the new video track
+        CallState.pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
+          .then(function (offer) { return CallState.pc.setLocalDescription(offer); })
+          .then(function () {
+            var ws = S.globalWs || S.ws;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                type: 'screen_offer',
+                target_user_id: CallState.remoteUserId,
+                sdp: CallState.pc.localDescription
+              }));
+            }
+          });
+      }
+      CallState.isCamOff = false;
+      updateCamButton();
+      // Show local video
+      var lv = $('local-video');
+      if (lv) { lv.srcObject = CallState.localStream; lv.style.display = 'block'; }
+    }).catch(function (err) {
+      console.error('Camera access error:', err);
+      toast('Could not access camera', 'e');
+    });
+    return;
+  }
+}
+
+function updateCamButton() {
   var btn = document.querySelector('.ctrl-btn[onclick*="toggleCam"]');
   if (btn) {
     btn.classList.toggle('muted', CallState.isCamOff);
     btn.innerHTML = CallState.isCamOff ? '<i class="fa-solid fa-video-slash"></i>' : '<i class="fa-solid fa-video"></i>';
+  }
+}
+
+function updateVideoDisplay() {
+  var lv = $('local-video');
+  if (lv) {
+    if (CallState.isCamOff) {
+      lv.style.display = 'none';
+    } else if (CallState.localStream && CallState.localStream.getVideoTracks().length > 0) {
+      lv.srcObject = CallState.localStream;
+      lv.style.display = 'block';
+    }
   }
 }
 
@@ -4801,6 +4884,14 @@ function handleGroupCallInvite(data) {
   if (window.AndroidBridge) {
     AndroidBridge.showCallNotification(data.group_name || data.caller_name || 'Unknown',
       data.call_type === 'video' ? 'Group Video Call' : 'Group Voice Call');
+  }
+  if (window.DesktopBridge) {
+    DesktopBridge.showCallNotification(
+      data.group_name || data.caller_name || 'Unknown',
+      data.call_type || 'voice',
+      data.group_call_id,
+      data.caller_id
+    );
   }
 
   CallState.ringTimeout = setTimeout(function () {
@@ -5530,14 +5621,69 @@ function gcToggleMic() {
 }
 
 function gcToggleCam() {
-  GC.isCamOff = !GC.isCamOff;
-  if (GC.localStream) {
-    GC.localStream.getVideoTracks().forEach(function (t) { t.enabled = !GC.isCamOff; });
+  if (!GC.active || !GC.localStream) return;
+  var videoTracks = GC.localStream.getVideoTracks();
+
+  if (videoTracks.length > 0) {
+    // Already have camera — toggle enable/disable
+    GC.isCamOff = !GC.isCamOff;
+    videoTracks.forEach(function (t) { t.enabled = !GC.isCamOff; });
+  } else {
+    // Voice group call — no video track. Request camera and add to all peers.
+    navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+    }).then(function (camStream) {
+      var videoTrack = camStream.getVideoTracks()[0];
+      GC.localStream.addTrack(videoTrack);
+      // Add to all peer connections + renegotiate
+      Object.keys(GC.peers).forEach(function (pid) {
+        var peer = GC.peers[pid];
+        if (peer && peer.pc) {
+          peer.pc.addTrack(videoTrack, GC.localStream);
+          peer.pc.createOffer().then(function (offer) {
+            return peer.pc.setLocalDescription(offer);
+          }).then(function () {
+            if (S.globalWs && S.globalWs.readyState === 1) {
+              S.globalWs.send(JSON.stringify({
+                type: 'group_call_offer',
+                group_call_id: GC.groupCallId,
+                target_user_id: parseInt(pid),
+                sdp: peer.pc.localDescription,
+              }));
+            }
+          }).catch(function (e) { console.error('GC cam renegotiate error:', e); });
+        }
+      });
+      GC.isCamOff = false;
+      // Show local video
+      var localVid = $('gc-local-video');
+      if (localVid) { localVid.srcObject = GC.localStream; localVid.style.display = ''; }
+      var localAv = $('gc-local-av');
+      if (localAv) localAv.style.display = 'none';
+    }).catch(function (err) {
+      console.error('Camera error:', err);
+      toast('Could not access camera', 'e');
+    });
+    return;
   }
+  // Update button and local video display
   var btn = $('gc-cam-btn');
   if (btn) {
     btn.classList.toggle('muted', GC.isCamOff);
     btn.innerHTML = GC.isCamOff ? '<i class="fa-solid fa-video-slash"></i>' : '<i class="fa-solid fa-video"></i>';
+  }
+  // Toggle local video/avatar
+  var localVid = $('gc-local-video');
+  var localAv = $('gc-local-av');
+  if (GC.isCamOff) {
+    if (localVid) localVid.style.display = 'none';
+    if (localAv) {
+      localAv.src = S.user && S.user.profile_picture ? S.user.profile_picture : seed(S.user ? (S.user.first_name || S.user.username) : 'You');
+      localAv.style.display = '';
+    }
+  } else {
+    if (localVid) { localVid.srcObject = GC.localStream; localVid.style.display = ''; }
+    if (localAv) localAv.style.display = 'none';
   }
 }
 
@@ -5774,6 +5920,15 @@ function updateGcGridLayout(count) {
 function showNotification(title, body, avatar, onClick, isCall) {
   // Show popup notification with sound
   showPopupNotification(title, body, avatar, onClick, isCall);
+
+  // Desktop app: use native OS notifications via DesktopBridge
+  if (window.DesktopBridge) {
+    if (!isCall) {
+      DesktopBridge.showMessageNotification(title, body, avatar || '');
+    }
+    // Call notifications are handled separately via showCallNotification
+    return;
+  }
 
   // Also try browser notification
   if ('Notification' in window && Notification.permission === 'granted') {
