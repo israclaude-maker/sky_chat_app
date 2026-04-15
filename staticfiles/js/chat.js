@@ -3843,6 +3843,13 @@ function handleIncomingCall(data) {
 
   // Store SDP for later
   CallState.remoteSdp = data.sdp;
+
+  // If user already tapped Answer from notification, auto-accept now that we have SDP
+  if (CallState.pendingAnswerFromNotification) {
+    CallState.pendingAnswerFromNotification = false;
+    acceptCall();
+    return;
+  }
 }
 
 function acceptCall() {
@@ -4552,7 +4559,13 @@ function openAddUserToCall() {
   if (!overlay) return;
   overlay.style.display = 'flex';
   $('add-user-call-input').value = '';
-  renderAddUserList(S.allUsers || []);
+  // Always fetch fresh user list
+  api('/all_users/').then(function (users) {
+    S.allUsers = users || [];
+    renderAddUserList(S.allUsers);
+  }).catch(function() {
+    renderAddUserList(S.allUsers || []);
+  });
   $('add-user-call-input').focus();
 }
 

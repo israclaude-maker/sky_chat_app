@@ -68,6 +68,7 @@ public class MainActivity extends Activity {
     private int msgNotifId = 2000;
     public static boolean isAppInForeground = false;
     private String pendingCallAction = null; // saved until WebView is ready
+    private Intent pendingCallIntent = null; // full intent with call data
 
     // Screen capture fields
     private MediaProjectionManager projectionManager;
@@ -209,17 +210,57 @@ public class MainActivity extends Activity {
         Intent launchIntent = getIntent();
         if (launchIntent != null && launchIntent.hasExtra("call_action")) {
             pendingCallAction = launchIntent.getStringExtra("call_action");
+            pendingCallIntent = launchIntent;
         }
     }
 
     private void executeCallAction(String action) {
         if (webView == null || action == null) return;
         if ("answer".equals(action)) {
-            webView.evaluateJavascript(
-                "(function(){" +
-                "  if(typeof acceptCall==='function'){acceptCall();return 'ok';}" +
-                "  return 'no acceptCall';" +
-                "})()", null);
+            // First inject call data into JS CallState, then accept
+            int callId = -1;
+            int callerId = -1;
+            String callerName = "Unknown";
+            String callType = "voice";
+            String callerUsername = "";
+            String callerPic = "";
+
+            if (pendingCallIntent != null) {
+                callId = pendingCallIntent.getIntExtra("call_id", -1);
+                callerId = pendingCallIntent.getIntExtra("caller_id", -1);
+                callerName = pendingCallIntent.getStringExtra("caller_name");
+                callType = pendingCallIntent.getStringExtra("call_type");
+                callerUsername = pendingCallIntent.getStringExtra("caller_username");
+                callerPic = pendingCallIntent.getStringExtra("caller_pic");
+                pendingCallIntent = null;
+            }
+            if (callId == -1) {
+                // Fallback: read from SharedPreferences
+                SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
+                callId = prefs.getInt("pending_call_id", -1);
+                callerId = prefs.getInt("pending_caller_id", -1);
+                callerName = prefs.getString("pending_caller_name", "Unknown");
+                callType = prefs.getString("pending_call_type", "voice");
+                callerUsername = prefs.getString("pending_caller_username", "");
+                callerPic = prefs.getString("pending_caller_pic", "");
+            }
+            if (callerName == null) callerName = "Unknown";
+            if (callType == null) callType = "voice";
+            if (callerUsername == null) callerUsername = "";
+            if (callerPic == null) callerPic = "";
+
+            final String js = "(function(){" +
+                "  if(typeof CallState==='undefined') return 'no CallState';" +
+                "  CallState.callId=" + callId + ";" +
+                "  CallState.callType='" + callType.replace("'", "\\'") + "';" +
+                "  CallState.remoteUserId=" + callerId + ";" +
+                "  CallState.remoteUserName='" + callerName.replace("'", "\\'") + "';" +
+                "  CallState.remoteProfilePic='" + callerPic.replace("'", "\\'") + "';" +
+                "  CallState.pendingAnswerFromNotification=true;" +
+                "  if(CallState.remoteSdp && typeof acceptCall==='function'){acceptCall();return 'accepted';}" +
+                "  return 'waiting_for_sdp';" +
+                "})()";
+            webView.evaluateJavascript(js, null);
         } else if ("decline".equals(action)) {
             webView.evaluateJavascript(
                 "(function(){" +
@@ -607,6 +648,7 @@ public class MainActivity extends Activity {
         // Handle call answer/decline from notification
         if (intent != null && intent.hasExtra("call_action")) {
             String action = intent.getStringExtra("call_action");
+            pendingCallIntent = intent;
             if ("answer".equals(action) || "decline".equals(action)) {
                 executeCallAction(action);
             }

@@ -390,10 +390,20 @@ public class KeepAliveService extends Service {
                         Log.d(TAG, "Call " + callId + " already handled, skipping notification");
                         break;
                     }
-                    // Store call info for Decline button
+                    // Store call info for Decline button + for Answer from notification
                     lastCallId = callId;
                     lastCallerId = data.optInt("caller_id", -1);
                     setActiveCall(callId);
+                    // Save full call data so Answer can pass it to WebView
+                    SharedPreferences cp = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                    cp.edit()
+                        .putInt("pending_call_id", callId)
+                        .putInt("pending_caller_id", lastCallerId)
+                        .putString("pending_caller_name", data.optString("caller_name", "Unknown"))
+                        .putString("pending_call_type", data.optString("call_type", "voice"))
+                        .putString("pending_caller_username", data.optString("caller_username", ""))
+                        .putString("pending_caller_pic", data.optString("caller_profile_picture", ""))
+                        .apply();
                     showCallNotification(
                         data.optString("caller_name", "Unknown"),
                         data.optString("call_type", "voice").equals("video")
