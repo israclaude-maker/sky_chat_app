@@ -121,6 +121,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.handle_group_call_ice(data)
         elif message_type == 'group_call_leave':
             await self.handle_group_call_leave(data)
+        elif message_type == 'call_upgrade':
+            await self.handle_call_upgrade(data)
+        elif message_type == 'group_call_invite':
+            await self.handle_group_call_invite(data)
         elif message_type == 'gc_screen_toggle':
             await self.handle_gc_screen_toggle(data)
         elif message_type == 'screen_offer':
@@ -803,7 +807,108 @@ class ChatConsumer(AsyncWebsocketConsumer):
                         }
                     )
 
+    async def handle_call_upgrade(self, data):
+        """Upgrade a 1-on-1 call to ad-hoc group call — like WhatsApp add user"""
+        existing_peer_id = data.get('existing_peer_id')  # current call partner
+        new_user_id = data.get('new_user_id')  # user being added
+        call_type = data.get('call_type', 'voice')
+
+        # Create ad-hoc group call (no group)
+        gc = await self.create_adhoc_group_call(call_type)
+        if not gc:
+            return
+
+        caller_name = f"{self.user.first_name} {self.user.last_name}".strip() or self.user.username
+        caller_pic = self.user.profile_picture.url if self.user.profile_picture else None
+
+        # Tell initiator the group call is ready
+        await self.send(text_data=json.dumps({
+            'type': 'call_upgraded',
+            'group_call_id': gc.id,
+            'call_type': call_type,
+        }))
+
+        # Tell existing peer to switch to group call
+        await self.channel_layer.group_send(
+            f'user_{existing_peer_id}',
+            {
+                'type': 'call_upgrade_notify',
+                'group_call_id': gc.id,
+                'call_type': call_type,
+                'initiator_id': self.user.id,
+                'initiator_name': caller_name,
+            }
+        )
+
+        # Invite new user — they get a call notification
+        await self.channel_layer.group_send(
+            f'user_{new_user_id}',
+            {
+                'type': 'group_call_invite_notify',
+                'group_call_id': gc.id,
+                'call_type': call_type,
+                'caller_id': self.user.id,
+                'caller_name': caller_name,
+                'caller_pic': caller_pic,
+                'group_name': f'{caller_name}\'s call',
+            }
+        )
+
+        # Send push/FCM to new user
+        await database_sync_to_async(send_fcm_call_notification)(
+            new_user_id, caller_name, call_type, caller_id=self.user.id
+        )
+
+    async def handle_group_call_invite(self, data):
+        """Invite a new user to an existing group call"""
+        gc_id = data.get('group_call_id')
+        new_user_id = data.get('new_user_id')
+        call_type = data.get('call_type', 'voice')
+
+        caller_name = f"{self.user.first_name} {self.user.last_name}".strip() or self.user.username
+        caller_pic = self.user.profile_picture.url if self.user.profile_picture else None
+        group_name = await self.get_group_call_name(gc_id)
+
+        # Send invite notification to new user
+        await self.channel_layer.group_send(
+            f'user_{new_user_id}',
+            {
+                'type': 'group_call_invite_notify',
+                'group_call_id': gc_id,
+                'call_type': call_type,
+                'caller_id': self.user.id,
+                'caller_name': caller_name,
+                'caller_pic': caller_pic,
+                'group_name': group_name,
+            }
+        )
+
+        # Send push/FCM
+        await database_sync_to_async(send_fcm_call_notification)(
+            new_user_id, caller_name, call_type, caller_id=self.user.id
+        )
+
     # Group call event forwarders
+    async def call_upgrade_notify(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'call_upgrade_notify',
+            'group_call_id': event['group_call_id'],
+            'call_type': event['call_type'],
+            'initiator_id': event['initiator_id'],
+            'initiator_name': event['initiator_name'],
+        }))
+
+    async def group_call_invite_notify(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'group_call_invite',
+            'group_call_id': event['group_call_id'],
+            'call_type': event['call_type'],
+            'caller_id': event['caller_id'],
+            'caller_name': event['caller_name'],
+            'caller_pic': event.get('caller_pic'),
+            'group_name': event.get('group_name', 'Call'),
+        }))
+
     async def group_call_notify(self, event):
         await self.send(text_data=json.dumps({
             'type': 'group_call_notify',
@@ -881,6 +986,24 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return gc
         except Group.DoesNotExist:
             return None
+
+    @database_sync_to_async
+    def create_adhoc_group_call(self, call_type):
+        """Create a group call without a group (ad-hoc, for adding users to 1-on-1 calls)"""
+        gc = GroupCall.objects.create(group=None, initiator=self.user, call_type=call_type)
+        GroupCallParticipant.objects.create(group_call=gc, user=self.user)
+        return gc
+
+    @database_sync_to_async
+    def get_group_call_name(self, gc_id):
+        try:
+            gc = GroupCall.objects.get(id=gc_id)
+            if gc.group:
+                return gc.group.name
+            initiator_name = f"{gc.initiator.first_name} {gc.initiator.last_name}".strip() or gc.initiator.username
+            return f"{initiator_name}'s call"
+        except GroupCall.DoesNotExist:
+            return 'Call'
 
     @database_sync_to_async
     def add_group_call_participant(self, gc_id):

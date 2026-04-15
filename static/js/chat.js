@@ -592,6 +592,12 @@ function connectGlobalWS() {
         handleGroupCallEnded(data);
       } else if (data.type === 'gc_screen_toggle') {
         handleGcScreenToggle(data);
+      } else if (data.type === 'call_upgraded') {
+        handleCallUpgraded(data);
+      } else if (data.type === 'call_upgrade_notify') {
+        handleCallUpgradeNotify(data);
+      } else if (data.type === 'group_call_invite') {
+        handleGroupCallInvite(data);
       }
       // Live events (online status, new message notifications)
       else if (data.type === 'online_status') {
@@ -3858,6 +3864,39 @@ function acceptCall() {
   if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
   if (window.AndroidBridge) AndroidBridge.cancelCallNotification();
 
+  // If this is a group call invite, join group call instead
+  if (CallState.pendingGroupCallId) {
+    var gcId = CallState.pendingGroupCallId;
+    var callType = CallState.callType || 'voice';
+    CallState.pendingGroupCallId = null;
+    resetCallState();
+
+    GC.callType = callType;
+    GC.groupCallId = gcId;
+    GC.active = true;
+    GC.callStartTime = Date.now();
+
+    var constraints = { audio: { echoCancellation: true, noiseSuppression: true } };
+    if (callType === 'video') constraints.video = { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' };
+
+    navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+      GC.localStream = stream;
+      var ws = S.globalWs || S.ws;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'group_call_join',
+          group_call_id: gcId,
+        }));
+      }
+      showGroupCallUI();
+    }).catch(function (err) {
+      console.error('Media error:', err);
+      toast('Could not access mic/camera', 'e');
+      GC.active = false;
+    });
+    return;
+  }
+
   CallState.isInCall = true;
 
   var constraints = {
@@ -3915,6 +3954,15 @@ function acceptCall() {
 function rejectCall() {
   stopAllRingtones();
   if (window.AndroidBridge) AndroidBridge.cancelCallNotification();
+
+  // If it was a group call invite, just dismiss
+  if (CallState.pendingGroupCallId) {
+    CallState.pendingGroupCallId = null;
+    hideAllCallOverlays();
+    resetCallState();
+    playEndSound();
+    return;
+  }
 
   var ws = S.globalWs || S.ws;
   if (CallState.callId && ws && ws.readyState === WebSocket.OPEN) {
@@ -4615,24 +4663,154 @@ function renderAddUserList(users) {
 
 function inviteUserToCall(userId) {
   var callType = 'voice';
-  if (GC.active) {
-    callType = GC.callType || 'voice';
-  } else if (CallState.isInCall) {
-    callType = CallState.callType || 'voice';
+  var ws = S.globalWs || S.ws;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    toast('Connection error', 'e');
+    closeAddUserToCall();
+    return;
   }
+
+  if (GC.active) {
+    // Already in group call — invite to existing group call
+    callType = GC.callType || 'voice';
+    ws.send(JSON.stringify({
+      type: 'group_call_invite',
+      group_call_id: GC.groupCallId,
+      new_user_id: userId,
+      call_type: callType,
+    }));
+    toast('Call invitation sent!', 's');
+  } else if (CallState.isInCall) {
+    // In 1-on-1 call — upgrade to group call
+    callType = CallState.callType || 'voice';
+    ws.send(JSON.stringify({
+      type: 'call_upgrade',
+      existing_peer_id: CallState.remoteUserId,
+      new_user_id: userId,
+      call_type: callType,
+    }));
+    toast('Adding user to call...', 'i');
+  } else {
+    toast('Not in a call', 'e');
+  }
+  closeAddUserToCall();
+}
+
+// ═══ CALL UPGRADE (1-on-1 → Group Call) ═══
+function handleCallUpgraded(data) {
+  // Initiator: 1-on-1 call is being upgraded to group call
+  // End current 1-on-1 call cleanly (without sending call_end to peer)
+  var oldStream = CallState.localStream;
+  var oldCallType = CallState.callType || data.call_type;
+  if (CallState.pc) { CallState.pc.close(); CallState.pc = null; }
+  hideAllCallOverlays();
+  // Don't stop local stream — reuse it for group call
+  CallState.isInCall = false;
+  CallState.callId = null;
+  CallState.remoteSdp = null;
+
+  // Switch to group call mode
+  GC.active = true;
+  GC.groupCallId = data.group_call_id;
+  GC.callType = oldCallType;
+  GC.localStream = oldStream;
+  GC.callStartTime = Date.now();
+
+  // Join the group call on server
   var ws = S.globalWs || S.ws;
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({
-      type: 'call_initiate',
-      call_type: callType,
-      receiver_id: userId,
-      sdp: null
+      type: 'group_call_join',
+      group_call_id: GC.groupCallId,
     }));
-    toast('Call invitation sent!', 's');
-  } else {
-    toast('Connection error', 'e');
   }
-  closeAddUserToCall();
+  showGroupCallUI();
+  toast('Call upgraded — waiting for others to join', 'i');
+}
+
+function handleCallUpgradeNotify(data) {
+  // Existing peer: told to switch from 1-on-1 to group call
+  var oldStream = CallState.localStream;
+  var oldCallType = CallState.callType || data.call_type;
+  if (CallState.pc) { CallState.pc.close(); CallState.pc = null; }
+  hideAllCallOverlays();
+  stopAllRingtones();
+  CallState.isInCall = false;
+  CallState.callId = null;
+  CallState.remoteSdp = null;
+
+  // Switch to group call mode
+  GC.active = true;
+  GC.groupCallId = data.group_call_id;
+  GC.callType = oldCallType;
+  GC.localStream = oldStream;
+  GC.callStartTime = Date.now();
+
+  // If we don't have a stream yet, get one
+  if (!GC.localStream) {
+    var constraints = { audio: { echoCancellation: true, noiseSuppression: true } };
+    if (GC.callType === 'video') constraints.video = { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' };
+    navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+      GC.localStream = stream;
+      joinUpgradedGroupCall();
+    }).catch(function () {
+      toast('Could not access mic/camera', 'e');
+    });
+  } else {
+    joinUpgradedGroupCall();
+  }
+}
+
+function joinUpgradedGroupCall() {
+  var ws = S.globalWs || S.ws;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'group_call_join',
+      group_call_id: GC.groupCallId,
+    }));
+  }
+  showGroupCallUI();
+  toast('Call upgraded to group call', 'i');
+}
+
+function handleGroupCallInvite(data) {
+  // New user invited to a group call — show incoming call UI
+  if (CallState.isInCall || GC.active) {
+    // Already in a call — auto-reject
+    return;
+  }
+
+  // Use group call invite data to show incoming call
+  CallState.callType = data.call_type;
+  CallState.remoteUserId = data.caller_id;
+  CallState.remoteUserName = data.caller_name || 'Unknown';
+  CallState.remoteProfilePic = data.caller_pic || seed(data.caller_name || 'User');
+  // Store group call ID for when user accepts
+  CallState.pendingGroupCallId = data.group_call_id;
+
+  $('incoming-av').src = CallState.remoteProfilePic;
+  $('incoming-name').textContent = data.group_name || CallState.remoteUserName;
+  $('incoming-type').innerHTML = data.call_type === 'video'
+    ? '<i class="fa-solid fa-video"></i> Group Video Call'
+    : '<i class="fa-solid fa-phone"></i> Group Voice Call';
+  showCallOverlay('incoming-call');
+
+  var ringtone = $('ringtone');
+  if (ringtone) ringtone.play().catch(function () { });
+
+  if (window.AndroidBridge) {
+    AndroidBridge.showCallNotification(data.group_name || data.caller_name || 'Unknown',
+      data.call_type === 'video' ? 'Group Video Call' : 'Group Voice Call');
+  }
+
+  CallState.ringTimeout = setTimeout(function () {
+    if (!CallState.isInCall && !GC.active) {
+      hideAllCallOverlays();
+      stopAllRingtones();
+      resetCallState();
+      toast('Missed group call', 'e');
+    }
+  }, 45000);
 }
 
 // Draggable PIP

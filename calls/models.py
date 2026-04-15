@@ -41,7 +41,7 @@ class GroupCall(models.Model):
         ('ended', 'Ended'),
     )
 
-    group = models.ForeignKey('chat.Group', on_delete=models.CASCADE, related_name='group_calls')
+    group = models.ForeignKey('chat.Group', on_delete=models.CASCADE, related_name='group_calls', null=True, blank=True)
     initiator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='initiated_group_calls')
     call_type = models.CharField(max_length=10, choices=CALL_TYPE_CHOICES)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='active')
