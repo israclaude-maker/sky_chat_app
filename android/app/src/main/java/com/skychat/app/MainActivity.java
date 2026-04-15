@@ -51,6 +51,8 @@ import androidx.core.graphics.drawable.IconCompat;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 
+import com.google.firebase.messaging.FirebaseMessaging;
+
 public class MainActivity extends Activity {
 
     private static final String APP_URL = "https://sky-chat.duckdns.org/chat/";
@@ -266,6 +268,39 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void registerFcmToken(final String authToken) {
+        FirebaseMessaging.getInstance().getToken()
+            .addOnSuccessListener(new com.google.android.gms.tasks.OnSuccessListener<String>() {
+                @Override
+                public void onSuccess(String fcmToken) {
+                    Log.d("SkyChat", "FCM token: " + fcmToken.substring(0, 20) + "...");
+                    SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
+                    prefs.edit().putString("fcm_token", fcmToken).apply();
+
+                    // Send to server in background
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                okhttp3.OkHttpClient client = new okhttp3.OkHttpClient();
+                                okhttp3.MediaType JSON = okhttp3.MediaType.parse("application/json; charset=utf-8");
+                                String body = "{\"token\":\"" + fcmToken + "\",\"device_type\":\"android\"}";
+                                okhttp3.Request request = new okhttp3.Request.Builder()
+                                    .url("https://sky-chat.duckdns.org/api/users/fcm_register/")
+                                    .header("Authorization", "Bearer " + authToken)
+                                    .post(okhttp3.RequestBody.create(body, JSON))
+                                    .build();
+                                okhttp3.Response response = client.newCall(request).execute();
+                                Log.d("SkyChat", "FCM token registered: " + response.code());
+                            } catch (Exception e) {
+                                Log.e("SkyChat", "FCM register failed: " + e.getMessage());
+                            }
+                        }
+                    }).start();
+                }
+            });
+    }
+
     public class WebAppInterface {
         @JavascriptInterface
         public void saveCredentials(String token, int userId, String refreshToken) {
@@ -283,6 +318,8 @@ public class MainActivity extends Activity {
             } else {
                 startService(svc);
             }
+            // Register FCM token with server
+            registerFcmToken(token);
         }
 
         @JavascriptInterface

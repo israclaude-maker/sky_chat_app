@@ -207,3 +207,9 @@ d92J890cZ4vO2EHcDunOeyJqS4qhRANCAARcMzhq8D6/m+AZHV1cIwL1VmhShHvA
 b9IkwB1BFmzxb5UzT5josFWPlciotxF/7DsQpxpX5YJwQSl0qj3Cqq7c
 -----END PRIVATE KEY-----''')
 VAPID_ADMIN_EMAIL = os.environ.get('VAPID_ADMIN_EMAIL', 'mailto:admin@skychat.app')
+
+# Firebase Cloud Messaging (FCM) Configuration
+FIREBASE_CREDENTIALS_PATH = os.environ.get(
+    'FIREBASE_CREDENTIALS_PATH',
+    os.path.join(BASE_DIR, 'firebase-service-account.json')
+)

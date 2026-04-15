@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from chat.models import Conversation, Message, MessageReadReceipt, Group
 from calls.models import Call, GroupCall, GroupCallParticipant
 from chat.push import send_push_notification
+from chat.fcm import send_fcm_notification, send_fcm_call_notification
 from django.utils import timezone as djtz
 
 User = get_user_model()
@@ -409,6 +410,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
             url='/chat/',
             icon=caller_profile_picture or '/static/icons/icon-192x192.png',
             tag='skychat-call'
+        )
+        # Also send via FCM (reliable even when app killed)
+        await database_sync_to_async(send_fcm_call_notification)(
+            receiver_id, caller_name, call_type,
+            call_id=call.id if call else None,
+            caller_id=self.user.id
         )
 
     async def handle_call_accept(self, data):
@@ -955,6 +962,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     icon='/static/icons/icon-192x192.png',
                     tag=f'skychat-gcall-{group_id}'
                 )
+                # Also send via FCM
+                send_fcm_call_notification(
+                    member.id, caller_name, call_type,
+                    caller_id=self.user.id
+                )
         except Group.DoesNotExist:
             pass
 
@@ -1003,6 +1015,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 icon=icon or '/static/icons/icon-192x192.png',
                 tag=f'skychat-dm-{self.user.id}'
             )
+            # Also send via FCM
+            send_fcm_notification(
+                receiver.id,
+                sender_name,
+                body,
+                data={'type': 'message', 'sender_id': str(self.user.id)}
+            )
         except User.DoesNotExist:
             pass
 
@@ -1019,6 +1038,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     url='/chat/',
                     icon=icon or '/static/icons/icon-192x192.png',
                     tag=f'skychat-group-{group_id}'
+                )
+                # Also send via FCM
+                send_fcm_notification(
+                    member.id,
+                    f'{sender_name} in {group.name}',
+                    body,
+                    data={'type': 'message', 'group_id': str(group_id), 'sender_id': str(self.user.id)}
                 )
         except Group.DoesNotExist:
             pass

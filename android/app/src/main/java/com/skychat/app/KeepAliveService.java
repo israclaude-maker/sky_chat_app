@@ -1,5 +1,6 @@
 package com.skychat.app;
 
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -20,6 +21,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
@@ -56,7 +58,8 @@ public class KeepAliveService extends Service {
     private ConnectivityManager.NetworkCallback networkCallback;
     private boolean isConnecting = false;
     private Handler aliveCheckHandler;
-    private static final long ALIVE_CHECK_INTERVAL = 120000; // 2 minutes
+    private static final long ALIVE_CHECK_INTERVAL = 60000; // 1 minute
+    private long lastPongTime = 0; // track last activity on WS
 
     // Store last incoming call info for Decline button
     private int lastCallId = -1;
@@ -110,8 +113,16 @@ public class KeepAliveService extends Service {
             @Override
             public void run() {
                 if (!isRunning) return;
-                if (webSocket == null && !isConnecting) {
-                    Log.d(TAG, "Alive check: WS dead, reconnecting...");
+
+                boolean wsNull = (webSocket == null);
+                boolean stale = (lastPongTime > 0 && System.currentTimeMillis() - lastPongTime > 180000); // 3 min no activity
+
+                if ((wsNull || stale) && !isConnecting) {
+                    Log.d(TAG, "Alive check: WS " + (wsNull ? "null" : "stale") + ", reconnecting...");
+                    if (webSocket != null) {
+                        try { webSocket.close(1000, "stale"); } catch (Exception ignored) {}
+                        webSocket = null;
+                    }
                     reconnectDelay = 1000;
                     connectWebSocket();
                 }

@@ -26,3 +26,15 @@ class PushSubscription(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.endpoint[:60]}"
+
+
+class FCMDevice(models.Model):
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='fcm_devices')
+    registration_id = models.TextField(unique=True)
+    device_type = models.CharField(max_length=20, default='android')  # android, web, ios
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.username} - {self.device_type} - {self.registration_id[:30]}"

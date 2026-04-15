@@ -9,7 +9,7 @@ from django.db.models import Q
 from django.utils import timezone
 from datetime import timedelta
 
-from accounts.models import CustomUser, PushSubscription
+from accounts.models import CustomUser, PushSubscription, FCMDevice
 from accounts.serializers import UserSerializer, RegisterSerializer, LoginSerializer
 from chat.models import Conversation, Message, Group, GroupMembership, ConversationClear, Reaction, MessageReadReceipt
 from chat.push import send_push_notification
@@ -1199,6 +1199,29 @@ class UserViewSet(viewsets.ModelViewSet):
         endpoint = request.data.get('endpoint')
         if endpoint:
             PushSubscription.objects.filter(user=request.user, endpoint=endpoint).delete()
+        return Response({'status': 'ok'})
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def fcm_register(self, request):
+        """Register or update an FCM device token."""
+        token = request.data.get('token')
+        device_type = request.data.get('device_type', 'android')
+        if not token:
+            return Response({'error': 'Missing token'}, status=status.HTTP_400_BAD_REQUEST)
+        # Deactivate this token for any other user (device switched accounts)
+        FCMDevice.objects.filter(registration_id=token).exclude(user=request.user).delete()
+        device, created = FCMDevice.objects.update_or_create(
+            registration_id=token,
+            defaults={'user': request.user, 'device_type': device_type, 'active': True}
+        )
+        return Response({'status': 'ok', 'created': created})
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def fcm_unregister(self, request):
+        """Remove an FCM device token."""
+        token = request.data.get('token')
+        if token:
+            FCMDevice.objects.filter(user=request.user, registration_id=token).delete()
         return Response({'status': 'ok'})
 
 
