@@ -60,6 +60,14 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
 
         if ("call".equals(type)) {
             handleCallNotification(data);
+        } else if ("call_cancel".equals(type)) {
+            // Server sent FCM to cancel call notification
+            Log.d(TAG, "FCM call_cancel received, dismissing notification");
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            nm.cancel(CallActionReceiver.CALL_NOTIFICATION_ID);
+            // Mark call as handled so no further notifications show
+            SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
+            prefs.edit().putBoolean("call_handled", true).apply();
         } else {
             handleMessageNotification(remoteMessage);
         }
@@ -68,8 +76,27 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
     private void handleCallNotification(Map<String, String> data) {
         String callerName = data.get("caller_name");
         String callType = data.get("call_type");
+        String callIdStr = data.get("call_id");
         if (callerName == null) callerName = "Unknown";
         String callLabel = "video".equals(callType) ? "Incoming Video Call" : "Incoming Voice Call";
+
+        // Check if this call was already handled (declined/accepted via WebSocket)
+        int callId = -1;
+        try { callId = Integer.parseInt(callIdStr); } catch (Exception ignored) {}
+        if (callId != -1) {
+            SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
+            int activeCallId = prefs.getInt("active_call_id", -1);
+            boolean handled = prefs.getBoolean("call_handled", false);
+            if (callId == activeCallId && handled) {
+                Log.d(TAG, "Call " + callId + " already handled, skipping FCM notification");
+                return;
+            }
+            // Track this call
+            prefs.edit()
+                .putInt("active_call_id", callId)
+                .putBoolean("call_handled", false)
+                .apply();
+        }
 
         Intent openIntent = new Intent(this, MainActivity.class);
         openIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);

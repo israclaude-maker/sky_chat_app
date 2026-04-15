@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from chat.models import Conversation, Message, MessageReadReceipt, Group
 from calls.models import Call, GroupCall, GroupCallParticipant
 from chat.push import send_push_notification
-from chat.fcm import send_fcm_notification, send_fcm_call_notification
+from chat.fcm import send_fcm_notification, send_fcm_call_notification, send_fcm_call_cancel
 from django.utils import timezone as djtz
 
 User = get_user_model()
@@ -443,7 +443,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         
         await self.update_call_status(call_id, 'rejected')
 
-        # Send rejection to caller
+        # Send rejection to caller via WebSocket
         await self.channel_layer.group_send(
             f'user_{caller_id}',
             {
@@ -453,6 +453,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         )
 
+        # Also send FCM cancel to BOTH parties to dismiss any lingering notification
+        await database_sync_to_async(send_fcm_call_cancel)(caller_id, call_id)
+        await database_sync_to_async(send_fcm_call_cancel)(self.user.id, call_id)
+
     async def handle_call_end(self, data):
         call_id = data.get('call_id')
         target_user_id = data.get('target_user_id')
@@ -460,7 +464,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         
         await self.end_call(call_id, duration)
 
-        # Notify the other party
+        # Notify the other party via WebSocket
         await self.channel_layer.group_send(
             f'user_{target_user_id}',
             {
@@ -468,17 +472,25 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'call_id': call_id,
             }
         )
+
+        # Also send FCM cancel to dismiss any lingering notification
+        await database_sync_to_async(send_fcm_call_cancel)(target_user_id, call_id)
         
     async def handle_call_cancel(self, data):
         receiver_id = data.get('receiver_id')
+        call_id = data.get('call_id')
         
-        # Notify receiver that call was cancelled
+        # Notify receiver that call was cancelled via WebSocket
         await self.channel_layer.group_send(
             f'user_{receiver_id}',
             {
                 'type': 'call_cancelled',
+                'call_id': call_id,
             }
         )
+
+        # Also send FCM cancel to dismiss any lingering call notification
+        await database_sync_to_async(send_fcm_call_cancel)(receiver_id, call_id)
         
     async def handle_call_ice(self, data):
         target_user_id = data.get('target_user_id')
@@ -580,6 +592,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def call_cancelled(self, event):
         await self.send(text_data=json.dumps({
             'type': 'call_cancelled',
+            'call_id': event.get('call_id'),
         }))
         
     async def call_ice(self, event):

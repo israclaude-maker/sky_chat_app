@@ -138,3 +138,45 @@ def send_fcm_call_notification(user_id, caller_name, call_type, call_id=None, ca
 
     if stale_tokens:
         FCMDevice.objects.filter(registration_id__in=stale_tokens).delete()
+
+
+def send_fcm_call_cancel(user_id, call_id=None):
+    """Send high-priority FCM to cancel/dismiss a call notification on receiver's device."""
+    from accounts.models import FCMDevice
+
+    _init_firebase()
+    if _firebase_app is None:
+        return
+
+    devices = FCMDevice.objects.filter(user_id=user_id, active=True)
+    if not devices.exists():
+        return
+
+    tokens = list(devices.values_list('registration_id', flat=True))
+
+    android_config = messaging.AndroidConfig(
+        priority='high',
+    )
+
+    stale_tokens = []
+
+    for token in tokens:
+        try:
+            message = messaging.Message(
+                android=android_config,
+                data={
+                    'type': 'call_cancel',
+                    'call_id': str(call_id or ''),
+                },
+                token=token,
+            )
+            messaging.send(message)
+        except messaging.UnregisteredError:
+            stale_tokens.append(token)
+        except messaging.SenderIdMismatchError:
+            stale_tokens.append(token)
+        except Exception as e:
+            logger.warning(f'[FCM] Call cancel error for {token[:30]}: {e}')
+
+    if stale_tokens:
+        FCMDevice.objects.filter(registration_id__in=stale_tokens).delete()

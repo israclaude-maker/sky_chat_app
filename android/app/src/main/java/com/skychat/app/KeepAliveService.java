@@ -66,6 +66,8 @@ public class KeepAliveService extends Service {
     private int lastCallerId = -1;
     private Runnable callTimeoutRunnable = null;
     private static final long CALL_RING_TIMEOUT = 45000; // 45 seconds
+    private static final String PREF_ACTIVE_CALL_ID = "active_call_id";
+    private static final String PREF_CALL_HANDLED = "call_handled";
 
     @Override
     public void onCreate() {
@@ -312,6 +314,7 @@ public class KeepAliveService extends Service {
                 Log.d(TAG, "WebSocket CONNECTED");
                 isConnecting = false;
                 reconnectDelay = 3000;
+                lastPongTime = System.currentTimeMillis();
             }
 
             @Override
@@ -353,6 +356,7 @@ public class KeepAliveService extends Service {
 
     private void handleMessage(String text) {
         try {
+            lastPongTime = System.currentTimeMillis();
             JSONObject data = new JSONObject(text);
             String type = data.optString("type", "");
 
@@ -360,6 +364,7 @@ public class KeepAliveService extends Service {
             if ("call_ended".equals(type) || "call_cancelled".equals(type) || "call_rejected".equals(type)) {
                 cancelCallNotification();
                 clearCallTimeout();
+                markCallHandled();
                 lastCallId = -1;
                 lastCallerId = -1;
                 // Tell WebView to stop ringtone
@@ -370,6 +375,7 @@ public class KeepAliveService extends Service {
             // Clear call timeout if call was accepted
             if ("call_accepted".equals(type)) {
                 clearCallTimeout();
+                markCallHandled();
                 return;
             }
 
@@ -378,9 +384,16 @@ public class KeepAliveService extends Service {
 
             switch (type) {
                 case "call_incoming":
+                    int callId = data.optInt("call_id", -1);
+                    // Skip if this call was already handled (declined/accepted)
+                    if (isCallHandled(callId)) {
+                        Log.d(TAG, "Call " + callId + " already handled, skipping notification");
+                        break;
+                    }
                     // Store call info for Decline button
-                    lastCallId = data.optInt("call_id", -1);
+                    lastCallId = callId;
                     lastCallerId = data.optInt("caller_id", -1);
+                    setActiveCall(callId);
                     showCallNotification(
                         data.optString("caller_name", "Unknown"),
                         data.optString("call_type", "voice").equals("video")
@@ -517,6 +530,7 @@ public class KeepAliveService extends Service {
             public void run() {
                 Log.d(TAG, "Call ring timeout — auto-dismissing");
                 cancelCallNotification();
+                markCallHandled();
                 // Reject the call via WebSocket so caller gets notified
                 if (webSocket != null && lastCallId != -1) {
                     try {
@@ -566,6 +580,8 @@ public class KeepAliveService extends Service {
     // Called from CallActionReceiver to reject call via WebSocket
     public void rejectCallViaWs() {
         cancelCallNotification();
+        clearCallTimeout();
+        markCallHandled();
         if (webSocket != null && lastCallId != -1) {
             try {
                 JSONObject msg = new JSONObject();
@@ -581,6 +597,29 @@ public class KeepAliveService extends Service {
         }
         lastCallId = -1;
         lastCallerId = -1;
+        stopRingtoneInWebView();
+    }
+
+    // ── Call state tracking to prevent duplicate notifications ──
+    private void setActiveCall(int callId) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        prefs.edit()
+            .putInt(PREF_ACTIVE_CALL_ID, callId)
+            .putBoolean(PREF_CALL_HANDLED, false)
+            .apply();
+    }
+
+    private void markCallHandled() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        prefs.edit().putBoolean(PREF_CALL_HANDLED, true).apply();
+    }
+
+    private boolean isCallHandled(int callId) {
+        if (callId == -1) return false;
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        int activeCallId = prefs.getInt(PREF_ACTIVE_CALL_ID, -1);
+        boolean handled = prefs.getBoolean(PREF_CALL_HANDLED, false);
+        return (callId == activeCallId && handled);
     }
 
     // Called from MainActivity when token is updated

@@ -227,9 +227,11 @@ public class MainActivity extends Activity {
                 "  return 'no rejectCall';" +
                 "})()", null);
         }
-        // Cancel call notification
+        // Cancel call notification and mark handled
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.cancel(CallActionReceiver.CALL_NOTIFICATION_ID);
+        SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
+        prefs.edit().putBoolean("call_handled", true).apply();
     }
 
     private void createNotificationChannels() {
