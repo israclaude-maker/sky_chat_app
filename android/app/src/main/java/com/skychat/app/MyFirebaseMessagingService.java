@@ -77,43 +77,63 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         String callerName = data.get("caller_name");
         String callType = data.get("call_type");
         String callIdStr = data.get("call_id");
+        String callerIdStr = data.get("caller_id");
         if (callerName == null) callerName = "Unknown";
+        if (callType == null) callType = "voice";
         String callLabel = "video".equals(callType) ? "Incoming Video Call" : "Incoming Voice Call";
 
         // Check if this call was already handled (declined/accepted via WebSocket)
         int callId = -1;
+        int callerId = -1;
         try { callId = Integer.parseInt(callIdStr); } catch (Exception ignored) {}
+        try { callerId = Integer.parseInt(callerIdStr); } catch (Exception ignored) {}
+
+        SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
         if (callId != -1) {
-            SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
             int activeCallId = prefs.getInt("active_call_id", -1);
             boolean handled = prefs.getBoolean("call_handled", false);
             if (callId == activeCallId && handled) {
                 Log.d(TAG, "Call " + callId + " already handled, skipping FCM notification");
                 return;
             }
-            // Track this call
-            prefs.edit()
-                .putInt("active_call_id", callId)
-                .putBoolean("call_handled", false)
-                .apply();
         }
+
+        // Save call data so Answer button can pass it to WebView
+        prefs.edit()
+            .putInt("active_call_id", callId)
+            .putBoolean("call_handled", false)
+            .putInt("pending_call_id", callId)
+            .putInt("pending_caller_id", callerId)
+            .putString("pending_caller_name", callerName)
+            .putString("pending_call_type", callType)
+            .putString("pending_caller_username", "")
+            .putString("pending_caller_pic", "")
+            .apply();
 
         Intent openIntent = new Intent(this, MainActivity.class);
         openIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent openPi = PendingIntent.getActivity(this, 100, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
+        // Full-screen intent (shows on lock screen)
         Intent fullIntent = new Intent(this, MainActivity.class);
         fullIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         fullIntent.putExtra("call_action", "show");
         PendingIntent fullPi = PendingIntent.getActivity(this, 101, fullIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        Intent answerIntent = new Intent(this, CallActionReceiver.class);
-        answerIntent.setAction(CallActionReceiver.ACTION_ANSWER);
-        PendingIntent answerPi = PendingIntent.getBroadcast(this, 102, answerIntent,
+        // Answer — open app directly with call data (more reliable than broadcast)
+        Intent answerIntent = new Intent(this, MainActivity.class);
+        answerIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        answerIntent.putExtra("call_action", "answer");
+        answerIntent.putExtra("call_id", callId);
+        answerIntent.putExtra("caller_id", callerId);
+        answerIntent.putExtra("caller_name", callerName);
+        answerIntent.putExtra("call_type", callType);
+        PendingIntent answerPi = PendingIntent.getActivity(this, 102, answerIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
+        // Decline — use broadcast receiver
         Intent declineIntent = new Intent(this, CallActionReceiver.class);
         declineIntent.setAction(CallActionReceiver.ACTION_DECLINE);
         PendingIntent declinePi = PendingIntent.getBroadcast(this, 103, declineIntent,

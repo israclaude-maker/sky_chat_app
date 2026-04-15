@@ -34,24 +34,12 @@ def send_fcm_notification(user_id, title, body, data=None, priority='high'):
 
     tokens = list(devices.values_list('registration_id', flat=True))
 
-    # Build notification payload
-    notification = messaging.Notification(
-        title=title,
-        body=body,
-    )
-
     # Build Android-specific config for high priority
     android_config = messaging.AndroidConfig(
         priority='high',
-        notification=messaging.AndroidNotification(
-            channel_id='skychat_messages',
-            icon='ic_launcher',
-            color='#00a884',
-            sound='default',
-        ),
     )
 
-    # Merge extra data
+    # Data-only message (NO notification field!) so onMessageReceived is ALWAYS called
     msg_data = data or {}
     msg_data['title'] = title
     msg_data['body'] = body
@@ -61,7 +49,6 @@ def send_fcm_notification(user_id, title, body, data=None, priority='high'):
     for token in tokens:
         try:
             message = messaging.Message(
-                notification=notification,
                 android=android_config,
                 data=msg_data,
                 token=token,
@@ -96,17 +83,11 @@ def send_fcm_call_notification(user_id, caller_name, call_type, call_id=None, ca
 
     call_label = 'Video Call' if call_type == 'video' else 'Voice Call'
 
-    # Data-only message for calls (higher priority, custom handling)
+    # DATA-ONLY message for calls (NO notification field!)
+    # This ensures onMessageReceived is ALWAYS called even when app is in background
+    # If notification field is present, Android shows its own notification and skips our code
     android_config = messaging.AndroidConfig(
         priority='high',
-        notification=messaging.AndroidNotification(
-            channel_id='skychat_calls',
-            icon='ic_launcher',
-            color='#00a884',
-            sound='default',
-            default_vibrate_timings=False,
-            vibrate_timings=[0, 1000, 500, 1000, 500, 1000],
-        ),
     )
 
     stale_tokens = []
@@ -114,10 +95,6 @@ def send_fcm_call_notification(user_id, caller_name, call_type, call_id=None, ca
     for token in tokens:
         try:
             message = messaging.Message(
-                notification=messaging.Notification(
-                    title=f'Incoming {call_label}',
-                    body=f'{caller_name} is calling...',
-                ),
                 android=android_config,
                 data={
                     'type': 'call',
