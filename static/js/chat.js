@@ -5238,6 +5238,8 @@ function handleGroupCallOffer(data) {
     peer = createGroupPeerConnection(fromId);
     GC.peers[fromId] = peer;
   }
+  if (data.from_user_name) peer.name = data.from_user_name;
+  if (data.from_user_pic) peer.pic = data.from_user_pic;
   var pc = peer.pc;
   pc.setRemoteDescription(new RTCSessionDescription(data.sdp)).then(function () {
     return pc.createAnswer();
@@ -5444,7 +5446,7 @@ function showGroupCallUI() {
       localAv.style.display = '';
     }
   }
-  $('gc-call-name').textContent = S.activeGroup ? S.activeGroup.name : 'Group Call';
+  $('gc-call-name').textContent = getGroupCallTitle();
   showCallOverlay('gc-ongoing-call');
   updateGcWaiting();
   updateGcGridLayout(Object.keys(GC.peers).length + 1);
@@ -5729,10 +5731,27 @@ function handleGcScreenToggle(data) {
   }
 }
 
+function getGroupCallTitle() {
+  // If this is a named group, use its name
+  if (S.activeGroup && S.activeGroup.name) return S.activeGroup.name;
+  // Build title from peer names (WhatsApp style: "Name1, Name2, ...")
+  var names = [];
+  Object.keys(GC.peers).forEach(function (pid) {
+    if (GC.peers[pid].name) names.push(GC.peers[pid].name.split(' ')[0]);
+  });
+  // Add current user's first name
+  if (S.user) names.unshift(S.user.first_name || S.user.username);
+  if (names.length > 0) return names.join(', ');
+  return 'Group Call';
+}
+
 function updateGroupCallParticipantCount() {
   var count = Object.keys(GC.peers).length + 1; // +1 for self
   var el = $('gc-participant-count');
   if (el) el.textContent = count + ' participant' + (count > 1 ? 's' : '');
+  // Update group call title with participant names
+  var nameEl = $('gc-call-name');
+  if (nameEl) nameEl.textContent = getGroupCallTitle();
   updateGcWaiting();
   updateGcGridLayout(count);
 }

@@ -403,6 +403,7 @@ public class KeepAliveService extends Service {
                         .putString("pending_call_type", data.optString("call_type", "voice"))
                         .putString("pending_caller_username", data.optString("caller_username", ""))
                         .putString("pending_caller_pic", data.optString("caller_profile_picture", ""))
+                        .putString("pending_call_json", text)
                         .apply();
                     showCallNotification(
                         data.optString("caller_name", "Unknown"),

@@ -217,50 +217,62 @@ public class MainActivity extends Activity {
     private void executeCallAction(String action) {
         if (webView == null || action == null) return;
         if ("answer".equals(action)) {
-            // First inject call data into JS CallState, then accept
-            int callId = -1;
-            int callerId = -1;
-            String callerName = "Unknown";
-            String callType = "voice";
-            String callerUsername = "";
-            String callerPic = "";
+            SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
+            String callJson = prefs.getString("pending_call_json", null);
 
-            if (pendingCallIntent != null) {
-                callId = pendingCallIntent.getIntExtra("call_id", -1);
-                callerId = pendingCallIntent.getIntExtra("caller_id", -1);
-                callerName = pendingCallIntent.getStringExtra("caller_name");
-                callType = pendingCallIntent.getStringExtra("call_type");
-                callerUsername = pendingCallIntent.getStringExtra("caller_username");
-                callerPic = pendingCallIntent.getStringExtra("caller_pic");
-                pendingCallIntent = null;
-            }
-            if (callId == -1) {
-                // Fallback: read from SharedPreferences
-                SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
-                callId = prefs.getInt("pending_call_id", -1);
-                callerId = prefs.getInt("pending_caller_id", -1);
-                callerName = prefs.getString("pending_caller_name", "Unknown");
-                callType = prefs.getString("pending_call_type", "voice");
-                callerUsername = prefs.getString("pending_caller_username", "");
-                callerPic = prefs.getString("pending_caller_pic", "");
-            }
-            if (callerName == null) callerName = "Unknown";
-            if (callType == null) callType = "voice";
-            if (callerUsername == null) callerUsername = "";
-            if (callerPic == null) callerPic = "";
+            if (callJson != null) {
+                // We have the full call_incoming JSON with SDP from KeepAliveService WS
+                // Encode as Base64 to safely inject into JS (SDP contains special chars)
+                String base64 = Base64.encodeToString(callJson.getBytes(), Base64.NO_WRAP);
+                final String js = "(function(){" +
+                    "  if(typeof CallState==='undefined' || typeof handleIncomingCall==='undefined') return 'not_ready';" +
+                    "  try {" +
+                    "    CallState.pendingAnswerFromNotification=true;" +
+                    "    var data=JSON.parse(atob('" + base64 + "'));" +
+                    "    handleIncomingCall(data);" +
+                    "    return 'injected_with_sdp';" +
+                    "  } catch(e) { return 'error:'+e.message; }" +
+                    "})()";
+                webView.evaluateJavascript(js, null);
+            } else {
+                // Fallback: no full JSON (FCM wake scenario) - set fields and wait for WS
+                int callId = -1;
+                int callerId = -1;
+                String callerName = "Unknown";
+                String callType = "voice";
+                String callerPic = "";
 
-            final String js = "(function(){" +
-                "  if(typeof CallState==='undefined') return 'no CallState';" +
-                "  CallState.callId=" + callId + ";" +
-                "  CallState.callType='" + callType.replace("'", "\\'") + "';" +
-                "  CallState.remoteUserId=" + callerId + ";" +
-                "  CallState.remoteUserName='" + callerName.replace("'", "\\'") + "';" +
-                "  CallState.remoteProfilePic='" + callerPic.replace("'", "\\'") + "';" +
-                "  CallState.pendingAnswerFromNotification=true;" +
-                "  if(CallState.remoteSdp && typeof acceptCall==='function'){acceptCall();return 'accepted';}" +
-                "  return 'waiting_for_sdp';" +
-                "})()";
-            webView.evaluateJavascript(js, null);
+                if (pendingCallIntent != null) {
+                    callId = pendingCallIntent.getIntExtra("call_id", -1);
+                    callerId = pendingCallIntent.getIntExtra("caller_id", -1);
+                    callerName = pendingCallIntent.getStringExtra("caller_name");
+                    callType = pendingCallIntent.getStringExtra("call_type");
+                    callerPic = pendingCallIntent.getStringExtra("caller_pic");
+                    pendingCallIntent = null;
+                }
+                if (callId == -1) {
+                    callId = prefs.getInt("pending_call_id", -1);
+                    callerId = prefs.getInt("pending_caller_id", -1);
+                    callerName = prefs.getString("pending_caller_name", "Unknown");
+                    callType = prefs.getString("pending_call_type", "voice");
+                    callerPic = prefs.getString("pending_caller_pic", "");
+                }
+                if (callerName == null) callerName = "Unknown";
+                if (callType == null) callType = "voice";
+                if (callerPic == null) callerPic = "";
+
+                final String js = "(function(){" +
+                    "  if(typeof CallState==='undefined') return 'no CallState';" +
+                    "  CallState.callId=" + callId + ";" +
+                    "  CallState.callType='" + callType.replace("'", "\\'") + "';" +
+                    "  CallState.remoteUserId=" + callerId + ";" +
+                    "  CallState.remoteUserName='" + callerName.replace("'", "\\'") + "';" +
+                    "  CallState.remoteProfilePic='" + callerPic.replace("'", "\\'") + "';" +
+                    "  CallState.pendingAnswerFromNotification=true;" +
+                    "  return 'waiting_for_ws';" +
+                    "})()";
+                webView.evaluateJavascript(js, null);
+            }
         } else if ("decline".equals(action)) {
             webView.evaluateJavascript(
                 "(function(){" +

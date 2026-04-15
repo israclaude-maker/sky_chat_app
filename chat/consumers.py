@@ -729,12 +729,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def handle_group_call_offer(self, data):
         target_id = data.get('target_user_id')
+        user = self.user
         await self.channel_layer.group_send(
             f'user_{target_id}',
             {
                 'type': 'group_call_offer_relay',
                 'group_call_id': data.get('group_call_id'),
-                'from_user_id': self.user.id,
+                'from_user_id': user.id,
+                'from_user_name': user.get_full_name() or user.username,
+                'from_user_pic': user.profile_picture.url if user.profile_picture else '',
                 'sdp': data.get('sdp'),
             }
         )
@@ -942,6 +945,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'type': 'group_call_offer',
             'group_call_id': event['group_call_id'],
             'from_user_id': event['from_user_id'],
+            'from_user_name': event.get('from_user_name', ''),
+            'from_user_pic': event.get('from_user_pic', ''),
             'sdp': event['sdp'],
         }))
 
