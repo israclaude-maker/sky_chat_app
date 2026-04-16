@@ -955,7 +955,7 @@ body {
   position: fixed;
   inset: 0;
   background: linear-gradient(135deg, rgba(0,0,0,0.95) 0%, rgba(15,23,42,0.98) 100%);
-  z-index: 1000;
+  z-index: 10000;
   align-items: center;
   justify-content: center;
 }
@@ -1069,19 +1069,22 @@ body {
 }
 
 .call-btn {
-  width: 68px;
-  height: 68px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   border: none;
-  font-size: 26px;
+  font-size: 28px;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+  transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
   display: flex;
   align-items: center;
   justify-content: center;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
 .call-btn:hover { transform: scale(1.1); }
-.call-btn:active { transform: scale(0.95); }
+.call-btn:active { transform: scale(0.9); }
 
 .call-btn.accept {
   background: linear-gradient(145deg, #22c55e 0%, #16a34a 100%);

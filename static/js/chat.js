@@ -3867,6 +3867,10 @@ function handleIncomingCall(data) {
   $('incoming-type').innerHTML = data.call_type === 'video' ? '<i class="fa-solid fa-video"></i> Video Call' : '<i class="fa-solid fa-phone"></i> Voice Call';
   showCallOverlay('incoming-call');
 
+  // Remove any popup notifications that might block call buttons
+  var nc = $('notif-container');
+  if (nc) nc.innerHTML = '';
+
   // Play ringtone
   var ringtone = $('ringtone');
   if (ringtone) ringtone.play().catch(function () { });
@@ -5974,6 +5978,9 @@ var msgSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-
 msgSound.volume = 0.5;
 
 function showPopupNotification(title, body, avatar, onClick, isCall) {
+  // Don't show popup if call overlay is active (would block call buttons)
+  if (isCall) return;
+
   // Play notification sound (not for calls - they have ringtone)
   if (!isCall) {
     msgSound.currentTime = 0;
