@@ -3629,6 +3629,7 @@ function startCall(type) {
       constraints.video = {
         width: { ideal: 1280 },
         height: { ideal: 720 },
+        frameRate: { ideal: 30 },
         facingMode: 'user'
       };
     }
@@ -3678,6 +3679,23 @@ function getMediaErrorMessage(err, type) {
   }
 }
 
+function boostVideoBitrate(pc) {
+  if (!pc || !pc.getSenders) return;
+  pc.getSenders().forEach(function (sender) {
+    if (sender.track && sender.track.kind === 'video') {
+      var params = sender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) {
+        params.encodings = [{}];
+      }
+      params.encodings[0].maxBitrate = 1500000; // 1.5 Mbps
+      params.encodings[0].maxFramerate = 30;
+      sender.setParameters(params).catch(function (e) {
+        console.warn('Bitrate set failed:', e);
+      });
+    }
+  });
+}
+
 function initWebRTC(isInitiator, callback) {
   doInitWebRTC(isInitiator, callback);
 }
@@ -3702,6 +3720,8 @@ function doInitWebRTC(isInitiator, callback) {
       console.log('Adding local track:', track.kind);
       CallState.pc.addTrack(track, CallState.localStream);
     });
+    // Boost video bitrate for HD quality
+    boostVideoBitrate(CallState.pc);
   }
 
   CallState.pc.onicecandidate = function (e) {
@@ -3900,7 +3920,7 @@ function acceptCall() {
     GC.callStartTime = Date.now();
 
     var constraints = { audio: { echoCancellation: true, noiseSuppression: true } };
-    if (callType === 'video') constraints.video = { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' };
+    if (callType === 'video') constraints.video = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, facingMode: 'user' };
 
     navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
       GC.localStream = stream;
@@ -3932,6 +3952,7 @@ function acceptCall() {
     constraints.video = {
       width: { ideal: 1280 },
       height: { ideal: 720 },
+      frameRate: { ideal: 30 },
       facingMode: 'user'
     };
   }
@@ -4236,7 +4257,7 @@ function toggleCam() {
   } else {
     // Voice call — no video track yet. Request camera and add it.
     navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, facingMode: 'user' }
     }).then(function (camStream) {
       var videoTrack = camStream.getVideoTracks()[0];
       // Add to local stream
@@ -5037,7 +5058,7 @@ function startGroupCall(type) {
   checkMediaPermissions(type).then(function (result) {
     if (!result.success) { toast(result.error, 'e'); return; }
     var constraints = { audio: { echoCancellation: true, noiseSuppression: true } };
-    if (type === 'video') constraints.video = { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' };
+    if (type === 'video') constraints.video = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, facingMode: 'user' };
 
     navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
       GC.localStream = stream;
@@ -5442,6 +5463,7 @@ function createGroupPeerConnection(peerId) {
     GC.localStream.getTracks().forEach(function (track) {
       pc.addTrack(track, GC.localStream);
     });
+    boostVideoBitrate(pc);
   }
 
   pc.onicecandidate = function (event) {
