@@ -3905,11 +3905,22 @@ function handleIncomingCall(data) {
 }
 
 function acceptCall() {
-  hideAllCallOverlays();
+  // Stop ringtone and timeout immediately
   stopAllRingtones();
   if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
   if (window.AndroidBridge) AndroidBridge.cancelCallNotification();
   if (window.DesktopBridge) DesktopBridge.cancelCallNotification();
+
+  // Remove popup notifications
+  var nc = $('notif-container');
+  if (nc) nc.innerHTML = '';
+
+  // Show "Connecting..." state on the incoming call overlay (don't hide it yet!)
+  var inType = $('incoming-type');
+  if (inType) inType.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting...';
+  // Disable buttons to prevent double-tap
+  var btns = document.querySelectorAll('#incoming-call .call-btn');
+  btns.forEach(function(b) { b.style.pointerEvents = 'none'; b.style.opacity = '0.5'; });
 
   // If this is a group call invite, join group call instead
   if (CallState.pendingGroupCallId) {
@@ -3964,7 +3975,10 @@ function acceptCall() {
   navigator.mediaDevices.getUserMedia(constraints)
     .then(function (stream) {
       CallState.localStream = stream;
-      $('local-video').srcObject = stream;
+      if ($('local-video')) $('local-video').srcObject = stream;
+
+      // Now hide incoming overlay — media is ready
+      hideAllCallOverlays();
 
       // SIRF EK BAAR initWebRTC call karein
       initWebRTC(false, function () {
@@ -3988,6 +4002,13 @@ function acceptCall() {
               }
               flushPendingIceCandidates();
               showOngoingCall();
+            })
+            .catch(function (err) {
+              console.error('WebRTC error:', err);
+              toast('Call failed: ' + err.message, 'e');
+              hideAllCallOverlays();
+              cleanupCall();
+              playEndSound();
             });
         }
       });
@@ -4484,7 +4505,13 @@ function hideAllCallOverlays() {
 function stopAllRingtones() {
   ['ringtone', 'ringback'].forEach(function (id) {
     var el = $(id);
-    if (el) { el.pause(); el.currentTime = 0; }
+    if (el) {
+      el.loop = false;
+      el.pause();
+      el.currentTime = 0;
+      // Double-check after a tick (Android WebView sometimes ignores first pause)
+      setTimeout(function() { el.pause(); el.currentTime = 0; }, 100);
+    }
   });
 }
 
