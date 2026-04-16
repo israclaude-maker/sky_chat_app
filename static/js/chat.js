@@ -376,6 +376,7 @@ function init() {
       connectGlobalWS();
       loadTURNServers(); 
       initPasteHandler();
+      initCallButtons();
 
       // Handle open_group URL parameter (from push notification click)
       var urlParams = new URLSearchParams(window.location.search);
@@ -4507,10 +4508,20 @@ function stopAllRingtones() {
     var el = $(id);
     if (el) {
       el.loop = false;
+      el.muted = true;
+      el.volume = 0;
       el.pause();
       el.currentTime = 0;
-      // Double-check after a tick (Android WebView sometimes ignores first pause)
-      setTimeout(function() { el.pause(); el.currentTime = 0; }, 100);
+      setTimeout(function() {
+        el.pause();
+        el.currentTime = 0;
+        el.muted = true;
+      }, 100);
+      setTimeout(function() {
+        el.pause();
+        el.muted = false;
+        el.volume = 1;
+      }, 500);
     }
   });
 }
@@ -4518,6 +4529,42 @@ function stopAllRingtones() {
 function playEndSound() {
   var snd = $('callend');
   if (snd) snd.play().catch(function () { });
+}
+
+// Reliable call button handlers for Android WebView
+function initCallButtons() {
+  var acceptBtn = $('btn-accept-call');
+  var rejectBtn = $('btn-reject-call');
+
+  function addTouchHandler(el, fn) {
+    if (!el) return;
+    var handled = false;
+    el.addEventListener('touchend', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (handled) return;
+      handled = true;
+      fn();
+      setTimeout(function() { handled = false; }, 1000);
+    }, { passive: false });
+    el.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (handled) return;
+      handled = true;
+      fn();
+      setTimeout(function() { handled = false; }, 1000);
+    });
+  }
+
+  addTouchHandler(acceptBtn, function() {
+    console.log('Accept button pressed');
+    acceptCall();
+  });
+  addTouchHandler(rejectBtn, function() {
+    console.log('Reject button pressed');
+    rejectCall();
+  });
 }
 
 function cleanupCall() {

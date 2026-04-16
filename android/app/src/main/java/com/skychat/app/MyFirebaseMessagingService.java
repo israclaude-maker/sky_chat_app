@@ -141,10 +141,8 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_CALL)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setLargeIcon(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher))
             .setContentTitle(callerName)
             .setContentText(callLabel)
-            .setSubText("SkyChat")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -152,11 +150,14 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             .setFullScreenIntent(fullPi, true)
             .setOngoing(true)
             .setAutoCancel(false)
-            .setColor(Color.parseColor("#00a884"))
+            .setColor(Color.parseColor("#25D366"))
+            .setColorized(true)
             .setVibrate(new long[]{0, 1000, 500, 1000, 500, 1000})
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Decline", declinePi)
-            .addAction(android.R.drawable.ic_menu_call, "Answer", answerPi);
+            .addAction(new NotificationCompat.Action.Builder(
+                android.R.drawable.ic_menu_close_clear_cancel, "❌ Decline", declinePi).build())
+            .addAction(new NotificationCompat.Action.Builder(
+                android.R.drawable.ic_menu_call, "✅ Answer", answerPi).build());
 
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.notify(CallActionReceiver.CALL_NOTIFICATION_ID, builder.build());

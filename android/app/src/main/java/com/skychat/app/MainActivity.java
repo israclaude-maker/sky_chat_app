@@ -82,10 +82,6 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-        getWindow().setFlags(
-            WindowManager.LayoutParams.FLAG_FULLSCREEN,
-            WindowManager.LayoutParams.FLAG_FULLSCREEN
-        );
         setContentView(com.skychat.app.R.layout.activity_main);
 
         createNotificationChannels();
@@ -97,6 +93,9 @@ public class MainActivity extends Activity {
         } else {
             startService(serviceIntent);
         }
+
+        // Request battery optimization exemption (critical for Chinese OEM phones)
+        requestBatteryOptimizationExemption();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             String[] perms;
@@ -153,13 +152,13 @@ public class MainActivity extends Activity {
                 if (pendingCallAction != null) {
                     final String action = pendingCallAction;
                     pendingCallAction = null;
-                    // Wait a bit for JS to initialize
+                    // Wait for JS to initialize, then try (with retries)
                     view.postDelayed(new Runnable() {
                         @Override
                         public void run() {
                             executeCallAction(action);
                         }
-                    }, 2000);
+                    }, 1000);
                 }
             }
         });
@@ -214,65 +213,34 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    intent.setData(Uri.parse("package:" + getPackageName()));
+                    startActivity(intent);
+                } catch (Exception e) {
+                    Log.e("SkyChat", "Battery optimization request failed: " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    private int callActionRetryCount = 0;
+    private static final int MAX_CALL_RETRIES = 8;
+
     private void executeCallAction(String action) {
         if (webView == null || action == null) return;
+
+        // Cancel notification immediately on any action
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        nm.cancel(CallActionReceiver.CALL_NOTIFICATION_ID);
+
         if ("answer".equals(action)) {
-            SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
-            String callJson = prefs.getString("pending_call_json", null);
-
-            if (callJson != null) {
-                // We have the full call_incoming JSON with SDP from KeepAliveService WS
-                // Encode as Base64 to safely inject into JS (SDP contains special chars)
-                String base64 = Base64.encodeToString(callJson.getBytes(), Base64.NO_WRAP);
-                final String js = "(function(){" +
-                    "  if(typeof CallState==='undefined' || typeof handleIncomingCall==='undefined') return 'not_ready';" +
-                    "  try {" +
-                    "    CallState.pendingAnswerFromNotification=true;" +
-                    "    var data=JSON.parse(atob('" + base64 + "'));" +
-                    "    handleIncomingCall(data);" +
-                    "    return 'injected_with_sdp';" +
-                    "  } catch(e) { return 'error:'+e.message; }" +
-                    "})()";
-                webView.evaluateJavascript(js, null);
-            } else {
-                // Fallback: no full JSON (FCM wake scenario) - set fields and wait for WS
-                int callId = -1;
-                int callerId = -1;
-                String callerName = "Unknown";
-                String callType = "voice";
-                String callerPic = "";
-
-                if (pendingCallIntent != null) {
-                    callId = pendingCallIntent.getIntExtra("call_id", -1);
-                    callerId = pendingCallIntent.getIntExtra("caller_id", -1);
-                    callerName = pendingCallIntent.getStringExtra("caller_name");
-                    callType = pendingCallIntent.getStringExtra("call_type");
-                    callerPic = pendingCallIntent.getStringExtra("caller_pic");
-                    pendingCallIntent = null;
-                }
-                if (callId == -1) {
-                    callId = prefs.getInt("pending_call_id", -1);
-                    callerId = prefs.getInt("pending_caller_id", -1);
-                    callerName = prefs.getString("pending_caller_name", "Unknown");
-                    callType = prefs.getString("pending_call_type", "voice");
-                    callerPic = prefs.getString("pending_caller_pic", "");
-                }
-                if (callerName == null) callerName = "Unknown";
-                if (callType == null) callType = "voice";
-                if (callerPic == null) callerPic = "";
-
-                final String js = "(function(){" +
-                    "  if(typeof CallState==='undefined') return 'no CallState';" +
-                    "  CallState.callId=" + callId + ";" +
-                    "  CallState.callType='" + callType.replace("'", "\\'") + "';" +
-                    "  CallState.remoteUserId=" + callerId + ";" +
-                    "  CallState.remoteUserName='" + callerName.replace("'", "\\'") + "';" +
-                    "  CallState.remoteProfilePic='" + callerPic.replace("'", "\\'") + "';" +
-                    "  CallState.pendingAnswerFromNotification=true;" +
-                    "  return 'waiting_for_ws';" +
-                    "})()";
-                webView.evaluateJavascript(js, null);
-            }
+            callActionRetryCount = 0;
+            tryAnswerCall();
         } else if ("decline".equals(action)) {
             webView.evaluateJavascript(
                 "(function(){" +
@@ -280,11 +248,117 @@ public class MainActivity extends Activity {
                 "  return 'no rejectCall';" +
                 "})()", null);
         }
-        // Cancel call notification and mark handled
-        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        nm.cancel(CallActionReceiver.CALL_NOTIFICATION_ID);
         SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
         prefs.edit().putBoolean("call_handled", true).apply();
+    }
+
+    private void tryAnswerCall() {
+        if (webView == null) return;
+
+        // First try: if incoming call overlay is already showing, just call acceptCall() directly
+        final String quickJs = "(function(){" +
+            "  if(typeof acceptCall==='undefined') return 'not_ready';" +
+            "  if(typeof CallState!=='undefined' && CallState.callId) {" +
+            "    acceptCall();" +
+            "    return 'accepted';" +
+            "  }" +
+            "  return 'no_call';" +
+            "})()";
+
+        webView.evaluateJavascript(quickJs, new android.webkit.ValueCallback<String>() {
+            @Override
+            public void onReceiveValue(String result) {
+                Log.d("SkyChat", "Quick accept result: " + result + " (attempt " + callActionRetryCount + ")");
+                if (result != null && result.contains("accepted")) {
+                    return; // Done!
+                }
+                // Fallback: inject call data
+                injectCallData();
+            }
+        });
+    }
+
+    private void injectCallData() {
+        SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
+        String callJson = prefs.getString("pending_call_json", null);
+
+        if (callJson != null) {
+            String base64 = Base64.encodeToString(callJson.getBytes(), Base64.NO_WRAP);
+            final String js = "(function(){" +
+                "  if(typeof CallState==='undefined' || typeof handleIncomingCall==='undefined') return 'not_ready';" +
+                "  try {" +
+                "    CallState.pendingAnswerFromNotification=true;" +
+                "    var data=JSON.parse(atob('" + base64 + "'));" +
+                "    handleIncomingCall(data);" +
+                "    return 'ok';" +
+                "  } catch(e) { return 'error:'+e.message; }" +
+                "})()";
+            webView.evaluateJavascript(js, new android.webkit.ValueCallback<String>() {
+                @Override
+                public void onReceiveValue(String result) {
+                    Log.d("SkyChat", "Inject result: " + result + " (attempt " + callActionRetryCount + ")");
+                    if (result != null && (result.contains("not_ready") || result.contains("null"))) {
+                        retryAnswerIfNeeded();
+                    }
+                }
+            });
+        } else {
+            int callId = prefs.getInt("pending_call_id", -1);
+            int callerId = prefs.getInt("pending_caller_id", -1);
+            String callerName = prefs.getString("pending_caller_name", "Unknown");
+            String callType = prefs.getString("pending_call_type", "voice");
+            String callerPic = prefs.getString("pending_caller_pic", "");
+
+            if (pendingCallIntent != null) {
+                callId = pendingCallIntent.getIntExtra("call_id", callId);
+                callerId = pendingCallIntent.getIntExtra("caller_id", callerId);
+                String n = pendingCallIntent.getStringExtra("caller_name");
+                if (n != null) callerName = n;
+                String t = pendingCallIntent.getStringExtra("call_type");
+                if (t != null) callType = t;
+                String p = pendingCallIntent.getStringExtra("caller_pic");
+                if (p != null) callerPic = p;
+                pendingCallIntent = null;
+            }
+            if (callerName == null) callerName = "Unknown";
+            if (callType == null) callType = "voice";
+            if (callerPic == null) callerPic = "";
+
+            final String js = "(function(){" +
+                "  if(typeof CallState==='undefined') return 'not_ready';" +
+                "  CallState.callId=" + callId + ";" +
+                "  CallState.callType='" + callType.replace("'", "\\'") + "';" +
+                "  CallState.remoteUserId=" + callerId + ";" +
+                "  CallState.remoteUserName='" + callerName.replace("'", "\\'") + "';" +
+                "  CallState.remoteProfilePic='" + callerPic.replace("'", "\\'") + "';" +
+                "  CallState.pendingAnswerFromNotification=true;" +
+                "  return 'ok';" +
+                "})()";
+            webView.evaluateJavascript(js, new android.webkit.ValueCallback<String>() {
+                @Override
+                public void onReceiveValue(String result) {
+                    Log.d("SkyChat", "Fallback result: " + result + " (attempt " + callActionRetryCount + ")");
+                    if (result != null && (result.contains("not_ready") || result.contains("null"))) {
+                        retryAnswerIfNeeded();
+                    }
+                }
+            });
+        }
+    }
+
+    private void retryAnswerIfNeeded() {
+        callActionRetryCount++;
+        if (callActionRetryCount < MAX_CALL_RETRIES) {
+            Log.d("SkyChat", "JS not ready, retrying in " + (callActionRetryCount * 500) + "ms...");
+            new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    tryAnswerCall();
+                }
+            }, callActionRetryCount * 500); // 500ms, 1s, 1.5s, 2s...
+        } else {
+            Log.e("SkyChat", "Failed to inject call answer after " + MAX_CALL_RETRIES + " retries");
+        }
     }
 
     private void createNotificationChannels() {

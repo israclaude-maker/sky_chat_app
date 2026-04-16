@@ -41,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 public class KeepAliveService extends Service {
 
     private static final String TAG = "KeepAlive";
-    private static final String CHANNEL_ID = "skychat_bg_v2";
+    private static final String CHANNEL_ID = "skychat_bg_v3";
     private static final String CHANNEL_CALL = "skychat_calls";
     private static final String CHANNEL_MSG = "skychat_messages";
     private static final String WS_BASE = "wss://sky-chat.duckdns.org/ws/chat/";
@@ -58,7 +58,7 @@ public class KeepAliveService extends Service {
     private ConnectivityManager.NetworkCallback networkCallback;
     private boolean isConnecting = false;
     private Handler aliveCheckHandler;
-    private static final long ALIVE_CHECK_INTERVAL = 60000; // 1 minute
+    private static final long ALIVE_CHECK_INTERVAL = 45000; // 45 seconds (more aggressive)
     private long lastPongTime = 0; // track last activity on WS
 
     // Store last incoming call info for Decline button
@@ -85,12 +85,14 @@ public class KeepAliveService extends Service {
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("SkyChat")
+            .setContentText("")
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setContentIntent(pi)
             .setOngoing(true)
             .setSilent(true)
             .setShowWhen(false)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build();
 
         startForeground(1, notification);
@@ -107,6 +109,24 @@ public class KeepAliveService extends Service {
         aliveCheckHandler = new Handler(Looper.getMainLooper());
         connectWebSocket();
         startAliveCheck();
+        scheduleServiceAlarm();
+    }
+
+    // AlarmManager: periodically ensure service is alive even after Doze
+    private void scheduleServiceAlarm() {
+        AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
+        Intent intent = new Intent(this, KeepAliveService.class);
+        intent.setAction("ALARM_CHECK");
+        PendingIntent pi = PendingIntent.getService(this, 999, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        // Fire every 10 minutes, even in Doze
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 600000, pi);
+        } else {
+            am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 600000, pi);
+        }
     }
 
     // Periodically check that WebSocket is alive, reconnect if not
@@ -117,7 +137,7 @@ public class KeepAliveService extends Service {
                 if (!isRunning) return;
 
                 boolean wsNull = (webSocket == null);
-                boolean stale = (lastPongTime > 0 && System.currentTimeMillis() - lastPongTime > 180000); // 3 min no activity
+                boolean stale = (lastPongTime > 0 && System.currentTimeMillis() - lastPongTime > 120000); // 2 min no activity
 
                 if ((wsNull || stale) && !isConnecting) {
                     Log.d(TAG, "Alive check: WS " + (wsNull ? "null" : "stale") + ", reconnecting...");
@@ -162,13 +182,14 @@ public class KeepAliveService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager nm = getSystemService(NotificationManager.class);
 
-            // Delete old channel that was cached with wrong settings
+            // Delete old channels that were cached with wrong settings
             nm.deleteNotificationChannel("skychat_keepalive");
+            nm.deleteNotificationChannel("skychat_bg_v2");
 
-            // Keep-alive channel (completely silent & hidden)
+            // Keep-alive channel (min priority, invisible)
             NotificationChannel keepCh = new NotificationChannel(
                 CHANNEL_ID, "Background Service", NotificationManager.IMPORTANCE_MIN);
-            keepCh.setDescription("Keeps SkyChat connected");
+            keepCh.setDescription("Keeps SkyChat connected for instant notifications");
             keepCh.setShowBadge(false);
             keepCh.enableVibration(false);
             keepCh.enableLights(false);
@@ -457,10 +478,17 @@ public class KeepAliveService extends Service {
         PendingIntent fullPi = PendingIntent.getActivity(this, 101, fullIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // Answer
-        Intent answerIntent = new Intent(this, CallActionReceiver.class);
-        answerIntent.setAction(CallActionReceiver.ACTION_ANSWER);
-        PendingIntent answerPi = PendingIntent.getBroadcast(this, 102, answerIntent,
+        // Answer — direct Activity intent (more reliable than broadcast)
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        Intent answerIntent = new Intent(this, MainActivity.class);
+        answerIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        answerIntent.putExtra("call_action", "answer");
+        answerIntent.putExtra("call_id", prefs.getInt("pending_call_id", -1));
+        answerIntent.putExtra("caller_id", prefs.getInt("pending_caller_id", -1));
+        answerIntent.putExtra("caller_name", prefs.getString("pending_caller_name", "Unknown"));
+        answerIntent.putExtra("call_type", prefs.getString("pending_call_type", "voice"));
+        answerIntent.putExtra("caller_pic", prefs.getString("pending_caller_pic", ""));
+        PendingIntent answerPi = PendingIntent.getActivity(this, 102, answerIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         // Decline
@@ -469,12 +497,11 @@ public class KeepAliveService extends Service {
         PendingIntent declinePi = PendingIntent.getBroadcast(this, 103, declineIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
+        // Build call-style notification
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_CALL)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setLargeIcon(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher))
             .setContentTitle(callerName)
             .setContentText(callType)
-            .setSubText("SkyChat")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -482,11 +509,14 @@ public class KeepAliveService extends Service {
             .setFullScreenIntent(fullPi, true)
             .setOngoing(true)
             .setAutoCancel(false)
-            .setColor(Color.parseColor("#00a884"))
+            .setColor(Color.parseColor("#25D366"))
+            .setColorized(true)
             .setVibrate(new long[]{0, 1000, 500, 1000, 500, 1000})
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Decline", declinePi)
-            .addAction(android.R.drawable.ic_menu_call, "Answer", answerPi);
+            .addAction(new NotificationCompat.Action.Builder(
+                android.R.drawable.ic_menu_close_clear_cancel, "❌ Decline", declinePi).build())
+            .addAction(new NotificationCompat.Action.Builder(
+                android.R.drawable.ic_menu_call, "✅ Answer", answerPi).build());
 
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.notify(CallActionReceiver.CALL_NOTIFICATION_ID, builder.build());
@@ -652,8 +682,19 @@ public class KeepAliveService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && "RECONNECT".equals(intent.getAction())) {
-            reconnect();
+        if (intent != null) {
+            String action = intent.getAction();
+            if ("RECONNECT".equals(action)) {
+                reconnect();
+            } else if ("ALARM_CHECK".equals(action)) {
+                Log.d(TAG, "Alarm check fired — verifying WS");
+                if (webSocket == null && !isConnecting) {
+                    reconnectDelay = 1000;
+                    connectWebSocket();
+                }
+                // Re-schedule next alarm
+                scheduleServiceAlarm();
+            }
         }
         return START_STICKY;
     }
@@ -675,14 +716,32 @@ public class KeepAliveService extends Service {
                 cm.unregisterNetworkCallback(networkCallback);
             } catch (Exception ignored) {}
         }
+        // Cancel restart alarm
+        AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
+        Intent intent = new Intent(this, KeepAliveService.class);
+        intent.setAction("ALARM_CHECK");
+        PendingIntent pi = PendingIntent.getService(this, 999, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        am.cancel(pi);
         super.onDestroy();
     }
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        Log.d(TAG, "Task removed");
+        Log.d(TAG, "Task removed — scheduling restart");
         super.onTaskRemoved(rootIntent);
-        // START_STICKY handles restart automatically
+        // Schedule restart via AlarmManager as backup for START_STICKY
+        AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
+        Intent intent = new Intent(this, KeepAliveService.class);
+        PendingIntent pi = PendingIntent.getService(this, 998, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 5000, pi);
+        } else {
+            am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 5000, pi);
+        }
     }
 
     @Override

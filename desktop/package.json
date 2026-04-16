@@ -1,6 +1,6 @@
 {
   "name": "skychat-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SkyChat Desktop Application",
   "main": "main.js",
   "scripts": {
@@ -19,24 +19,13 @@
   "build": {
     "appId": "com.skychat.desktop",
     "productName": "SkyChat",
+    "icon": "icon.png",
     "directories": {
       "output": "dist"
     },
-    "extraResources": [
-      {
-        "from": "resources/python",
-        "to": "python",
-        "filter": ["**/*"]
-      },
-      {
-        "from": "resources/backend",
-        "to": "backend",
-        "filter": ["**/*"]
-      }
-    ],
     "win": {
       "target": "nsis",
-      "signAndEditExecutable": false
+      "icon": "icon.ico"
     },
     "mac": {
       "target": "dmg"
