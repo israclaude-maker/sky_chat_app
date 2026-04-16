@@ -28,6 +28,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         if not validated_data.get('email'):
             validated_data.pop('email', None)
         user = CustomUser.objects.create_user(password=password, **validated_data)
+        user.is_active = False
+        user.save(update_fields=['is_active'])
         return user
 
 class LoginSerializer(serializers.Serializer):

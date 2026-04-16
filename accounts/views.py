@@ -25,7 +25,7 @@ class UserViewSet(viewsets.ModelViewSet):
             user = serializer.save()
             return Response({
                 'user': UserSerializer(user).data,
-                'message': 'User registered successfully'
+                'message': 'Account created. Please wait for admin approval before you can login.'
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -35,6 +35,14 @@ class UserViewSet(viewsets.ModelViewSet):
         if serializer.is_valid():
             username = serializer.validated_data.get('username')
             password = serializer.validated_data.get('password')
+
+            # Check if user exists but is inactive
+            try:
+                check_user = CustomUser.objects.get(username=username)
+                if not check_user.is_active:
+                    return Response({'error': 'Your account is not yet activated. Please contact admin.'}, status=status.HTTP_403_FORBIDDEN)
+            except CustomUser.DoesNotExist:
+                pass
 
             user = authenticate(username=username, password=password)
 
