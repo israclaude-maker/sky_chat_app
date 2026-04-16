@@ -24,6 +24,7 @@ from accounts.views import index as accounts_index
 from rest_framework_simplejwt.views import TokenRefreshView
 import os
 from chat.views import chat, get_turn_credentials
+from calls.views import call_history
 
 def service_worker(request):
     """Serve service worker from root for proper scope"""
@@ -52,6 +53,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/call_history/', call_history, name='call_history'),
 ]
 
 # Serve media files in development
