@@ -225,10 +225,11 @@ const PKT = 'Asia/Karachi';
 function fmtTime(iso) {
   if (!iso) return '';
   var d = new Date(iso), now = new Date();
-  var opts = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: PKT };
-  return d.toDateString() === now.toDateString() ?
-    d.toLocaleTimeString('en-PK', opts) :
-    d.toLocaleDateString('en-PK', { month: 'short', day: 'numeric', timeZone: PKT });
+  var timeOpts = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: PKT };
+  var time = d.toLocaleTimeString('en-PK', timeOpts);
+  if (d.toDateString() === now.toDateString()) return time;
+  var date = d.toLocaleDateString('en-PK', { month: 'short', day: 'numeric', timeZone: PKT });
+  return date + ', ' + time;
 }
 
 function fmtFullTime(iso) {
