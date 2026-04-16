@@ -1971,13 +1971,32 @@ function openMediaInNewTab() {
 
 // Download file helper
 function downloadFile(url, filename) {
-  var a = document.createElement('a');
-  a.href = url;
-  a.download = filename || url.split('/').pop() || 'file';
-  a.target = '_blank';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  // Make URL absolute
+  if (url.startsWith('/')) url = window.location.origin + url;
+
+  // Android APK: use native download
+  if (window.AndroidBridge && window.AndroidBridge.downloadFile) {
+    AndroidBridge.downloadFile(url, filename || url.split('/').pop() || 'file');
+    toast('Downloading ' + (filename || 'file') + '...', 's');
+    return;
+  }
+
+  // Browser: use fetch+blob for reliable download
+  fetch(url).then(function(resp) {
+    return resp.blob();
+  }).then(function(blob) {
+    var blobUrl = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename || url.split('/').pop() || 'file';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 1000);
+  }).catch(function() {
+    // Fallback: open in new tab
+    window.open(url, '_blank');
+  });
 }
 
 // Check if file can be previewed
@@ -2002,7 +2021,7 @@ function openFilePreview(url, filename) {
     return;
   }
 
-  // PDFs - use browser viewer or Google Docs
+  // PDFs - use Google Docs viewer on mobile, direct embed on desktop
   if (ext === 'pdf') {
     MediaState.url = url;
     MediaState.filename = filename;
@@ -2013,8 +2032,19 @@ function openFilePreview(url, filename) {
     var title = $('media-preview-title');
 
     title.textContent = filename;
-    // Try direct PDF embed first, fallback to Google Docs viewer
-    content.innerHTML = '<iframe src="' + esc(url) + '#toolbar=1" type="application/pdf"></iframe>';
+
+    // Make URL absolute for Google Docs viewer
+    var absUrl = url.startsWith('/') ? window.location.origin + url : url;
+
+    if (window.AndroidBridge) {
+      // Android: use Google Docs viewer (WebView can't render PDF iframe)
+      content.innerHTML = '<iframe src="https://docs.google.com/gview?embedded=true&url=' + encodeURIComponent(absUrl) + '" style="width:100%;height:100%;border:none;"></iframe>' +
+        '<div style="position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:10;">' +
+        '<button onclick="downloadFile(\'' + esc(absUrl) + '\',\'' + esc(filename) + '\')" style="background:#3b82f6;color:#fff;border:none;padding:12px 28px;border-radius:12px;font-size:15px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.3);"><i class="fa-solid fa-download"></i> Download PDF</button></div>';
+    } else {
+      // Desktop: direct PDF embed
+      content.innerHTML = '<iframe src="' + esc(url) + '#toolbar=1" type="application/pdf" style="width:100%;height:100%;border:none;"></iframe>';
+    }
 
     overlay.classList.add('active');
     document.body.style.overflow = 'hidden';

@@ -1999,19 +1999,21 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 220px;
+  min-width: 200px;
   max-width: 300px;
+  width: 100%;
 }
 .file-msg-info {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px;
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 8px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
   cursor: pointer;
+  touch-action: manipulation;
 }
-.file-msg-info:hover {
+.file-msg-info:active {
   background: rgba(0, 0, 0, 0.15);
 }
 .file-msg-buttons {
@@ -2020,31 +2022,33 @@ body {
 }
 .file-btn {
   flex: 1;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border: none;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   transition: all 0.2s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .file-btn.open-btn {
   background: var(--blue);
   color: #fff;
 }
-.file-btn.open-btn:hover {
+.file-btn.open-btn:active {
   background: var(--blue-dk);
 }
 .file-btn.download-btn {
-  background: rgba(0, 0, 0, 0.1);
-  color: inherit;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--blue);
 }
-.file-btn.download-btn:hover {
-  background: rgba(0, 0, 0, 0.2);
+.file-btn.download-btn:active {
+  background: rgba(59, 130, 246, 0.25);
 }
 .call-item {
   display: flex;

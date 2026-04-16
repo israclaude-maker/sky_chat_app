@@ -144,6 +144,33 @@ public class MainActivity extends Activity {
 
         webView.addJavascriptInterface(new WebAppInterface(), "AndroidBridge");
 
+        // Handle file downloads from WebView
+        webView.setDownloadListener(new android.webkit.DownloadListener() {
+            @Override
+            public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
+                String fileName = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimetype);
+                try {
+                    android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                    android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(Uri.parse(url));
+                    request.setTitle(fileName);
+                    request.setDescription("Downloading from SkyChat");
+                    request.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                    request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName);
+                    request.setMimeType(mimetype);
+                    request.allowScanningByMediaScanner();
+                    // Add cookies for auth
+                    String cookies = CookieManager.getInstance().getCookie(url);
+                    if (cookies != null) request.addRequestHeader("Cookie", cookies);
+                    dm.enqueue(request);
+                    Log.d("SkyChat", "WebView download: " + fileName);
+                } catch (Exception e) {
+                    Log.e("SkyChat", "Download error: " + e.getMessage());
+                    Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    startActivity(i);
+                }
+            }
+        });
+
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
@@ -471,6 +498,26 @@ public class MainActivity extends Activity {
         public void cancelAllNotifications() {
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             nm.cancelAll();
+        }
+
+        @JavascriptInterface
+        public void downloadFile(String url, String filename) {
+            try {
+                android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(Uri.parse(url));
+                request.setTitle(filename);
+                request.setDescription("Downloading from SkyChat");
+                request.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename);
+                request.allowScanningByMediaScanner();
+                dm.enqueue(request);
+                Log.d("SkyChat", "Download started: " + filename);
+            } catch (Exception e) {
+                Log.e("SkyChat", "Download failed: " + e.getMessage());
+                // Fallback: open in browser
+                Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                startActivity(browserIntent);
+            }
         }
 
         @JavascriptInterface
