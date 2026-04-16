@@ -2939,15 +2939,7 @@ function swTab(tab, btn) {
 // Load call history
 // Load call history
 function loadCallHistory() {
-  fetch('/api/call_history/', {
-    headers: {
-      'Authorization': 'Bearer ' + S.token,
-      'Cache-Control': 'no-cache'
-    }
-  }).then(function (r) {
-    if (!r.ok) throw new Error('API error ' + r.status);
-    return r.json();
-  }).then(function (calls) {
+  api('/call_history/').then(function (calls) {
     renderCallHistory(calls || []);
   }).catch(function (err) {
     console.error('Call history error:', err);

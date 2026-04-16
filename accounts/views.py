@@ -969,16 +969,20 @@ class UserViewSet(viewsets.ModelViewSet):
             if gc.ended_at and gc.started_at:
                 duration = int((gc.ended_at - gc.started_at).total_seconds())
             
+            group_data = None
+            if gc.group:
+                group_data = {
+                    'id': gc.group.id,
+                    'name': gc.group.name,
+                    'group_picture': gc.group.group_picture.url if gc.group.group_picture else None,
+                }
+            
             result.append({
                 'id': gc.id,
                 'type': 'group',
                 'call_type': gc.call_type,
                 'status': gc.status,
-                'group': {
-                    'id': gc.group.id,
-                    'name': gc.group.name,
-                    'group_picture': gc.group.group_picture.url if gc.group.group_picture else None,
-                },
+                'group': group_data,
                 'initiator': {
                     'id': gc.initiator.id,
                     'name': f"{gc.initiator.first_name} {gc.initiator.last_name}".strip() or gc.initiator.username,
