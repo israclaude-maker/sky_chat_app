@@ -5557,8 +5557,9 @@ function handleGroupCallJoined(data) {
 }
 
 function handleGroupCallUserJoined(data) {
-  // A new user joined — they will send us an offer, we wait
-  // But let's create their peer entry (they'll initiate)
+  // Someone joined — stop ringtone/ringback since the call is now connected
+  stopAllRingtones();
+  stopGcRingtone();
   toast(data.user_name + ' joined the call', 's');
   updateGroupCallParticipantCount();
 }
