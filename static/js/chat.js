@@ -1653,9 +1653,9 @@ function uploadFile(file) {
     return;
   }
 
-  // Check file size (50MB max)
-  if (file.size > 52428800) {
-    toast('File too large (max 50MB)', 'e');
+  // Check file size (200MB max)
+  if (file.size > 209715200) {
+    toast('File too large (max 200MB)', 'e');
     return;
   }
 
