@@ -1637,18 +1637,100 @@ function sendText() {
 // ═══════════════════════════════════════════════════════════════
 // FILE UPLOAD
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// FILE UPLOAD WITH PREVIEW
+// ═══════════════════════════════════════════════════════════════
+var FileUploadState = { files: [] };
+
 function handleFileSelect(e) {
   var files = e.target.files;
   if (!files || files.length === 0) return;
 
+  if (!S.activeUser && !S.activeGroup) {
+    toast('Select a conversation first', 'e');
+    e.target.value = '';
+    return;
+  }
+
   for (var i = 0; i < files.length; i++) {
-    uploadFile(files[i]);
+    if (files[i].size > 209715200) {
+      toast(files[i].name + ' is too large (max 200MB)', 'e');
+      continue;
+    }
+    FileUploadState.files.push(files[i]);
   }
   e.target.value = '';
+
+  if (FileUploadState.files.length > 0) {
+    showFilePreview();
+  }
 }
 
-function uploadFile(file) {
-  if (!S.activeUser) {
+function showFilePreview() {
+  var container = $('file-preview-list');
+  container.innerHTML = '';
+
+  FileUploadState.files.forEach(function(file, idx) {
+    var ext = file.name.toLowerCase().split('.').pop();
+    var isImage = ['jpg','jpeg','png','gif','webp'].indexOf(ext) !== -1;
+    var isVideo = ['mp4','webm','mov','avi'].indexOf(ext) !== -1;
+
+    var item = document.createElement('div');
+    item.className = 'file-preview-item';
+
+    if (isImage) {
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        item.innerHTML = '<div class="file-preview-thumb"><img src="' + e.target.result + '" alt=""></div>' +
+          '<div class="file-preview-info"><div class="file-preview-name">' + esc(file.name) + '</div>' +
+          '<div class="file-preview-size">' + formatFileSize(file.size) + '</div></div>' +
+          '<button class="file-preview-remove" onclick="removeFilePreview(' + idx + ')"><i class="fa-solid fa-xmark"></i></button>';
+      };
+      reader.readAsDataURL(file);
+    } else if (isVideo) {
+      item.innerHTML = '<div class="file-preview-thumb"><i class="fa-solid fa-film" style="font-size:32px;color:var(--blue);"></i></div>' +
+        '<div class="file-preview-info"><div class="file-preview-name">' + esc(file.name) + '</div>' +
+        '<div class="file-preview-size">' + formatFileSize(file.size) + '</div></div>' +
+        '<button class="file-preview-remove" onclick="removeFilePreview(' + idx + ')"><i class="fa-solid fa-xmark"></i></button>';
+    } else {
+      var icon = getFileIcon(file.name);
+      item.innerHTML = '<div class="file-preview-thumb"><i class="fa-solid ' + icon + '" style="font-size:32px;color:var(--blue);"></i></div>' +
+        '<div class="file-preview-info"><div class="file-preview-name">' + esc(file.name) + '</div>' +
+        '<div class="file-preview-size">' + formatFileSize(file.size) + '</div></div>' +
+        '<button class="file-preview-remove" onclick="removeFilePreview(' + idx + ')"><i class="fa-solid fa-xmark"></i></button>';
+    }
+    container.appendChild(item);
+  });
+
+  openM('file-preview-modal');
+}
+
+function removeFilePreview(idx) {
+  FileUploadState.files.splice(idx, 1);
+  if (FileUploadState.files.length === 0) {
+    closeFilePreview();
+  } else {
+    showFilePreview();
+  }
+}
+
+function closeFilePreview() {
+  FileUploadState.files = [];
+  closeM('file-preview-modal');
+}
+
+function sendPreviewFiles() {
+  var files = FileUploadState.files.slice();
+  var caption = $('file-preview-caption') ? $('file-preview-caption').value.trim() : '';
+  closeFilePreview();
+
+  files.forEach(function(file) {
+    uploadFile(file, caption);
+  });
+}
+
+function uploadFile(file, caption) {
+  if (!S.activeUser && !S.activeGroup) {
     toast('Select a conversation first', 'e');
     return;
   }
@@ -1661,7 +1743,13 @@ function uploadFile(file) {
 
   var formData = new FormData();
   formData.append('file', file);
-  formData.append('receiver_id', S.activeUser.id);
+  if (caption) formData.append('caption', caption);
+
+  if (S.isGroup && S.activeGroup) {
+    formData.append('group_id', S.activeGroup.id);
+  } else if (S.activeUser) {
+    formData.append('receiver_id', S.activeUser.id);
+  }
 
   // Show upload progress
   toast('Uploading ' + file.name + '...', 's');
@@ -1679,7 +1767,6 @@ function uploadFile(file) {
         toast(data.error, 'e');
       } else {
         toast('File sent!', 's');
-        // Message will be broadcast via WebSocket
       }
     })
     .catch(function (err) {
@@ -2180,6 +2267,21 @@ function handleWS(data) {
       file_url: data.file_url,
       file_name: data.file_name,
       duration: data.duration || 0
+    }, false);
+    loadConvs();
+  }
+
+  else if (type === 'file_message') {
+    appendMsg({
+      id: data.message_id,
+      message: data.message || '',
+      username: data.username,
+      display_name: data.display_name,
+      timestamp: data.timestamp,
+      message_type: data.message_type || 'file',
+      file_url: data.file_url,
+      file_name: data.file_name,
+      file_size: data.file_size || 0
     }, false);
     loadConvs();
   }

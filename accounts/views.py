@@ -627,31 +627,22 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='messages/upload', permission_classes=[IsAuthenticated])
     def upload_file(self, request):
-        """Upload a file message"""
+        """Upload a file message (DM or Group)"""
         file = request.FILES.get('file')
         receiver_id = request.data.get('receiver_id')
+        group_id = request.data.get('group_id')
+        caption = request.data.get('caption', '')
         message_type = request.data.get('message_type', 'file')
         
         if not file:
             return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
         
-        if not receiver_id:
-            return Response({'error': 'receiver_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            receiver = CustomUser.objects.get(id=receiver_id)
-        except CustomUser.DoesNotExist:
-            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        if not receiver_id and not group_id:
+            return Response({'error': 'receiver_id or group_id is required'}, status=status.HTTP_400_BAD_REQUEST)
         
         user = request.user
-        participants = sorted([user.id, receiver.id])
         
-        conversation, _ = Conversation.objects.get_or_create(
-            participant1_id=participants[0],
-            participant2_id=participants[1]
-        )
-        
-        # Determine message type from file
+        # Determine message type from file extension
         ext = file.name.lower().split('.')[-1] if '.' in file.name else ''
         if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
             message_type = 'image'
@@ -660,15 +651,88 @@ class UserViewSet(viewsets.ModelViewSet):
         elif ext in ['mp3', 'wav', 'ogg', 'm4a']:
             message_type = 'audio'
         
-        msg = Message.objects.create(
-            conversation=conversation,
-            sender=user,
-            message_type=message_type,
-            file=file,
-            file_name=file.name,
-            file_size=file.size,
-            content=file.name
-        )
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        
+        if group_id:
+            # Group file upload
+            try:
+                group = Group.objects.get(id=group_id)
+            except Group.DoesNotExist:
+                return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+            msg = Message.objects.create(
+                group=group,
+                sender=user,
+                message_type=message_type,
+                file=file,
+                file_name=file.name,
+                file_size=file.size,
+                content=caption or file.name
+            )
+            
+            # Broadcast to all group members via WebSocket
+            msg_data = {
+                'type': 'new_message_notify',
+                'message_id': msg.id,
+                'message': msg.content,
+                'message_type': msg.message_type,
+                'file_url': msg.file.url,
+                'file_name': msg.file_name,
+                'file_size': msg.file_size,
+                'sender_id': user.id,
+                'username': user.username,
+                'display_name': user.first_name or user.username,
+                'profile_picture': user.profile_picture.url if user.profile_picture else None,
+                'group_id': group.id,
+                'group_name': group.name,
+                'timestamp': msg.timestamp.isoformat(),
+                'status': 'sent',
+            }
+            for member in group.members.all():
+                async_to_sync(channel_layer.group_send)(f'user_{member.id}', msg_data)
+        else:
+            # DM file upload
+            try:
+                receiver = CustomUser.objects.get(id=receiver_id)
+            except CustomUser.DoesNotExist:
+                return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+            participants = sorted([user.id, receiver.id])
+            conversation, _ = Conversation.objects.get_or_create(
+                participant1_id=participants[0],
+                participant2_id=participants[1]
+            )
+            
+            msg = Message.objects.create(
+                conversation=conversation,
+                sender=user,
+                message_type=message_type,
+                file=file,
+                file_name=file.name,
+                file_size=file.size,
+                content=caption or file.name
+            )
+            
+            # Broadcast to both users via WebSocket
+            msg_data = {
+                'type': 'file_message',
+                'id': msg.id,
+                'message_id': msg.id,
+                'message': msg.content,
+                'message_type': msg.message_type,
+                'file_url': msg.file.url,
+                'file_name': msg.file_name,
+                'file_size': msg.file_size,
+                'sender_id': user.id,
+                'username': user.username,
+                'display_name': user.first_name or user.username,
+                'timestamp': msg.timestamp.isoformat(),
+                'status': 'sent',
+            }
+            async_to_sync(channel_layer.group_send)(f'user_{receiver.id}', msg_data)
+            async_to_sync(channel_layer.group_send)(f'user_{user.id}', msg_data)
         
         return Response({
             'id': msg.id,

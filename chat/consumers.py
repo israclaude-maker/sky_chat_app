@@ -540,6 +540,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'status': event.get('status', 'sent'),
         }))
 
+    async def file_message(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'file_message',
+            'id': event['id'],
+            'message_id': event['message_id'],
+            'message': event.get('message', ''),
+            'message_type': event.get('message_type', 'file'),
+            'file_url': event['file_url'],
+            'file_name': event.get('file_name', ''),
+            'file_size': event.get('file_size', 0),
+            'sender_id': event['sender_id'],
+            'username': event['username'],
+            'display_name': event.get('display_name', event['username']),
+            'timestamp': event['timestamp'],
+            'status': event.get('status', 'sent'),
+        }))
+
     async def group_read_receipt(self, event):
         await self.send(text_data=json.dumps({
             'type': 'group_read_receipt',

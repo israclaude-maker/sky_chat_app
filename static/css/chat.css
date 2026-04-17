@@ -1998,6 +1998,67 @@ body {
   background: #fff;
 }
 
+/* File Upload Preview */
+.file-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-secondary, #1e2a38);
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+.file-preview-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(59,130,246,0.1);
+  flex-shrink: 0;
+}
+.file-preview-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.file-preview-info {
+  flex: 1;
+  min-width: 0;
+}
+.file-preview-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #e4e6eb);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-preview-size {
+  font-size: 11px;
+  color: var(--text-secondary, #8696a0);
+  margin-top: 2px;
+}
+.file-preview-remove {
+  background: rgba(239,68,68,0.15);
+  border: none;
+  color: #ef4444;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 14px;
+}
+.file-preview-remove:hover {
+  background: rgba(239,68,68,0.3);
+}
+
 /* File message with buttons */
 .file-msg-wrap {
   display: flex;

@@ -175,6 +175,15 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+
+                // Hide registration/signup on login page
+                view.evaluateJavascript(
+                    "(function(){" +
+                    "  var sf=document.getElementById('signup-form'); if(sf) sf.style.display='none';" +
+                    "  var toggles=document.querySelectorAll('.form-toggle'); toggles.forEach(function(t){t.style.display='none';});" +
+                    "  var fn=window.toggleForms; window.toggleForms=function(){};" +
+                    "})()", null);
+
                 // Execute pending call action after page loads
                 if (pendingCallAction != null) {
                     final String action = pendingCallAction;
