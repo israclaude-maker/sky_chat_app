@@ -3840,6 +3840,10 @@ function handleIncomingCall(data) {
   CallState.remoteUserName = data.caller_name || 'Unknown';
   CallState.remoteProfilePic = data.caller_profile_picture || seed(data.caller_name || data.caller_username || 'User');
 
+  // Re-enable incoming call buttons in case they were disabled from a previous call
+  var incomingBtns = document.querySelectorAll('#incoming-call .call-btn');
+  incomingBtns.forEach(function(b) { b.style.pointerEvents = ''; b.style.opacity = ''; });
+
   // Show incoming call UI
   $('incoming-av').src = CallState.remoteProfilePic;
   $('incoming-name').textContent = CallState.remoteUserName;
@@ -4438,6 +4442,9 @@ function hideAllCallOverlays() {
     var el = $(id);
     if (el) el.classList.remove('active');
   });
+  // Re-enable incoming call buttons (acceptCall disables them to prevent double-tap)
+  var incomingBtns = document.querySelectorAll('#incoming-call .call-btn');
+  incomingBtns.forEach(function(b) { b.style.pointerEvents = ''; b.style.opacity = ''; });
   // Hide outgoing local video preview
   var localWrap = $('outgoing-local-wrap');
   if (localWrap) localWrap.classList.remove('active');
