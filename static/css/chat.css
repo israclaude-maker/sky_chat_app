@@ -1003,6 +1003,7 @@ body {
   border-radius: 50%;
   background: rgba(59, 130, 246, 0.15);
   animation: ripple 2s ease-out infinite;
+  pointer-events: none;
 }
 .call-ripple::before {
   content: '';
@@ -1011,6 +1012,7 @@ body {
   border-radius: 50%;
   background: rgba(59, 130, 246, 0.1);
   animation: ripple 2s ease-out infinite 0.5s;
+  pointer-events: none;
 }
 @keyframes ripple {
   0% { transform: translate(-50%, -50%) scale(0.8); opacity: 1; }
@@ -1066,6 +1068,8 @@ body {
   display: flex;
   gap: 32px;
   justify-content: center;
+  position: relative;
+  z-index: 2;
 }
 
 .call-btn {

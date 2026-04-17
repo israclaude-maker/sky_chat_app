@@ -225,10 +225,11 @@ const PKT = 'Asia/Karachi';
 function fmtTime(iso) {
   if (!iso) return '';
   var d = new Date(iso), now = new Date();
-  var opts = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: PKT };
-  return d.toDateString() === now.toDateString() ?
-    d.toLocaleTimeString('en-PK', opts) :
-    d.toLocaleDateString('en-PK', { month: 'short', day: 'numeric', timeZone: PKT });
+  var timeOpts = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: PKT };
+  var time = d.toLocaleTimeString('en-PK', timeOpts);
+  if (d.toDateString() === now.toDateString()) return time;
+  var date = d.toLocaleDateString('en-PK', { month: 'short', day: 'numeric', timeZone: PKT });
+  return date + ', ' + time;
 }
 
 function fmtFullTime(iso) {
@@ -375,6 +376,7 @@ function init() {
       connectGlobalWS();
       loadTURNServers(); 
       initPasteHandler();
+      initCallButtons();
 
       // Handle open_group URL parameter (from push notification click)
       var urlParams = new URLSearchParams(window.location.search);
@@ -1969,13 +1971,32 @@ function openMediaInNewTab() {
 
 // Download file helper
 function downloadFile(url, filename) {
-  var a = document.createElement('a');
-  a.href = url;
-  a.download = filename || url.split('/').pop() || 'file';
-  a.target = '_blank';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  // Make URL absolute
+  if (url.startsWith('/')) url = window.location.origin + url;
+
+  // Android APK: use native download
+  if (window.AndroidBridge && window.AndroidBridge.downloadFile) {
+    AndroidBridge.downloadFile(url, filename || url.split('/').pop() || 'file');
+    toast('Downloading ' + (filename || 'file') + '...', 's');
+    return;
+  }
+
+  // Browser: use fetch+blob for reliable download
+  fetch(url).then(function(resp) {
+    return resp.blob();
+  }).then(function(blob) {
+    var blobUrl = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename || url.split('/').pop() || 'file';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 1000);
+  }).catch(function() {
+    // Fallback: open in new tab
+    window.open(url, '_blank');
+  });
 }
 
 // Check if file can be previewed
@@ -2000,7 +2021,7 @@ function openFilePreview(url, filename) {
     return;
   }
 
-  // PDFs - use browser viewer or Google Docs
+  // PDFs - use Google Docs viewer on mobile, direct embed on desktop
   if (ext === 'pdf') {
     MediaState.url = url;
     MediaState.filename = filename;
@@ -2011,8 +2032,19 @@ function openFilePreview(url, filename) {
     var title = $('media-preview-title');
 
     title.textContent = filename;
-    // Try direct PDF embed first, fallback to Google Docs viewer
-    content.innerHTML = '<iframe src="' + esc(url) + '#toolbar=1" type="application/pdf"></iframe>';
+
+    // Make URL absolute for Google Docs viewer
+    var absUrl = url.startsWith('/') ? window.location.origin + url : url;
+
+    if (window.AndroidBridge) {
+      // Android: use Google Docs viewer (WebView can't render PDF iframe)
+      content.innerHTML = '<iframe src="https://docs.google.com/gview?embedded=true&url=' + encodeURIComponent(absUrl) + '" style="width:100%;height:100%;border:none;"></iframe>' +
+        '<div style="position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:10;">' +
+        '<button onclick="downloadFile(\'' + esc(absUrl) + '\',\'' + esc(filename) + '\')" style="background:#3b82f6;color:#fff;border:none;padding:12px 28px;border-radius:12px;font-size:15px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.3);"><i class="fa-solid fa-download"></i> Download PDF</button></div>';
+    } else {
+      // Desktop: direct PDF embed
+      content.innerHTML = '<iframe src="' + esc(url) + '#toolbar=1" type="application/pdf" style="width:100%;height:100%;border:none;"></iframe>';
+    }
 
     overlay.classList.add('active');
     document.body.style.overflow = 'hidden';
@@ -3628,6 +3660,7 @@ function startCall(type) {
       constraints.video = {
         width: { ideal: 1280 },
         height: { ideal: 720 },
+        frameRate: { ideal: 30 },
         facingMode: 'user'
       };
     }
@@ -3677,6 +3710,23 @@ function getMediaErrorMessage(err, type) {
   }
 }
 
+function boostVideoBitrate(pc) {
+  if (!pc || !pc.getSenders) return;
+  pc.getSenders().forEach(function (sender) {
+    if (sender.track && sender.track.kind === 'video') {
+      var params = sender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) {
+        params.encodings = [{}];
+      }
+      params.encodings[0].maxBitrate = 1500000; // 1.5 Mbps
+      params.encodings[0].maxFramerate = 30;
+      sender.setParameters(params).catch(function (e) {
+        console.warn('Bitrate set failed:', e);
+      });
+    }
+  });
+}
+
 function initWebRTC(isInitiator, callback) {
   doInitWebRTC(isInitiator, callback);
 }
@@ -3701,6 +3751,8 @@ function doInitWebRTC(isInitiator, callback) {
       console.log('Adding local track:', track.kind);
       CallState.pc.addTrack(track, CallState.localStream);
     });
+    // Boost video bitrate for HD quality
+    boostVideoBitrate(CallState.pc);
   }
 
   CallState.pc.onicecandidate = function (e) {
@@ -3850,6 +3902,10 @@ function handleIncomingCall(data) {
   $('incoming-type').innerHTML = data.call_type === 'video' ? '<i class="fa-solid fa-video"></i> Video Call' : '<i class="fa-solid fa-phone"></i> Voice Call';
   showCallOverlay('incoming-call');
 
+  // Remove any popup notifications that might block call buttons
+  var nc = $('notif-container');
+  if (nc) nc.innerHTML = '';
+
   // Play ringtone
   var ringtone = $('ringtone');
   if (ringtone) ringtone.play().catch(function () { });
@@ -3884,11 +3940,22 @@ function handleIncomingCall(data) {
 }
 
 function acceptCall() {
-  hideAllCallOverlays();
+  // Stop ringtone and timeout immediately
   stopAllRingtones();
   if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
   if (window.AndroidBridge) AndroidBridge.cancelCallNotification();
   if (window.DesktopBridge) DesktopBridge.cancelCallNotification();
+
+  // Remove popup notifications
+  var nc = $('notif-container');
+  if (nc) nc.innerHTML = '';
+
+  // Show "Connecting..." state on the incoming call overlay (don't hide it yet!)
+  var inType = $('incoming-type');
+  if (inType) inType.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting...';
+  // Disable buttons to prevent double-tap
+  var btns = document.querySelectorAll('#incoming-call .call-btn');
+  btns.forEach(function(b) { b.style.pointerEvents = 'none'; b.style.opacity = '0.5'; });
 
   // If this is a group call invite, join group call instead
   if (CallState.pendingGroupCallId) {
@@ -3903,7 +3970,7 @@ function acceptCall() {
     GC.callStartTime = Date.now();
 
     var constraints = { audio: { echoCancellation: true, noiseSuppression: true } };
-    if (callType === 'video') constraints.video = { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' };
+    if (callType === 'video') constraints.video = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, facingMode: 'user' };
 
     navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
       GC.localStream = stream;
@@ -3935,6 +4002,7 @@ function acceptCall() {
     constraints.video = {
       width: { ideal: 1280 },
       height: { ideal: 720 },
+      frameRate: { ideal: 30 },
       facingMode: 'user'
     };
   }
@@ -3942,7 +4010,10 @@ function acceptCall() {
   navigator.mediaDevices.getUserMedia(constraints)
     .then(function (stream) {
       CallState.localStream = stream;
-      $('local-video').srcObject = stream;
+      if ($('local-video')) $('local-video').srcObject = stream;
+
+      // Now hide incoming overlay — media is ready
+      hideAllCallOverlays();
 
       // SIRF EK BAAR initWebRTC call karein
       initWebRTC(false, function () {
@@ -3966,6 +4037,13 @@ function acceptCall() {
               }
               flushPendingIceCandidates();
               showOngoingCall();
+            })
+            .catch(function (err) {
+              console.error('WebRTC error:', err);
+              toast('Call failed: ' + err.message, 'e');
+              hideAllCallOverlays();
+              cleanupCall();
+              playEndSound();
             });
         }
       });
@@ -4239,7 +4317,7 @@ function toggleCam() {
   } else {
     // Voice call — no video track yet. Request camera and add it.
     navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, facingMode: 'user' }
     }).then(function (camStream) {
       var videoTrack = camStream.getVideoTracks()[0];
       // Add to local stream
@@ -4465,13 +4543,68 @@ function hideAllCallOverlays() {
 function stopAllRingtones() {
   ['ringtone', 'ringback'].forEach(function (id) {
     var el = $(id);
-    if (el) { el.pause(); el.currentTime = 0; }
+    if (el) {
+      el.loop = false;
+      el.muted = true;
+      el.volume = 0;
+      el.pause();
+      el.currentTime = 0;
+      setTimeout(function() {
+        el.pause();
+        el.currentTime = 0;
+        el.muted = true;
+      }, 100);
+      setTimeout(function() {
+        el.pause();
+        el.muted = false;
+        el.volume = 1;
+      }, 500);
+    }
   });
 }
 
 function playEndSound() {
   var snd = $('callend');
   if (snd) snd.play().catch(function () { });
+}
+
+// Reliable call button handlers for Android WebView
+function initCallButtons() {
+  var acceptBtn = $('btn-accept-call');
+  var rejectBtn = $('btn-reject-call');
+
+  function addTouchHandler(el, fn) {
+    if (!el) return;
+    var handled = false;
+    el.addEventListener('touchstart', function(e) {
+      e.stopPropagation();
+    }, { passive: true });
+    el.addEventListener('touchend', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (handled) return;
+      handled = true;
+      fn();
+      setTimeout(function() { handled = false; }, 1000);
+    }, { passive: false });
+    el.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (handled) return;
+      handled = true;
+      fn();
+      setTimeout(function() { handled = false; }, 1000);
+    });
+  }
+
+  addTouchHandler(acceptBtn, function() {
+    console.log('Accept button pressed');
+    acceptCall();
+  });
+  addTouchHandler(rejectBtn, function() {
+    console.log('Reject button pressed');
+    rejectCall();
+  });
 }
 
 function cleanupCall() {
@@ -5043,7 +5176,7 @@ function startGroupCall(type) {
   checkMediaPermissions(type).then(function (result) {
     if (!result.success) { toast(result.error, 'e'); return; }
     var constraints = { audio: { echoCancellation: true, noiseSuppression: true } };
-    if (type === 'video') constraints.video = { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' };
+    if (type === 'video') constraints.video = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, facingMode: 'user' };
 
     navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
       GC.localStream = stream;
@@ -5448,6 +5581,7 @@ function createGroupPeerConnection(peerId) {
     GC.localStream.getTracks().forEach(function (track) {
       pc.addTrack(track, GC.localStream);
     });
+    boostVideoBitrate(pc);
   }
 
   pc.onicecandidate = function (event) {
@@ -5958,6 +6092,9 @@ var msgSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-
 msgSound.volume = 0.5;
 
 function showPopupNotification(title, body, avatar, onClick, isCall) {
+  // Don't show popup if call overlay is active (would block call buttons)
+  if (isCall) return;
+
   // Play notification sound (not for calls - they have ringtone)
   if (!isCall) {
     msgSound.currentTime = 0;

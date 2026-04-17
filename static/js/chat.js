@@ -4576,6 +4576,9 @@ function initCallButtons() {
   function addTouchHandler(el, fn) {
     if (!el) return;
     var handled = false;
+    el.addEventListener('touchstart', function(e) {
+      e.stopPropagation();
+    }, { passive: true });
     el.addEventListener('touchend', function(e) {
       e.preventDefault();
       e.stopPropagation();
