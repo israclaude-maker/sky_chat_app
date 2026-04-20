@@ -24,7 +24,8 @@
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
     crossorigin="anonymous">
-<link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260413a">
+<link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260420a">
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
 </head>
 
 <body>
@@ -460,6 +461,9 @@
         <button class="ctrl-btn" id="cam-btn" onclick="toggleCam()">
           <i class="fa-solid fa-video"></i>
         </button>
+        <button class="ctrl-btn" id="cam-fx-btn" onclick="toggleCamFxPicker('dm')" title="Camera Effects">
+          <i class="fa-solid fa-wand-magic-sparkles"></i>
+        </button>
         <button class="ctrl-btn" id="screen-btn" onclick="toggleScreenShare()" title="Share Screen">
           <i class="fa-solid fa-display"></i>
         </button>
@@ -502,6 +506,7 @@
       <div class="call-controls">
         <button class="ctrl-btn" id="gc-mic-btn" onclick="gcToggleMic()"><i class="fa-solid fa-microphone"></i></button>
         <button class="ctrl-btn" id="gc-cam-btn" onclick="gcToggleCam()"><i class="fa-solid fa-video"></i></button>
+        <button class="ctrl-btn" id="gc-cam-fx-btn" onclick="toggleCamFxPicker('gc')" title="Camera Effects"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
         <button class="ctrl-btn" id="gc-screen-btn" onclick="gcToggleScreenShare()" title="Share Screen"><i class="fa-solid fa-display"></i></button>
         <button class="ctrl-btn" id="gc-add-user-btn" onclick="openAddUserToCall()" title="Add User"><i class="fa-solid fa-user-plus"></i></button>
         <button class="ctrl-btn end" onclick="leaveGroupCall()"><i class="fa-solid fa-phone-slash"></i></button>
@@ -549,6 +554,55 @@
       <button class="call-pip-btn pip-cam" id="pip-cam-btn" onclick="event.stopPropagation(); pipToggleCam();" title="Camera">
         <i class="fa-solid fa-video"></i>
       </button>
+    </div>
+  </div>
+
+  <!-- CAMERA EFFECTS PICKER -->
+  <div class="cam-fx-overlay" id="cam-fx-overlay">
+    <div class="cam-fx-panel">
+      <div class="cam-fx-header">
+        <h3><i class="fa-solid fa-wand-magic-sparkles"></i> Camera Effects</h3>
+        <button class="cam-fx-close" onclick="closeCamFxPicker()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="cam-fx-preview">
+        <video id="cam-fx-preview-video" autoplay playsinline muted></video>
+        <canvas id="cam-fx-preview-canvas"></canvas>
+      </div>
+      <div class="cam-fx-section">
+        <div class="cam-fx-label">Background</div>
+        <div class="cam-fx-options">
+          <div class="cam-fx-option active" data-fx="none" onclick="selectCamFx('none')">
+            <i class="fa-solid fa-ban"></i>
+            <span>None</span>
+          </div>
+          <div class="cam-fx-option" data-fx="blur-light" onclick="selectCamFx('blur-light')">
+            <i class="fa-solid fa-droplet"></i>
+            <span>Light Blur</span>
+          </div>
+          <div class="cam-fx-option" data-fx="blur-heavy" onclick="selectCamFx('blur-heavy')">
+            <i class="fa-solid fa-water"></i>
+            <span>Heavy Blur</span>
+          </div>
+        </div>
+      </div>
+      <div class="cam-fx-section">
+        <div class="cam-fx-label">Virtual Background</div>
+        <div class="cam-fx-options cam-fx-bg-options">
+          <div class="cam-fx-bg" data-fx="bg-beach" onclick="selectCamFx('bg-beach')" style="background:linear-gradient(135deg,#87CEEB,#FFD700,#4682B4);" title="Beach"></div>
+          <div class="cam-fx-bg" data-fx="bg-mountain" onclick="selectCamFx('bg-mountain')" style="background:linear-gradient(180deg,#87CEEB 0%,#6B8E23 50%,#228B22 100%);" title="Mountain"></div>
+          <div class="cam-fx-bg" data-fx="bg-city" onclick="selectCamFx('bg-city')" style="background:linear-gradient(180deg,#2c3e50,#3498db,#1a1a2e);" title="City Night"></div>
+          <div class="cam-fx-bg" data-fx="bg-space" onclick="selectCamFx('bg-space')" style="background:radial-gradient(circle,#1a1a3e,#0a0a1a);" title="Space"></div>
+          <div class="cam-fx-bg" data-fx="bg-sunset" onclick="selectCamFx('bg-sunset')" style="background:linear-gradient(180deg,#ff7e5f,#feb47b,#ff6b6b);" title="Sunset"></div>
+          <div class="cam-fx-bg" data-fx="bg-forest" onclick="selectCamFx('bg-forest')" style="background:linear-gradient(180deg,#0f4c2e,#1b6b3a,#2d8f4e);" title="Forest"></div>
+          <div class="cam-fx-bg cam-fx-bg-upload" data-fx="bg-custom" onclick="document.getElementById('cam-fx-bg-input').click()" title="Upload Image">
+            <i class="fa-solid fa-plus"></i>
+          </div>
+        </div>
+        <input type="file" id="cam-fx-bg-input" accept="image/*" style="display:none" onchange="handleCamFxBgUpload(event)">
+      </div>
+      <div class="cam-fx-actions">
+        <button class="cam-fx-apply-btn" onclick="applyCamFx()">Apply</button>
+      </div>
     </div>
   </div>
 

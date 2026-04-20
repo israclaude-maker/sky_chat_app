@@ -1259,7 +1259,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
             call = Call.objects.get(id=call_id)
             call.status = 'completed'
             call.ended_at = djtz.now()
-            call.duration = duration
+            # Use client duration if provided, otherwise calculate from started_at
+            if duration and duration > 0:
+                call.duration = duration
+            elif call.started_at:
+                call.duration = int((call.ended_at - call.started_at).total_seconds())
             call.save()
         except Call.DoesNotExist:
             pass

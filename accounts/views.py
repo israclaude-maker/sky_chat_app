@@ -180,7 +180,7 @@ class UserViewSet(viewsets.ModelViewSet):
             clear = ConversationClear.objects.filter(user=user, conversation=conversation).first()
             if clear:
                 messages = messages.filter(timestamp__gte=clear.cleared_at)
-            messages = messages[:100]
+            messages = list(messages[:100000])
             result = []
             for msg in messages:
                 # Get reactions
@@ -436,6 +436,29 @@ class UserViewSet(viewsets.ModelViewSet):
             'admins': [a.id for a in group.admins.all()]
         })
 
+    @action(detail=False, methods=['get'], url_path='groups/(?P<group_id>[^/.]+)/active_call', permission_classes=[IsAuthenticated])
+    def group_active_call(self, request, group_id=None):
+        """Check if there is an active group call"""
+        from calls.models import GroupCall
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+        if request.user not in group.members.all():
+            return Response({'error': 'Not a member'}, status=status.HTTP_403_FORBIDDEN)
+        active_call = GroupCall.objects.filter(group=group, status='active').first()
+        if active_call:
+            return Response({
+                'active': True,
+                'group_call_id': active_call.id,
+                'call_type': active_call.call_type,
+                'caller_name': f"{active_call.initiator.first_name} {active_call.initiator.last_name}".strip() or active_call.initiator.username,
+                'caller_pic': active_call.initiator.profile_picture.url if active_call.initiator.profile_picture else None,
+                'group_name': group.name,
+                'group_id': group.id,
+            })
+        return Response({'active': False})
+
     @action(detail=False, methods=['get'], url_path='groups/(?P<group_id>[^/.]+)/info', permission_classes=[IsAuthenticated])
     def group_info(self, request, group_id=None):
         """Get detailed group info"""
@@ -577,7 +600,8 @@ class UserViewSet(viewsets.ModelViewSet):
         joined_at = membership.joined_at if membership else group.created_at
         visible_from = membership.cleared_at if membership and membership.cleared_at and membership.cleared_at > joined_at else joined_at
         
-        messages = Message.objects.filter(group=group, timestamp__gte=visible_from).select_related('sender', 'reply_to', 'reply_to__sender').order_by('timestamp')[:200]
+        messages_qs = Message.objects.filter(group=group, timestamp__gte=visible_from).select_related('sender', 'reply_to', 'reply_to__sender').order_by('timestamp')
+        messages = list(messages_qs[:100000])
         result = []
         member_count = group.members.count()
         for msg in messages:

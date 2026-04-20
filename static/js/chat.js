@@ -765,7 +765,30 @@ function renderGroupList(groups) {
   el.appendChild(frag);
 }
 
+// Auto-minimize call to PIP when user navigates away
+function autoMinimizeIfInCall() {
+  if (callMinimized) return; // already minimized
+  // Check if any call overlay is active (outgoing/ongoing/group)
+  var overlays = ['outgoing-call', 'ongoing-call'];
+  var activeOverlay = null;
+  overlays.forEach(function (id) {
+    var el = $(id);
+    if (el && el.classList.contains('active')) activeOverlay = id;
+  });
+  if (activeOverlay) {
+    minimizeCall();
+    return;
+  }
+  // Check group call
+  var gcOverlay = $('gc-ongoing-call');
+  if (gcOverlay && gcOverlay.classList.contains('active')) {
+    minimizeGroupCall();
+    return;
+  }
+}
+
 function openChat(userId) {
+  autoMinimizeIfInCall();
   var user = null;
   for (var i = 0; i < S.convs.length; i++) {
     if (S.convs[i].user && S.convs[i].user.id === userId) {
@@ -826,6 +849,7 @@ function loadMessages(userId) {
 
 // Open group chat
 function openGroup(groupId) {
+  autoMinimizeIfInCall();
   var group = null;
   for (var i = 0; i < S.groups.length; i++) {
     if (S.groups[i].id === groupId) { group = S.groups[i]; break; }
@@ -974,7 +998,27 @@ function showGroupView(group) {
   closeInfoPanel();
   $('msg-area').innerHTML = '';
   updateSendBtn();
-  updateGroupCallBanner();
+  // Check for active group call from server
+  checkActiveGroupCall(group.id);
+}
+
+function checkActiveGroupCall(groupId) {
+  api('/groups/' + groupId + '/active_call/').then(function (data) {
+    if (data && data.active) {
+      GC.activeGroupCalls[groupId] = {
+        group_call_id: data.group_call_id,
+        call_type: data.call_type,
+        caller_name: data.caller_name,
+        group_name: data.group_name,
+        caller_pic: data.caller_pic,
+      };
+    } else {
+      delete GC.activeGroupCalls[groupId];
+    }
+    updateGroupCallBanner();
+  }).catch(function () {
+    updateGroupCallBanner();
+  });
 }
 
 // Highlight active conversation
@@ -2689,7 +2733,6 @@ function renderGroupUsersList(users) {
     var av = getAvatar(u);
     var isSelected = S.selectedGroupUsers.some(function (su) { return su.id === u.id; });
     return `<div class="user-row ${isSelected ? 'selected' : ''}" onclick="toggleGroupUser(${u.id})">
-      <input type="checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation()">
       <div class="av-wrap">
         <img class="av-img av-36" src="${esc(av)}">
       </div>
@@ -3052,6 +3095,7 @@ function strToColor(str) {
 
 // Tab switching
 function swTab(tab, btn) {
+  autoMinimizeIfInCall();
   S.currentTab = tab;
   document.querySelectorAll('.sb-tab').forEach(function (b) { b.classList.remove('on'); });
   if (btn) btn.classList.add('on');
@@ -3514,6 +3558,7 @@ window.addEventListener('popstate', function (e) {
   // Chat panel open? Go back to sidebar
   var chatPanel = document.getElementById('chat-panel');
   if (chatPanel && chatPanel.classList.contains('active')) {
+    autoMinimizeIfInCall();
     closeInfoPanel();
     closeTbMenu();
     document.getElementById('sidebar').style.display = '';
@@ -3617,6 +3662,410 @@ var CallState = {
   screenSender: null,
   originalVideoTrack: null
 };
+
+// ═══════════════════════════════════════════════════════════════
+// CAMERA EFFECTS (Background Blur / Virtual Background)
+// ═══════════════════════════════════════════════════════════════
+
+var CamFx = {
+  active: false,
+  mode: 'none',         // 'none','blur-light','blur-heavy','bg-beach','bg-mountain','bg-city','bg-space','bg-sunset','bg-forest','bg-custom'
+  pendingMode: 'none',  // selected in picker before Apply
+  context: null,        // 'dm' or 'gc'
+  segmenter: null,
+  rawVideo: null,
+  canvas: null,
+  ctx: null,
+  canvasStream: null,
+  animFrameId: null,
+  originalCamTrack: null,
+  bgImage: null,
+  customBgImage: null,
+  loading: false,
+  initialized: false,
+};
+
+// Gradient backgrounds as canvas-drawable definitions
+var CamFxBgs = {
+  'bg-beach':   function(ctx,w,h){var g=ctx.createLinearGradient(0,0,w,h);g.addColorStop(0,'#87CEEB');g.addColorStop(0.5,'#FFD700');g.addColorStop(1,'#4682B4');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);},
+  'bg-mountain':function(ctx,w,h){var g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'#87CEEB');g.addColorStop(0.5,'#6B8E23');g.addColorStop(1,'#228B22');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);},
+  'bg-city':    function(ctx,w,h){var g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'#2c3e50');g.addColorStop(0.5,'#3498db');g.addColorStop(1,'#1a1a2e');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);},
+  'bg-space':   function(ctx,w,h){var g=ctx.createRadialGradient(w/2,h/2,0,w/2,h/2,Math.max(w,h)/2);g.addColorStop(0,'#1a1a3e');g.addColorStop(1,'#0a0a1a');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);},
+  'bg-sunset':  function(ctx,w,h){var g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'#ff7e5f');g.addColorStop(0.5,'#feb47b');g.addColorStop(1,'#ff6b6b');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);},
+  'bg-forest':  function(ctx,w,h){var g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'#0f4c2e');g.addColorStop(0.5,'#1b6b3a');g.addColorStop(1,'#2d8f4e');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);},
+};
+
+function initCamFxSegmenter(cb) {
+  if (CamFx.segmenter) { if (cb) cb(); return; }
+  if (typeof SelfieSegmentation === 'undefined') {
+    toast('Camera effects not available', 'e');
+    if (cb) cb();
+    return;
+  }
+  CamFx.loading = true;
+  toast('Loading camera effects...', 's');
+  var seg = new SelfieSegmentation({
+    locateFile: function(file) {
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/' + file;
+    }
+  });
+  seg.setOptions({ modelSelection: 1, selfieMode: true });
+  seg.onResults(onCamFxResults);
+  seg.initialize().then(function() {
+    CamFx.segmenter = seg;
+    CamFx.loading = false;
+    CamFx.initialized = true;
+    toast('Camera effects ready!', 's');
+    if (cb) cb();
+  }).catch(function(e) {
+    console.error('CamFx init error:', e);
+    CamFx.loading = false;
+    toast('Failed to load camera effects', 'e');
+    if (cb) cb();
+  });
+}
+
+function onCamFxResults(results) {
+  if (!CamFx.canvas || !CamFx.ctx) return;
+  var ctx = CamFx.ctx;
+  var w = CamFx.canvas.width;
+  var h = CamFx.canvas.height;
+
+  ctx.save();
+  ctx.clearRect(0, 0, w, h);
+
+  // Draw segmentation mask
+  ctx.drawImage(results.segmentationMask, 0, 0, w, h);
+
+  // Draw person (where mask is white)
+  ctx.globalCompositeOperation = 'source-in';
+  ctx.drawImage(results.image, 0, 0, w, h);
+
+  // Draw background behind person
+  ctx.globalCompositeOperation = 'destination-over';
+
+  if (CamFx.mode === 'blur-light' || CamFx.mode === 'blur-heavy') {
+    var blurPx = CamFx.mode === 'blur-light' ? 10 : 25;
+    ctx.filter = 'blur(' + blurPx + 'px)';
+    ctx.drawImage(results.image, 0, 0, w, h);
+    ctx.filter = 'none';
+  } else if (CamFx.mode === 'bg-custom' && CamFx.customBgImage) {
+    ctx.drawImage(CamFx.customBgImage, 0, 0, w, h);
+  } else if (CamFxBgs[CamFx.mode]) {
+    CamFxBgs[CamFx.mode](ctx, w, h);
+  }
+
+  ctx.restore();
+}
+
+function startCamFxProcessing() {
+  var stream = (CamFx.context === 'gc') ? GC.localStream : CallState.localStream;
+  if (!stream) return;
+
+  var videoTrack = stream.getVideoTracks()[0];
+  if (!videoTrack) { toast('Camera not active', 'e'); return; }
+
+  // Store original track
+  CamFx.originalCamTrack = videoTrack;
+
+  // Create hidden video to feed raw camera
+  if (!CamFx.rawVideo) {
+    CamFx.rawVideo = document.createElement('video');
+    CamFx.rawVideo.setAttribute('autoplay', '');
+    CamFx.rawVideo.setAttribute('playsinline', '');
+    CamFx.rawVideo.muted = true;
+    CamFx.rawVideo.style.display = 'none';
+    document.body.appendChild(CamFx.rawVideo);
+  }
+
+  // Create raw stream from the original camera track + audio
+  var rawStream = new MediaStream([videoTrack]);
+  CamFx.rawVideo.srcObject = rawStream;
+  CamFx.rawVideo.play().catch(function(){});
+
+  // Create canvas
+  if (!CamFx.canvas) {
+    CamFx.canvas = document.createElement('canvas');
+    CamFx.canvas.style.display = 'none';
+    document.body.appendChild(CamFx.canvas);
+  }
+  var settings = videoTrack.getSettings();
+  CamFx.canvas.width = settings.width || 640;
+  CamFx.canvas.height = settings.height || 480;
+  CamFx.ctx = CamFx.canvas.getContext('2d');
+
+  // Start processing loop
+  CamFx.active = true;
+  camFxLoop();
+
+  // Get canvas stream and replace track
+  CamFx.canvasStream = CamFx.canvas.captureStream(30);
+  var canvasTrack = CamFx.canvasStream.getVideoTracks()[0];
+
+  // Replace in peer connections
+  if (CamFx.context === 'gc') {
+    // Group call — replace in all peer connections
+    Object.keys(GC.peers).forEach(function(pid) {
+      var pc = GC.peers[pid].pc;
+      if (!pc) return;
+      var senders = pc.getSenders();
+      for (var i = 0; i < senders.length; i++) {
+        if (senders[i].track && senders[i].track.kind === 'video') {
+          senders[i].replaceTrack(canvasTrack);
+          break;
+        }
+      }
+    });
+    // Update local stream's video track for display
+    GC.localStream.removeTrack(videoTrack);
+    GC.localStream.addTrack(canvasTrack);
+    // Rebuild local video tiles
+    buildLocalThumb();
+    if (gcFocusedId === 'local') focusGcParticipant('local');
+  } else {
+    // 1:1 call
+    if (CallState.pc) {
+      var senders = CallState.pc.getSenders();
+      for (var i = 0; i < senders.length; i++) {
+        if (senders[i].track && senders[i].track.kind === 'video') {
+          senders[i].replaceTrack(canvasTrack);
+          break;
+        }
+      }
+    }
+    CallState.localStream.removeTrack(videoTrack);
+    CallState.localStream.addTrack(canvasTrack);
+    var lv = $('local-video');
+    if (lv) lv.srcObject = CallState.localStream;
+  }
+}
+
+function camFxLoop() {
+  if (!CamFx.active || !CamFx.segmenter || !CamFx.rawVideo) return;
+  if (CamFx.rawVideo.readyState >= 2) {
+    CamFx.segmenter.send({ image: CamFx.rawVideo }).then(function() {
+      CamFx.animFrameId = requestAnimationFrame(camFxLoop);
+    }).catch(function() {
+      CamFx.animFrameId = requestAnimationFrame(camFxLoop);
+    });
+  } else {
+    CamFx.animFrameId = requestAnimationFrame(camFxLoop);
+  }
+}
+
+function stopCamFxProcessing() {
+  CamFx.active = false;
+  if (CamFx.animFrameId) {
+    cancelAnimationFrame(CamFx.animFrameId);
+    CamFx.animFrameId = null;
+  }
+
+  // Restore original camera track
+  if (CamFx.originalCamTrack) {
+    var canvasTrack = CamFx.canvasStream ? CamFx.canvasStream.getVideoTracks()[0] : null;
+
+    if (CamFx.context === 'gc' && GC.localStream) {
+      // Replace canvas track back with original in peer connections
+      Object.keys(GC.peers).forEach(function(pid) {
+        var pc = GC.peers[pid].pc;
+        if (!pc) return;
+        var senders = pc.getSenders();
+        for (var i = 0; i < senders.length; i++) {
+          if (senders[i].track && senders[i].track.kind === 'video') {
+            senders[i].replaceTrack(CamFx.originalCamTrack);
+            break;
+          }
+        }
+      });
+      if (canvasTrack) GC.localStream.removeTrack(canvasTrack);
+      GC.localStream.addTrack(CamFx.originalCamTrack);
+      buildLocalThumb();
+      if (gcFocusedId === 'local') focusGcParticipant('local');
+    } else if (CallState.localStream) {
+      if (CallState.pc) {
+        var senders = CallState.pc.getSenders();
+        for (var i = 0; i < senders.length; i++) {
+          if (senders[i].track && senders[i].track.kind === 'video') {
+            senders[i].replaceTrack(CamFx.originalCamTrack);
+            break;
+          }
+        }
+      }
+      if (canvasTrack) CallState.localStream.removeTrack(canvasTrack);
+      CallState.localStream.addTrack(CamFx.originalCamTrack);
+      var lv = $('local-video');
+      if (lv) lv.srcObject = CallState.localStream;
+    }
+    CamFx.originalCamTrack = null;
+  }
+
+  if (CamFx.canvasStream) {
+    CamFx.canvasStream.getTracks().forEach(function(t) { t.stop(); });
+    CamFx.canvasStream = null;
+  }
+  if (CamFx.rawVideo) {
+    CamFx.rawVideo.srcObject = null;
+  }
+  CamFx.mode = 'none';
+}
+
+function cleanupCamFx() {
+  stopCamFxProcessing();
+  if (CamFx.rawVideo && CamFx.rawVideo.parentNode) {
+    CamFx.rawVideo.parentNode.removeChild(CamFx.rawVideo);
+    CamFx.rawVideo = null;
+  }
+  if (CamFx.canvas && CamFx.canvas.parentNode) {
+    CamFx.canvas.parentNode.removeChild(CamFx.canvas);
+    CamFx.canvas = null;
+  }
+  CamFx.ctx = null;
+  CamFx.context = null;
+  CamFx.pendingMode = 'none';
+}
+
+// ═══ Camera Effects Picker UI ═══
+
+function toggleCamFxPicker(ctx) {
+  var overlay = $('cam-fx-overlay');
+  if (overlay.classList.contains('active')) {
+    closeCamFxPicker();
+    return;
+  }
+  CamFx.context = ctx;
+  CamFx.pendingMode = CamFx.active ? CamFx.mode : 'none';
+
+  // Highlight current selection
+  var opts = overlay.querySelectorAll('.cam-fx-option, .cam-fx-bg');
+  opts.forEach(function(el) { el.classList.remove('active'); });
+  var sel = overlay.querySelector('[data-fx="' + CamFx.pendingMode + '"]');
+  if (sel) sel.classList.add('active');
+  if (CamFx.pendingMode === 'none') {
+    var noneOpt = overlay.querySelector('[data-fx="none"]');
+    if (noneOpt) noneOpt.classList.add('active');
+  }
+
+  // Show preview of local camera
+  var previewVid = $('cam-fx-preview-video');
+  var previewCanvas = $('cam-fx-preview-canvas');
+  var stream = (ctx === 'gc') ? GC.localStream : CallState.localStream;
+  if (stream && stream.getVideoTracks().length > 0) {
+    // Use raw camera for preview if effects are active
+    if (CamFx.active && CamFx.rawVideo && CamFx.rawVideo.srcObject) {
+      previewVid.srcObject = CamFx.rawVideo.srcObject;
+    } else {
+      previewVid.srcObject = stream;
+    }
+    previewVid.style.display = 'block';
+    previewCanvas.style.display = 'none';
+  }
+
+  overlay.classList.add('active');
+}
+
+function closeCamFxPicker() {
+  var overlay = $('cam-fx-overlay');
+  overlay.classList.remove('active');
+  var previewVid = $('cam-fx-preview-video');
+  if (previewVid) previewVid.srcObject = null;
+}
+
+function selectCamFx(mode) {
+  CamFx.pendingMode = mode;
+  var overlay = $('cam-fx-overlay');
+  var opts = overlay.querySelectorAll('.cam-fx-option, .cam-fx-bg');
+  opts.forEach(function(el) { el.classList.remove('active'); });
+  var sel = overlay.querySelector('[data-fx="' + mode + '"]');
+  if (sel) sel.classList.add('active');
+}
+
+function handleCamFxBgUpload(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var img = new Image();
+    img.onload = function() {
+      CamFx.customBgImage = img;
+      // Update the upload button to show thumbnail
+      var btn = document.querySelector('[data-fx="bg-custom"]');
+      if (btn) {
+        btn.style.backgroundImage = 'url(' + e.target.result + ')';
+        btn.style.backgroundSize = 'cover';
+        btn.innerHTML = '';
+      }
+      selectCamFx('bg-custom');
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  event.target.value = '';
+}
+
+function applyCamFx() {
+  var mode = CamFx.pendingMode;
+
+  if (mode === 'none') {
+    // Turn off effects
+    if (CamFx.active) {
+      stopCamFxProcessing();
+      // Update button state
+      updateCamFxButton(false);
+    }
+    closeCamFxPicker();
+    toast('Effects off', 's');
+    return;
+  }
+
+  // Check camera is on
+  var stream = (CamFx.context === 'gc') ? GC.localStream : CallState.localStream;
+  if (!stream || stream.getVideoTracks().length === 0) {
+    toast('Turn on camera first', 'e');
+    return;
+  }
+
+  if (mode === 'bg-custom' && !CamFx.customBgImage) {
+    toast('Upload background image first', 'e');
+    return;
+  }
+
+  // Initialize segmenter if needed
+  if (!CamFx.segmenter) {
+    initCamFxSegmenter(function() {
+      if (CamFx.segmenter) {
+        doApplyCamFx(mode);
+      }
+    });
+    return;
+  }
+
+  doApplyCamFx(mode);
+}
+
+function doApplyCamFx(mode) {
+  // If already processing with different mode, just update mode
+  if (CamFx.active) {
+    CamFx.mode = mode;
+    updateCamFxButton(true);
+    closeCamFxPicker();
+    toast('Effect applied!', 's');
+    return;
+  }
+
+  // Start processing
+  CamFx.mode = mode;
+  startCamFxProcessing();
+  updateCamFxButton(true);
+  closeCamFxPicker();
+  toast('Effect applied!', 's');
+}
+
+function updateCamFxButton(active) {
+  var dmBtn = $('cam-fx-btn');
+  var gcBtn = $('gc-cam-fx-btn');
+  if (dmBtn) dmBtn.classList.toggle('cam-fx-active', active);
+  if (gcBtn) gcBtn.classList.toggle('cam-fx-active', active);
+}
 
 var rtcConfig = {
   iceServers: [], // loadTURNServers fill karega
@@ -4205,12 +4654,19 @@ function cancelCall() {
 function endCall() {
   stopAllRingtones();
 
+  // Calculate duration in seconds
+  var duration = 0;
+  if (CallState.callStartTime) {
+    duration = Math.floor((Date.now() - CallState.callStartTime) / 1000);
+  }
+
   var ws = S.globalWs || S.ws;
   if (ws && ws.readyState === WebSocket.OPEN && CallState.isInCall) {
     ws.send(JSON.stringify({
       type: 'call_end',
       call_id: CallState.callId,
-      target_user_id: CallState.remoteUserId
+      target_user_id: CallState.remoteUserId,
+      duration: duration
     }));
   }
 
@@ -4710,6 +5166,7 @@ function initCallButtons() {
 }
 
 function cleanupCall() {
+  cleanupCamFx();
   if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
   if (CallState.screenStream) {
     CallState.screenStream.getTracks().forEach(function (t) { t.stop(); });
@@ -5593,6 +6050,8 @@ function handleGroupCallOffer(data) {
       peer.pendingIce.forEach(function (c) { pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {}); });
       peer.pendingIce = [];
     }
+    // Re-render peer tile to pick up new video tracks from renegotiation
+    setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 500);
   }).catch(function (err) { console.error('Group offer handle error:', err); });
 }
 
@@ -5630,19 +6089,20 @@ function handleGroupCallUserLeft(data) {
   var uid = data.user_id;
   if (GC.peers[uid]) {
     GC.peers[uid].pc.close();
-    // Remove video/audio element
-    var el = document.getElementById('gc-peer-' + uid);
-    if (el) el.remove();
     delete GC.peers[uid];
   }
-  updateGroupCallParticipantCount();
-  // If no peers left, show waiting text
-  if (Object.keys(GC.peers).length === 0) {
-    var grid = $('gc-video-grid');
-    if (grid && !grid.querySelector('.gc-peer-tile')) {
-      // Only us left
-    }
+  // Remove thumbnail
+  var thumb = document.getElementById('gc-thumb-' + uid);
+  if (thumb) thumb.remove();
+  // Remove legacy tile
+  var el = document.getElementById('gc-peer-' + uid);
+  if (el) el.remove();
+  // If focused user left, switch to local
+  if (gcFocusedId == uid) {
+    focusGcParticipant('local');
   }
+  updateGroupCallParticipantCount();
+  updateGcWaiting();
 }
 
 function createGroupPeer(peerId, name, pic, isInitiator) {
@@ -5699,8 +6159,18 @@ function createGroupPeerConnection(peerId) {
   };
 
   pc.ontrack = function (event) {
-    peer.stream = event.streams[0];
+    peer.stream = event.streams[0] || peer.stream;
     renderGroupCallPeer(peerId, peer);
+    // Listen for future tracks added to this stream (e.g. camera turned on later)
+    if (peer.stream && !peer.stream._trackListenerAdded) {
+      peer.stream._trackListenerAdded = true;
+      peer.stream.onaddtrack = function () {
+        renderGroupCallPeer(peerId, peer);
+      };
+      peer.stream.onremovetrack = function () {
+        renderGroupCallPeer(peerId, peer);
+      };
+    }
   };
 
   pc.onconnectionstatechange = function () {
@@ -5712,79 +6182,208 @@ function createGroupPeerConnection(peerId) {
   return peer;
 }
 
+// Zoom-like focused participant
+var gcFocusedId = 'local'; // 'local' or peerId
+
 function renderGroupCallPeer(peerId, peer) {
+  // Remove old legacy tile if exists
   var existing = document.getElementById('gc-peer-' + peerId);
   if (existing) existing.remove();
 
-  var tile = document.createElement('div');
-  tile.className = 'gc-peer-tile';
-  tile.id = 'gc-peer-' + peerId;
+  // Build thumbnail
+  buildGcThumb(peerId, peer);
 
-  // Always create video element (needed for screen share in voice calls too)
-  var video = document.createElement('video');
-  video.autoplay = true;
-  video.playsInline = true;
-  video.className = 'gc-peer-video';
-
-  // Always create avatar
-  var av = document.createElement('img');
-  av.className = 'gc-peer-av';
-  av.src = peer.pic || seed(peer.name || 'User');
-
-  // Always create audio element (for voice calls and to ensure audio in all cases)
-  var audio = document.createElement('audio');
-  audio.autoplay = true;
-
-  var hasVideoTrack = peer.stream && peer.stream.getVideoTracks().length > 0;
-
-  if (GC.callType === 'video' || hasVideoTrack) {
-    video.srcObject = peer.stream;
-    video.style.display = '';
-    av.style.display = 'none';
-    // For video calls, audio comes through the video element
-    // For voice calls with screen share, we need separate audio
-    if (GC.callType !== 'video') {
-      audio.srcObject = peer.stream;
-    }
-  } else {
-    // Voice call, no video track yet
-    video.style.display = 'none';
-    av.style.display = '';
-    audio.srcObject = peer.stream;
+  // If this is the focused user or first peer, focus them
+  if (gcFocusedId === peerId || Object.keys(GC.peers).length === 1) {
+    focusGcParticipant(peerId);
   }
 
-  tile.appendChild(video);
-  tile.appendChild(av);
-  tile.appendChild(audio);
+  // Auto-focus screen share
+  var videoTracks = peer.stream ? peer.stream.getVideoTracks() : [];
+  var hasScreen = videoTracks.some(function(t) { return t.label && t.label.toLowerCase().indexOf('screen') !== -1; });
+  if (hasScreen) {
+    focusGcParticipant(peerId);
+  }
+
+  updateGroupCallParticipantCount();
+  updateGcWaiting();
+}
+
+function buildGcThumb(id, peer) {
+  var strip = $('gc-thumb-strip');
+  if (!strip) return;
+  // Remove existing thumb
+  var old = document.getElementById('gc-thumb-' + id);
+  if (old) old.remove();
+
+  var thumb = document.createElement('div');
+  thumb.className = 'gc-thumb' + (gcFocusedId === id ? ' active' : '');
+  thumb.id = 'gc-thumb-' + id;
+  thumb.onclick = function() { focusGcParticipant(id); };
+
+  var videoTracks = peer.stream ? peer.stream.getVideoTracks() : [];
+  var hasActiveVideo = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
+
+  if (hasActiveVideo && peer.stream) {
+    var vid = document.createElement('video');
+    vid.autoplay = true; vid.playsInline = true; vid.muted = true;
+    vid.srcObject = peer.stream;
+    thumb.appendChild(vid);
+  } else {
+    var av = document.createElement('img');
+    av.className = 'gc-thumb-av';
+    av.src = peer.pic || seed(peer.name || 'User');
+    thumb.appendChild(av);
+  }
+
+  // Audio (always, not muted)
+  if (peer.stream) {
+    var audio = document.createElement('audio');
+    audio.autoplay = true;
+    audio.srcObject = peer.stream;
+    thumb.appendChild(audio);
+  }
 
   var label = document.createElement('div');
-  label.className = 'gc-peer-name';
+  label.className = 'gc-thumb-name';
   label.textContent = peer.name || 'User';
-  tile.appendChild(label);
+  thumb.appendChild(label);
 
-  $('gc-video-grid').appendChild(tile);
-  updateGroupCallParticipantCount();
+  // Listen for track changes
+  if (peer.stream) {
+    peer.stream.getVideoTracks().forEach(function(track) {
+      track.onmute = function() { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
+      track.onunmute = function() { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
+    });
+    if (!peer.stream._thumbTrackListener) {
+      peer.stream._thumbTrackListener = true;
+      peer.stream.onaddtrack = function() { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
+      peer.stream.onremovetrack = function() { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
+    }
+  }
+
+  strip.appendChild(thumb);
+}
+
+function buildLocalThumb() {
+  var strip = $('gc-thumb-strip');
+  if (!strip) return;
+  var old = document.getElementById('gc-thumb-local');
+  if (old) old.remove();
+
+  var thumb = document.createElement('div');
+  thumb.className = 'gc-thumb gc-local-thumb' + (gcFocusedId === 'local' ? ' active' : '');
+  thumb.id = 'gc-thumb-local';
+  thumb.onclick = function() { focusGcParticipant('local'); };
+
+  var videoTracks = GC.localStream ? GC.localStream.getVideoTracks() : [];
+  var hasVideo = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
+
+  if (hasVideo && GC.localStream) {
+    var vid = document.createElement('video');
+    vid.autoplay = true; vid.playsInline = true; vid.muted = true;
+    vid.srcObject = GC.localStream;
+    vid.style.transform = 'scaleX(-1)';
+    thumb.appendChild(vid);
+  } else {
+    var av = document.createElement('img');
+    av.className = 'gc-thumb-av';
+    av.src = S.user && S.user.profile_picture ? S.user.profile_picture : seed(S.user ? (S.user.first_name || S.user.username) : 'You');
+    thumb.appendChild(av);
+  }
+
+  var label = document.createElement('div');
+  label.className = 'gc-thumb-name';
+  label.textContent = 'You';
+  thumb.appendChild(label);
+
+  strip.insertBefore(thumb, strip.firstChild);
+}
+
+function focusGcParticipant(id) {
+  gcFocusedId = id;
+  // Update thumbnail active state
+  document.querySelectorAll('.gc-thumb').forEach(function(t) { t.classList.remove('active'); });
+  var activeThumb = document.getElementById('gc-thumb-' + id);
+  if (activeThumb) activeThumb.classList.add('active');
+
+  if (id === 'local') {
+    updateGcMainView('local', {
+      stream: GC.localStream,
+      name: 'You',
+      pic: S.user && S.user.profile_picture ? S.user.profile_picture : seed(S.user ? (S.user.first_name || S.user.username) : 'You')
+    });
+  } else {
+    var peer = GC.peers[id];
+    if (peer) updateGcMainView(id, peer);
+  }
+}
+
+function updateGcMainView(id, peer) {
+  var mainView = $('gc-main-view');
+  if (!mainView) return;
+  mainView.innerHTML = '';
+  mainView.classList.remove('screen-share');
+
+  var videoTracks = peer.stream ? peer.stream.getVideoTracks() : [];
+  var hasActiveVideo = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
+
+  if (hasActiveVideo && peer.stream) {
+    var vid = document.createElement('video');
+    vid.autoplay = true; vid.playsInline = true;
+    vid.srcObject = peer.stream;
+    if (id === 'local') { vid.muted = true; vid.style.transform = 'scaleX(-1)'; }
+    mainView.appendChild(vid);
+    // Check if screen share
+    var isScreen = videoTracks.some(function(t) { return t.label && t.label.toLowerCase().indexOf('screen') !== -1; });
+    if (isScreen) mainView.classList.add('screen-share');
+  } else {
+    var av = document.createElement('img');
+    av.className = 'gc-main-av';
+    av.src = peer.pic || seed(peer.name || 'User');
+    mainView.appendChild(av);
+  }
+
+  var nameEl = document.createElement('div');
+  nameEl.className = 'gc-main-name';
+  nameEl.textContent = peer.name || 'User';
+  mainView.appendChild(nameEl);
 }
 
 function showGroupCallUI() {
   hideAllCallOverlays();
-  var localVid = $('gc-local-video');
-  var localAv = $('gc-local-av');
-  if (GC.callType === 'video' && GC.localStream) {
-    if (localVid) { localVid.srcObject = GC.localStream; localVid.style.display = ''; }
-    if (localAv) localAv.style.display = 'none';
-  } else {
-    // Voice call — show avatar, hide video
-    if (localVid) localVid.style.display = 'none';
-    if (localAv) {
-      localAv.src = S.user && S.user.profile_picture ? S.user.profile_picture : seed(S.user ? (S.user.first_name || S.user.username) : 'You');
-      localAv.style.display = '';
-    }
-  }
+  gcFocusedId = 'local';
+
+  // Clear old content and build new Zoom layout
+  var grid = $('gc-video-grid');
+  grid.innerHTML = '';
+
+  // Create main view
+  var mainView = document.createElement('div');
+  mainView.className = 'gc-main-view';
+  mainView.id = 'gc-main-view';
+  grid.appendChild(mainView);
+
+  // Create thumbnail strip
+  var strip = document.createElement('div');
+  strip.className = 'gc-thumb-strip';
+  strip.id = 'gc-thumb-strip';
+  grid.appendChild(strip);
+
+  // Build local thumbnail
+  buildLocalThumb();
+
+  // Focus on local by default
+  focusGcParticipant('local');
+
+  // Rebuild peer thumbnails if any
+  Object.keys(GC.peers).forEach(function(pid) {
+    buildGcThumb(pid, GC.peers[pid]);
+  });
+
   $('gc-call-name').textContent = getGroupCallTitle();
   showCallOverlay('gc-ongoing-call');
   updateGcWaiting();
-  updateGcGridLayout(Object.keys(GC.peers).length + 1);
 
   // Start timer
   GC.callStartTime = GC.callStartTime || Date.now();
@@ -5800,7 +6399,17 @@ function updateGcWaiting() {
   var w = $('gc-waiting');
   if (!w) return;
   var peerCount = Object.keys(GC.peers).length;
-  w.style.display = peerCount === 0 ? 'flex' : 'none';
+  if (peerCount === 0) {
+    // Move waiting into main view area
+    var mainView = $('gc-main-view');
+    if (mainView && !mainView.contains(w)) {
+      mainView.innerHTML = '';
+      mainView.appendChild(w);
+    }
+    w.style.display = 'flex';
+  } else {
+    w.style.display = 'none';
+  }
 }
 
 function leaveGroupCall() {
@@ -5818,6 +6427,7 @@ function leaveGroupCall() {
 }
 
 function cleanupGroupCall() {
+  cleanupCamFx();
   if (GC.screenStream) {
     GC.screenStream.getTracks().forEach(function (t) { t.stop(); });
     GC.screenStream = null;
@@ -5829,6 +6439,8 @@ function cleanupGroupCall() {
     if (GC.peers[pid].pc) GC.peers[pid].pc.close();
     var el = document.getElementById('gc-peer-' + pid);
     if (el) el.remove();
+    var thumb = document.getElementById('gc-thumb-' + pid);
+    if (thumb) thumb.remove();
   });
   GC.peers = {};
   if (GC.localStream) {
@@ -5837,8 +6449,7 @@ function cleanupGroupCall() {
   if (GC.timerInterval) clearInterval(GC.timerInterval);
   var grid = $('gc-video-grid');
   if (grid) grid.innerHTML = '';
-  var localVid = $('gc-local-video');
-  if (localVid) localVid.srcObject = null;
+  gcFocusedId = 'local';
   GC.active = false;
   GC.groupCallId = null;
   GC.groupId = null;
@@ -5899,11 +6510,9 @@ function gcToggleCam() {
         }
       });
       GC.isCamOff = false;
-      // Show local video
-      var localVid = $('gc-local-video');
-      if (localVid) { localVid.srcObject = GC.localStream; localVid.style.display = ''; }
-      var localAv = $('gc-local-av');
-      if (localAv) localAv.style.display = 'none';
+      // Rebuild local thumb and main view
+      buildLocalThumb();
+      if (gcFocusedId === 'local') focusGcParticipant('local');
     }).catch(function (err) {
       console.error('Camera error:', err);
       toast('Could not access camera', 'e');
@@ -5916,19 +6525,9 @@ function gcToggleCam() {
     btn.classList.toggle('muted', GC.isCamOff);
     btn.innerHTML = GC.isCamOff ? '<i class="fa-solid fa-video-slash"></i>' : '<i class="fa-solid fa-video"></i>';
   }
-  // Toggle local video/avatar
-  var localVid = $('gc-local-video');
-  var localAv = $('gc-local-av');
-  if (GC.isCamOff) {
-    if (localVid) localVid.style.display = 'none';
-    if (localAv) {
-      localAv.src = S.user && S.user.profile_picture ? S.user.profile_picture : seed(S.user ? (S.user.first_name || S.user.username) : 'You');
-      localAv.style.display = '';
-    }
-  } else {
-    if (localVid) { localVid.srcObject = GC.localStream; localVid.style.display = ''; }
-    if (localAv) localAv.style.display = 'none';
-  }
+  // Rebuild local thumb and main view for Zoom layout
+  buildLocalThumb();
+  if (gcFocusedId === 'local') focusGcParticipant('local');
 }
 
 // ═══ SCREEN SHARE (GROUP CALL) ═══
@@ -5992,11 +6591,10 @@ function gcStartScreenShare() {
     // Notify all peers about screen share
     gcSendScreenToggle(true);
 
-    // Show screen share in local preview
-    var localVid = $('gc-local-video');
-    if (localVid) { localVid.srcObject = screenStream; localVid.style.display = ''; }
-    var localAv = $('gc-local-av');
-    if (localAv) localAv.style.display = 'none';
+    // Update local thumb and focus
+    buildLocalThumb();
+    focusGcParticipant('local');
+
     // Update button
     var btn = $('gc-screen-btn');
     if (btn) { btn.classList.add('screen-active'); btn.innerHTML = '<i class="fa-solid fa-display"></i><span class="screen-dot"></span>'; }
@@ -6064,16 +6662,9 @@ function gcStopScreenShare() {
   gcSendScreenToggle(false);
 
   GC.originalVideoTrack = null;
-  // Restore local preview
-  var localVid = $('gc-local-video');
-  var localAv = $('gc-local-av');
-  if (GC.callType === 'video' && GC.localStream) {
-    if (localVid) { localVid.srcObject = GC.localStream; localVid.style.display = ''; }
-    if (localAv) localAv.style.display = 'none';
-  } else {
-    if (localVid) localVid.style.display = 'none';
-    if (localAv) localAv.style.display = '';
-  }
+  // Rebuild local thumb and view
+  buildLocalThumb();
+  if (gcFocusedId === 'local') focusGcParticipant('local');
   var btn = $('gc-screen-btn');
   if (btn) { btn.classList.remove('screen-active'); btn.innerHTML = '<i class="fa-solid fa-display"></i>'; }
 }
@@ -6093,31 +6684,19 @@ function gcSendScreenToggle(sharing) {
 function handleGcScreenToggle(data) {
   var fromId = data.from_user_id;
   var sharing = data.sharing;
-  var tile = document.getElementById('gc-peer-' + fromId);
-  if (!tile) return;
-  var video = tile.querySelector('.gc-peer-video');
-  var av = tile.querySelector('.gc-peer-av');
-  if (sharing) {
-    // Peer started screen sharing — show video, hide avatar
-    if (video) {
-      var peer = GC.peers[fromId];
-      if (peer && peer.stream) video.srcObject = peer.stream;
-      video.style.display = '';
-    }
-    if (av) av.style.display = 'none';
-    tile.classList.add('screen-share');
-  } else {
-    // Peer stopped screen sharing
-    tile.classList.remove('screen-share');
-    if (GC.callType === 'video') {
-      // Keep video showing (camera)
-      if (video) video.style.display = '';
-      if (av) av.style.display = 'none';
-    } else {
-      // Voice call — hide video, show avatar
-      if (video) video.style.display = 'none';
-      if (av) av.style.display = '';
-    }
+  var peer = GC.peers[fromId];
+
+  if (sharing && peer) {
+    // Auto-focus the screen sharer
+    focusGcParticipant(fromId);
+    // Rebuild their thumb with screen-share class
+    buildGcThumb(fromId, peer);
+    var thumb = document.getElementById('gc-thumb-' + fromId);
+    if (thumb) thumb.classList.add('screen-share');
+  } else if (peer) {
+    // Stopped sharing — rebuild thumb and refocus
+    buildGcThumb(fromId, peer);
+    if (gcFocusedId == fromId) focusGcParticipant(fromId);
   }
 }
 
@@ -6147,15 +6726,8 @@ function updateGroupCallParticipantCount() {
 }
 
 function updateGcGridLayout(count) {
-  var grid = $('gc-video-grid');
-  if (!grid) return;
-  // Remove old size class
-  grid.className = 'gc-video-grid';
-  if (count <= 1) grid.classList.add('gc-1');
-  else if (count === 2) grid.classList.add('gc-2');
-  else if (count <= 4) grid.classList.add('gc-4');
-  else if (count <= 6) grid.classList.add('gc-6');
-  else grid.classList.add('gc-many');
+  // Zoom-like layout doesn't need grid class updates
+  // Kept for compatibility
 }
 
 // ═══════════════════════════════════════════════════════════════
