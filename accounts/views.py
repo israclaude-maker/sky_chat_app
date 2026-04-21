@@ -1243,8 +1243,8 @@ class UserViewSet(viewsets.ModelViewSet):
             pass
         return Response({'success': True})
 
-    @action(detail=False, methods=['post'], url_path='delete_group/(?P<group_id>[^/.]+)', permission_classes=[IsAuthenticated])
-    def delete_group(self, request, group_id=None):
+    @action(detail=False, methods=['post'], url_path='clear_group/(?P<group_id>[^/.]+)', permission_classes=[IsAuthenticated])
+    def clear_group_chat(self, request, group_id=None):
         """Clear group chat for current user only"""
         try:
             grp = Group.objects.get(id=group_id)
