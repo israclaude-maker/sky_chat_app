@@ -2900,6 +2900,11 @@ function openGroupInfo(groupId) {
       });
       $('ip-members').innerHTML = html;
       $('ip-leave-btn').onclick = function () { leaveGroup(groupId); };
+      var delBtn = $('ip-delete-group-btn');
+      if (delBtn) {
+        delBtn.style.display = isAdmin ? '' : 'none';
+        delBtn.onclick = function () { deleteGroup(groupId); };
+      }
     })
     .catch(function () { toast('Failed to load group info', 'e'); });
 
@@ -3085,6 +3090,28 @@ function leaveGroup(groupId) {
       loadGroups();
     } else {
       toast(data.error || 'Failed', 'e');
+    }
+  });
+}
+
+function deleteGroup(groupId) {
+  if (!confirm('Delete this group? All messages will be lost. This cannot be undone.')) return;
+  if (!confirm('Are you sure? This will permanently delete the group for everyone.')) return;
+  
+  api('/groups/' + groupId + '/delete_group/', {
+    method: 'POST'
+  }).then(function (data) {
+    if (data && !data.error) {
+      toast('Group deleted', 's');
+      closeInfoPanel();
+      S.activeGroup = null;
+      S.isGroup = false;
+      $('chat-view').classList.remove('active');
+      $('empty-state').style.display = 'flex';
+      loadGroups();
+      loadConversations();
+    } else {
+      toast(data.error || 'Failed to delete group', 'e');
     }
   });
 }

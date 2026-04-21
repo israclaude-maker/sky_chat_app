@@ -343,6 +343,25 @@ class UserViewSet(viewsets.ModelViewSet):
         
         return Response({'message': 'Left group successfully'})
 
+    @action(detail=False, methods=['post'], url_path='groups/(?P<group_id>[^/.]+)/delete_group', permission_classes=[IsAuthenticated])
+    def delete_group(self, request, group_id=None):
+        """Delete a group (admin only)"""
+        try:
+            group = Group.objects.get(id=group_id)
+        except Group.DoesNotExist:
+            return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if request.user not in group.admins.all():
+            return Response({'error': 'Only admins can delete a group'}, status=status.HTTP_403_FORBIDDEN)
+        
+        group_name = group.name
+        # Delete all messages, memberships, and the group itself
+        Message.objects.filter(group=group).delete()
+        GroupMembership.objects.filter(group=group).delete()
+        group.delete()
+        
+        return Response({'message': f'Group "{group_name}" deleted successfully'})
+
     @action(detail=False, methods=['post'], url_path='groups/(?P<group_id>[^/.]+)/remove_member', permission_classes=[IsAuthenticated])
     def remove_group_member(self, request, group_id=None):
         """Remove a member from a group (admin only)"""
