@@ -3111,8 +3111,11 @@ function deleteGroup(groupId) {
       loadGroups();
       loadConversations();
     } else {
-      toast(data.error || 'Failed to delete group', 'e');
+      toast((data && data.error) || 'Failed to delete group', 'e');
     }
+  }).catch(function (err) {
+    console.error('Delete group error:', err);
+    toast('Failed to delete group', 'e');
   });
 }
 
