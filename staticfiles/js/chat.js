@@ -3101,6 +3101,9 @@ function deleteGroup(groupId) {
   if (!confirm('Delete this group? All messages will be lost. This cannot be undone.')) return;
   if (!confirm('Are you sure? This will permanently delete the group for everyone.')) return;
   
+  var btn = $('ip-delete-group-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Deleting...'; }
+  
   api('/groups/' + groupId + '/delete_group/', {
     method: 'POST'
   }).then(function (data) {
@@ -3115,9 +3118,11 @@ function deleteGroup(groupId) {
       loadConversations();
     } else {
       toast((data && data.error) || 'Failed to delete group', 'e');
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-trash"></i> Delete Group'; }
     }
   }).catch(function (err) {
     toast('Failed to delete group', 'e');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-trash"></i> Delete Group'; }
   });
 }
 
