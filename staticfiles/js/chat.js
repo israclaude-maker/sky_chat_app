@@ -6398,15 +6398,12 @@ function updateGcMainView(id, peer) {
   var isScreenSharer = (id === 'local') ? GC.isScreenSharing : GC.screenSharers[id];
 
   if (isScreenSharer) {
-    // Screen sharer focused: show their screen share in main view
     var screenStream = null;
     if (id === 'local' && GC.screenStream) {
       screenStream = GC.screenStream;
     } else if (peer.stream) {
-      // replaceTrack was used — peer.stream has the screen track
       screenStream = peer.stream;
     }
-
     if (screenStream) {
       var vid = document.createElement('video');
       vid.autoplay = true; vid.playsInline = true;
@@ -6414,7 +6411,6 @@ function updateGcMainView(id, peer) {
       if (id === 'local') vid.muted = true;
       mainView.appendChild(vid);
       mainView.classList.add('screen-share');
-      // Zoom hint
       var hint = document.createElement('div');
       hint.className = 'gc-zoom-hint';
       hint.innerHTML = '<i class="fa-solid fa-expand"></i> Click to zoom';
@@ -6422,35 +6418,6 @@ function updateGcMainView(id, peer) {
       mainView.onclick = function() { gcOpenScreenZoom(screenStream); };
     }
   } else {
-    // Normal: show camera or avatar
-    var hasActiveVideo = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
-    if (hasActiveVideo && peer.stream) {
-  if (isScreenSharer) {
-    // Screen sharer focused: show their screen share in main view
-    var screenStream = null;
-    if (id === 'local' && GC.screenStream) {
-      screenStream = GC.screenStream;
-    } else if (peer.stream) {
-      // replaceTrack was used — peer.stream has the screen track
-      screenStream = peer.stream;
-    }
-
-    if (screenStream) {
-      var vid = document.createElement('video');
-      vid.autoplay = true; vid.playsInline = true;
-      vid.srcObject = screenStream;
-      if (id === 'local') vid.muted = true;
-      mainView.appendChild(vid);
-      mainView.classList.add('screen-share');
-      // Zoom hint
-      var hint = document.createElement('div');
-      hint.className = 'gc-zoom-hint';
-      hint.innerHTML = '<i class="fa-solid fa-expand"></i> Click to zoom';
-      mainView.appendChild(hint);
-      mainView.onclick = function() { gcOpenScreenZoom(screenStream); };
-    }
-  } else {
-    // Normal: show camera or avatar
     var hasActiveVideo = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
     if (hasActiveVideo && peer.stream) {
       var vid = document.createElement('video');
@@ -6466,17 +6433,68 @@ function updateGcMainView(id, peer) {
     }
   }
 
-  // Name label
   var nameEl = document.createElement('div');
   nameEl.className = 'gc-main-name';
   if (isScreenSharer) {
-    nameEl.innerHTML = '<i class="fa-solid fa-display"></i> ' + (peer.name || 'User') + ' — Screen';
+    nameEl.innerHTML = '<i class="fa-solid fa-display"></i> ' + (peer.name || 'User') + ' \u2014 Screen';
   } else {
-    nameEl.textContent = peer.name || 'User
+    nameEl.textContent = peer.name || 'User';
+  }
+  mainView.appendChild(nameEl);
+}
+
+function showGroupCallUI() {
+  hideAllCallOverlays();
+  gcFocusedId = 'local';
+
+  var grid = $('gc-video-grid');
+  grid.innerHTML = '';
+
+  var mainView = document.createElement('div');
+  mainView.className = 'gc-main-view';
+  mainView.id = 'gc-main-view';
+  grid.appendChild(mainView);
+
+  var sidebar = document.createElement('div');
+  sidebar.className = 'gc-sidebar';
+  sidebar.id = 'gc-sidebar';
+  var strip = document.createElement('div');
+  strip.className = 'gc-thumb-strip';
+  strip.id = 'gc-thumb-strip';
+  sidebar.appendChild(strip);
+  grid.appendChild(sidebar);
+
+  buildLocalThumb();
+  focusGcParticipant('local');
+
+  Object.keys(GC.peers).forEach(function(pid) {
+    buildGcThumb(pid, GC.peers[pid]);
+  });
+
+  $('gc-call-name').textContent = getGroupCallTitle();
+  showCallOverlay('gc-ongoing-call');
+  updateGcWaiting();
+
+  GC.callStartTime = GC.callStartTime || Date.now();
+  GC.timerInterval = setInterval(function () {
+    var elapsed = Math.floor((Date.now() - GC.callStartTime) / 1000);
+    var mins = Math.floor(elapsed / 60);
+    var secs = elapsed % 60;
+    $('gc-timer').textContent = (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
+  }, 1000);
+}
+
+function updateGcWaiting() {
+  var w = $('gc-waiting');
+  if (!w) return;
+  var peerCount = Object.keys(GC.peers).length;
+  if (peerCount === 0) {
+    var mainView = $('gc-main-view');
+    if (mainView && !mainView.contains(w)) {
+      mainView.innerHTML = '';
       mainView.appendChild(w);
     }
     w.style.display = 'flex';
-    // Hide sidebar when no peers
     var sidebar = $('gc-sidebar');
     if (sidebar) sidebar.style.display = 'none';
   } else {
