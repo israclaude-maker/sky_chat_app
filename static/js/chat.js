@@ -6526,6 +6526,13 @@ function showGroupCallUI() {
   var sidebar = document.createElement('div');
   sidebar.className = 'gc-sidebar';
   sidebar.id = 'gc-sidebar';
+
+  // Talking indicator bar
+  var talkBar = document.createElement('div');
+  talkBar.className = 'gc-talking-bar';
+  talkBar.innerHTML = '<span class="gc-talking-label">Talking:</span> <span class="gc-talking-name" id="gc-talking-name">—</span>';
+  sidebar.appendChild(talkBar);
+
   var strip = document.createElement('div');
   strip.className = 'gc-thumb-strip';
   strip.id = 'gc-thumb-strip';

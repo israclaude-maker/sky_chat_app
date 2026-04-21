@@ -2617,6 +2617,7 @@ body {
 .gc-sidebar {
   width: 200px; display: flex; flex-direction: column;
   background: rgba(0,0,0,0.7); flex-shrink: 0; overflow: hidden;
+  height: 100%;
 }
 /* Talking indicator */
 .gc-talking-bar {
