@@ -6300,37 +6300,36 @@ function buildGcThumb(id, peer) {
   label.textContent = peer.name || 'User';
   thumb.appendChild(label);
 
-  // T = 'gc-thumb gc-local-thumb' + (gcFocusedId === 'local' ? ' active' : '');
+  // Track changes
+  if (peer.stream) {
+    peer.stream.getVideoTracks().forEach(function(track) {
+      track.onmute = function() { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
+      track.onunmute = function() { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
+    });
+    if (!peer.stream._thumbTrackListener) {
+      peer.stream._thumbTrackListener = true;
+      peer.stream.onaddtrack = function() { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
+      peer.stream.onremovetrack = function() { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
+    }
+  }
+
+  strip.appendChild(thumb);
+}
+
+function buildLocalThumb() {
+  var strip = $('gc-thumb-strip');
+  if (!strip) return;
+  var old = document.getElementById('gc-thumb-local');
+  if (old) old.remove();
+
+  var thumb = document.createElement('div');
+  thumb.className = 'gc-thumb gc-local-thumb' + (gcFocusedId === 'local' ? ' active' : '');
   thumb.id = 'gc-thumb-local';
   thumb.onclick = function() { focusGcParticipant('local'); };
 
   var hasVideo = false;
 
   if (GC.isScreenSharing && GC.originalVideoTrack && GC.originalVideoTrack.enabled) {
-    // Screen sharing — show camera (original track) in thumb
-    var camStream = new MediaStream([GC.originalVideoTrack]);
-    var vid = document.createElement('video');
-    vid.autoplay = true; vid.playsInline = true; vid.muted = true;
-    vid.srcObject = camStream;
-    vid.style.transform = 'scaleX(-1)';
-    thumb.appendChild(vid);
-    hasVideo = true;
-  } else if (!GC.isScreenSharing && GC.localStream) {
-    var videoTracks = GC.localStream.getVideoTracks();
-    hasVideo = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
-    if (hasVideo) {
-      var vid = document.createElement('video');
-      vid.autoplay = true; vid.playsInline = true; vid.muted = true;
-      vid.srcObject = GC.localStream;
-      vid.style.transform = 'scaleX(-1)';
-      thumb.appendChild(vid);
-    }
-  }
-
-  var hasVideo = false;
-
-  if (GC.isScreenSharing && GC.originalVideoTrack && GC.originalVideoTrack.enabled) {
-    // Screen sharing — show camera (original track) in thumb
     var camStream = new MediaStream([GC.originalVideoTrack]);
     var vid = document.createElement('video');
     vid.autoplay = true; vid.playsInline = true; vid.muted = true;
@@ -6357,7 +6356,31 @@ function buildGcThumb(id, peer) {
     thumb.appendChild(av);
   }
 
-  // Screen share badge
+  if (GC.isScreenSharing) {
+    var badge = document.createElement('div');
+    badge.className = 'gc-thumb-screen-badge';
+    badge.innerHTML = '<i class="fa-solid fa-display"></i>';
+    thumb.appendChild(badge);
+  }
+
+  var label = document.createElement('div');
+  label.className = 'gc-thumb-name';
+  label.textContent = 'You';
+  thumb.appendChild(label);
+
+  strip.insertBefore(thumb, strip.firstChild);
+}
+
+function focusGcParticipant(id) {
+  gcFocusedId = id;
+  // Update active state on all thumbs
+  var thumbs = document.querySelectorAll('.gc-thumb');
+  for (var i = 0; i < thumbs.length; i++) thumbs[i].classList.remove('active');
+  var active = document.getElementById(id === 'local' ? 'gc-thumb-local' : 'gc-thumb-' + id);
+  if (active) active.classList.add('active');
+  // Update main view
+  if (id === 'local') {
+    updateGcMainView('local', { stream: GC.localStream, name: 'You', pic: S.user && S.user.profile_picture ? S.user.profile_picture : null });
   } else {
     var peer = GC.peers[id];
     if (peer) updateGcMainView(id, peer);
