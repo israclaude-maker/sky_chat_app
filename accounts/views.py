@@ -312,6 +312,16 @@ class UserViewSet(viewsets.ModelViewSet):
             member = CustomUser.objects.get(id=member_id)
             group.members.add(member)
             GroupMembership.objects.get_or_create(user=member, group=group)
+            
+            admin_name = request.user.first_name or request.user.username
+            member_name = member.first_name or member.username
+            Message.objects.create(
+                group=group,
+                sender=request.user,
+                content=f'{admin_name} added {member_name}',
+                message_type='text'
+            )
+            
             return Response({'message': 'Member added successfully'})
         except CustomUser.DoesNotExist:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -427,6 +437,16 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response({'error': 'User is not a member'}, status=status.HTTP_400_BAD_REQUEST)
         
         group.admins.add(member)
+        
+        admin_name = request.user.first_name or request.user.username
+        member_name = member.first_name or member.username
+        Message.objects.create(
+            group=group,
+            sender=request.user,
+            content=f'{admin_name} made {member_name} admin',
+            message_type='text'
+        )
+        
         return Response({
             'message': 'Admin added',
             'admins': [a.id for a in group.admins.all()]
@@ -450,6 +470,16 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
         
         group.admins.remove(member)
+        
+        admin_name = request.user.first_name or request.user.username
+        member_name = member.first_name or member.username
+        Message.objects.create(
+            group=group,
+            sender=request.user,
+            content=f'{admin_name} removed {member_name} as admin',
+            message_type='text'
+        )
+        
         return Response({
             'message': 'Admin removed',
             'admins': [a.id for a in group.admins.all()]

@@ -1427,7 +1427,9 @@ function appendMsg(msg, consec) {
     content.match(/ removed /) ||
     content.match(/ added /) ||
     content.match(/ was added$/) ||
-    content.match(/ changed the group/)
+    content.match(/ changed the group/) ||
+    content.match(/ made .+ admin$/) ||
+    content.match(/ as admin$/)
   )) {
     isSystem = true;
   }
