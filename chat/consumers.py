@@ -55,6 +55,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if not self.user.is_authenticated:
             return
 
+        # Clean up any active group calls this user is in
+        await self.cleanup_user_group_calls()
+
         # Broadcast offline status before cleanup
         await self.broadcast_online_status(False)
             
@@ -1031,7 +1034,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
     def add_group_call_participant(self, gc_id):
         try:
             gc = GroupCall.objects.get(id=gc_id, status='active')
-            GroupCallParticipant.objects.get_or_create(group_call=gc, user=self.user)
+            participant, created = GroupCallParticipant.objects.get_or_create(group_call=gc, user=self.user)
+            if not created and participant.left_at is not None:
+                # User is rejoining — reset left_at so they're active again
+                participant.left_at = None
+                participant.save(update_fields=['left_at'])
         except GroupCall.DoesNotExist:
             pass
 
@@ -1103,6 +1110,49 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return gc.group_id
         except GroupCall.DoesNotExist:
             return None
+
+    @database_sync_to_async
+    def get_user_active_group_calls(self):
+        """Get all active group call IDs this user is participating in."""
+        return list(GroupCallParticipant.objects.filter(
+            user=self.user,
+            left_at__isnull=True,
+            group_call__status='active',
+        ).values_list('group_call_id', flat=True))
+
+    async def cleanup_user_group_calls(self):
+        """Mark user as left from all active group calls on disconnect."""
+        active_gc_ids = await self.get_user_active_group_calls()
+        for gc_id in active_gc_ids:
+            await self.mark_group_call_left(gc_id)
+            # Notify remaining participants
+            participant_ids = await self.get_group_call_participant_ids(gc_id)
+            for pid in participant_ids:
+                if pid != self.user.id:
+                    await self.channel_layer.group_send(
+                        f'user_{pid}',
+                        {
+                            'type': 'group_call_user_left',
+                            'group_call_id': gc_id,
+                            'user_id': self.user.id,
+                        }
+                    )
+            # End call if no active participants remain
+            active_count = await self.get_active_participant_count(gc_id)
+            if active_count == 0:
+                await self.end_group_call(gc_id)
+                group_id = await self.get_group_id_from_call(gc_id)
+                if group_id:
+                    member_ids = await self.get_group_member_ids(group_id)
+                    for mid in member_ids:
+                        await self.channel_layer.group_send(
+                            f'user_{mid}',
+                            {
+                                'type': 'group_call_ended_notify',
+                                'group_call_id': gc_id,
+                                'group_id': group_id,
+                            }
+                        )
 
     @database_sync_to_async
     def send_group_call_push(self, group_id, caller_name, group_name, call_type):

@@ -23,7 +23,7 @@ from django.http import HttpResponse
 from accounts.views import index as accounts_index
 from rest_framework_simplejwt.views import TokenRefreshView
 import os
-from chat.views import chat, get_turn_credentials
+from chat.views import chat, get_turn_credentials, active_group_calls
 from calls.views import call_history
 
 def service_worker(request):
@@ -47,6 +47,7 @@ urlpatterns = [
     path('login/', accounts_index, name='login'),
     path('chat/', chat, name='chat'),
     path('chat/api/turn-credentials/', get_turn_credentials, name='turn_credentials'),
+    path('api/active-group-calls/', active_group_calls, name='active_group_calls'),
     path('offline/', TemplateView.as_view(template_name='offline.html'), name='offline'),
     path('sw.js', service_worker, name='service_worker'),
     path('manifest.json', manifest, name='manifest'),

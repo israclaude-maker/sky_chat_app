@@ -446,17 +446,36 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
         if request.user not in group.members.all():
             return Response({'error': 'Not a member'}, status=status.HTTP_403_FORBIDDEN)
+        from calls.models import GroupCallParticipant
+        from django.utils import timezone as tz
         active_call = GroupCall.objects.filter(group=group, status='active').first()
         if active_call:
-            return Response({
-                'active': True,
-                'group_call_id': active_call.id,
-                'call_type': active_call.call_type,
-                'caller_name': f"{active_call.initiator.first_name} {active_call.initiator.last_name}".strip() or active_call.initiator.username,
-                'caller_pic': active_call.initiator.profile_picture.url if active_call.initiator.profile_picture else None,
-                'group_name': group.name,
-                'group_id': group.id,
-            })
+            # Auto-end calls older than 2 hours (stale safety net)
+            if active_call.started_at and (tz.now() - active_call.started_at).total_seconds() > 7200:
+                active_call.status = 'ended'
+                active_call.ended_at = tz.now()
+                active_call.save(update_fields=['status', 'ended_at'])
+                return Response({'active': False})
+            # Only report as active if there are actual active participants
+            active_count = GroupCallParticipant.objects.filter(
+                group_call=active_call, left_at__isnull=True
+            ).count()
+            if active_count > 0:
+                return Response({
+                    'active': True,
+                    'group_call_id': active_call.id,
+                    'call_type': active_call.call_type,
+                    'caller_name': f"{active_call.initiator.first_name} {active_call.initiator.last_name}".strip() or active_call.initiator.username,
+                    'caller_pic': active_call.initiator.profile_picture.url if active_call.initiator.profile_picture else None,
+                    'group_name': group.name,
+                    'group_id': group.id,
+                    'participant_count': active_count,
+                })
+            else:
+                # No active participants — mark call as ended (stale cleanup)
+                active_call.status = 'ended'
+                active_call.ended_at = tz.now()
+                active_call.save(update_fields=['status', 'ended_at'])
         return Response({'active': False})
 
     @action(detail=False, methods=['get'], url_path='groups/(?P<group_id>[^/.]+)/info', permission_classes=[IsAuthenticated])
