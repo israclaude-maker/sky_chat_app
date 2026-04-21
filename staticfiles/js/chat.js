@@ -637,7 +637,7 @@ function loadConvs() {
 
 // Load groups
 function loadGroups() {
-  api('/groups/').then(function (groups) {
+  return api('/groups/').then(function (groups) {
     S.groups = groups || [];
     if (S.currentTab === 'groups') {
       renderGroupList(S.groups);
@@ -2806,8 +2806,9 @@ function createGroup() {
     if (group) {
       toast('Group created!', 's');
       closeM('cg-modal');
-      loadGroups();
-      openGroup(group.id);
+      loadGroups().then(function () {
+        openGroup(group.id);
+      });
     }
   }).catch(function () {
     toast('Failed to create group', 'e');
@@ -3098,34 +3099,23 @@ function deleteGroup(groupId) {
   if (!confirm('Delete this group? All messages will be lost. This cannot be undone.')) return;
   if (!confirm('Are you sure? This will permanently delete the group for everyone.')) return;
   
-  var url = API_URL + '/groups/' + groupId + '/delete_group/';
-  console.log('DELETE GROUP: calling', url);
-  fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': 'Bearer ' + S.token,
-      'Content-Type': 'application/json'
+  api('/groups/' + groupId + '/delete_group/', {
+    method: 'POST'
+  }).then(function (data) {
+    if (data && !data.error) {
+      toast('Group deleted', 's');
+      closeInfoPanel();
+      S.activeGroup = null;
+      S.isGroup = false;
+      $('chat-view').classList.remove('active');
+      $('empty-state').style.display = 'flex';
+      loadGroups();
+      loadConversations();
+    } else {
+      toast((data && data.error) || 'Failed to delete group', 'e');
     }
-  }).then(function (r) {
-    console.log('DELETE GROUP: status', r.status);
-    return r.json().then(function (data) {
-      if (r.ok && data && !data.error) {
-        toast('Group deleted', 's');
-        closeInfoPanel();
-        S.activeGroup = null;
-        S.isGroup = false;
-        $('chat-view').classList.remove('active');
-        $('empty-state').style.display = 'flex';
-        loadGroups();
-        loadConversations();
-      } else {
-        console.error('DELETE GROUP: error data', data);
-        toast((data && data.error) || 'Failed to delete group (status ' + r.status + ')', 'e');
-      }
-    });
   }).catch(function (err) {
-    console.error('DELETE GROUP: fetch error', err);
-    toast('Failed to delete group: ' + err.message, 'e');
+    toast('Failed to delete group', 'e');
   });
 }
 
