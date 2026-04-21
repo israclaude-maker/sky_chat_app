@@ -961,9 +961,8 @@ function showChatView(user) {
   closeInfoPanel();
   $('msg-area').innerHTML = '';
   updateSendBtn();
-  // Hide group call banner in DM view
-  var gcBanner = $('gc-join-banner');
-  if (gcBanner) gcBanner.style.display = 'none';
+  // Update group call banner (show if any active call exists)
+  updateGroupCallBanner();
 }
 
 // Show group view
@@ -5960,12 +5959,34 @@ function handleGroupCallEnded(data) {
 function updateGroupCallBanner() {
   var banner = $('gc-join-banner');
   if (!banner) return;
-  // Show banner if viewing a group that has an active call and we're not already in it
-  if (S.isGroup && S.activeGroup && GC.activeGroupCalls[S.activeGroup.id] && !(GC.active && GC.groupId === S.activeGroup.id)) {
-    var info = GC.activeGroupCalls[S.activeGroup.id];
+
+  // Don't show if already in a call
+  if (GC.active) { banner.style.display = 'none'; return; }
+
+  // Find any active group call to show banner for
+  // Prioritize: current group first, then any other
+  var showGroupId = null;
+  var info = null;
+
+  // Check current group first
+  if (S.isGroup && S.activeGroup && GC.activeGroupCalls[S.activeGroup.id]) {
+    showGroupId = S.activeGroup.id;
+    info = GC.activeGroupCalls[S.activeGroup.id];
+  } else {
+    // Check any other active group call
+    var keys = Object.keys(GC.activeGroupCalls);
+    if (keys.length > 0) {
+      showGroupId = keys[0];
+      info = GC.activeGroupCalls[keys[0]];
+    }
+  }
+
+  if (info && showGroupId) {
     var callIcon = info.call_type === 'video' ? '<i class="fa-solid fa-video"></i>' : '<i class="fa-solid fa-phone"></i>';
     var callLabel = info.call_type === 'video' ? 'Video' : 'Voice';
-    $('gc-banner-text').innerHTML = callIcon + ' ' + callLabel + ' call &middot; ' + info.caller_name;
+    var groupName = info.group_name || '';
+    $('gc-banner-text').innerHTML = callIcon + ' ' + callLabel + ' call &middot; ' + groupName + ' &middot; ' + info.caller_name;
+    banner.dataset.groupId = showGroupId;
     banner.style.display = 'flex';
   } else {
     banner.style.display = 'none';
@@ -6003,6 +6024,16 @@ function fetchActiveGroupCalls() {
 }
 
 function joinGroupCallFromBanner() {
+  var banner = $('gc-join-banner');
+  var targetGroupId = banner ? banner.dataset.groupId : null;
+
+  // If the banner group is different from current view, navigate there first
+  if (targetGroupId && (!S.isGroup || !S.activeGroup || S.activeGroup.id != targetGroupId)) {
+    openGroup(parseInt(targetGroupId));
+    setTimeout(function() { joinGroupCallFromBanner(); }, 500);
+    return;
+  }
+
   if (!S.isGroup || !S.activeGroup) return;
   var info = GC.activeGroupCalls[S.activeGroup.id];
   if (!info) { toast('Call has ended', 'e'); return; }
