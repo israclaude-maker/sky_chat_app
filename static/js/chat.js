@@ -6290,6 +6290,7 @@ function createGroupPeerConnection(peerId) {
 var gcFocusedId = 'local'; // 'local' or peerId
 
 function renderGroupCallPeer(peerId, peer) {
+  console.log('[GC] renderGroupCallPeer:', peerId, 'stream:', !!peer.stream, 'videoTracks:', peer.stream ? peer.stream.getVideoTracks().length : 0);
   // Remove old legacy tile if exists
   var existing = document.getElementById('gc-peer-' + peerId);
   if (existing) existing.remove();
@@ -6386,7 +6387,7 @@ function buildGcThumb(id, peer) {
 
 function buildLocalThumb() {
   var strip = $('gc-thumb-strip');
-  if (!strip) return;
+  if (!strip) { console.log('[GC] buildLocalThumb: no strip found'); return; }
   var old = document.getElementById('gc-thumb-local');
   if (old) old.remove();
 
@@ -6408,6 +6409,7 @@ function buildLocalThumb() {
   } else if (!GC.isScreenSharing && GC.localStream) {
     var videoTracks = GC.localStream.getVideoTracks();
     hasVideo = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
+    console.log('[GC] buildLocalThumb: videoTracks=' + videoTracks.length + ', hasVideo=' + hasVideo);
     if (hasVideo) {
       var vid = document.createElement('video');
       vid.autoplay = true; vid.playsInline = true; vid.muted = true;
@@ -6415,6 +6417,8 @@ function buildLocalThumb() {
       vid.style.transform = 'scaleX(-1)';
       thumb.appendChild(vid);
     }
+  } else {
+    console.log('[GC] buildLocalThumb: no stream, isScreenSharing=' + GC.isScreenSharing);
   }
 
   if (!hasVideo) {
@@ -6561,20 +6565,13 @@ function showGroupCallUI() {
 
 function updateGcWaiting() {
   var w = $('gc-waiting');
-  if (!w) return;
+  var sidebar = $('gc-sidebar');
   var peerCount = Object.keys(GC.peers).length;
   if (peerCount === 0) {
-    var mainView = $('gc-main-view');
-    if (mainView && !mainView.contains(w)) {
-      mainView.innerHTML = '';
-      mainView.appendChild(w);
-    }
-    w.style.display = 'flex';
-    var sidebar = $('gc-sidebar');
+    if (w) w.style.display = 'flex';
     if (sidebar) sidebar.style.display = 'none';
   } else {
-    w.style.display = 'none';
-    var sidebar = $('gc-sidebar');
+    if (w) w.style.display = 'none';
     if (sidebar) sidebar.style.display = '';
   }
 }
