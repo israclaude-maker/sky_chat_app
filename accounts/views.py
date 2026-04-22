@@ -766,8 +766,25 @@ class UserViewSet(viewsets.ModelViewSet):
                 content=caption or file.name
             )
             
-            # Broadcast to all group members via WebSocket
-            msg_data = {
+            # Broadcast to group chat room (real-time in active chat)
+            room_data = {
+                'type': 'chat_message',
+                'message': msg.content,
+                'message_type': msg.message_type,
+                'file_url': msg.file.url,
+                'file_name': msg.file_name,
+                'file_size': msg.file_size,
+                'username': user.username,
+                'display_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'profile_picture': user.profile_picture.url if user.profile_picture else None,
+                'timestamp': msg.timestamp.isoformat(),
+                'message_id': msg.id,
+                'is_forwarded': False,
+                'group_id': group.id,
+            }
+            async_to_sync(channel_layer.group_send)(f'group_{group.id}', room_data)
+            # Notify sidebar for members not in this chat
+            notify_data = {
                 'type': 'new_message_notify',
                 'message_id': msg.id,
                 'message': msg.content,
@@ -785,7 +802,8 @@ class UserViewSet(viewsets.ModelViewSet):
                 'status': 'sent',
             }
             for member in group.members.all():
-                async_to_sync(channel_layer.group_send)(f'user_{member.id}', msg_data)
+                if member.id != user.id:
+                    async_to_sync(channel_layer.group_send)(f'user_{member.id}', notify_data)
         else:
             # DM file upload
             try:
@@ -809,24 +827,36 @@ class UserViewSet(viewsets.ModelViewSet):
                 content=caption or file.name
             )
             
-            # Broadcast to both users via WebSocket
-            msg_data = {
-                'type': 'file_message',
-                'id': msg.id,
-                'message_id': msg.id,
+            # Broadcast to chat room (real-time in active chat)
+            room_name = f'{participants[0]}_{participants[1]}'
+            room_data = {
+                'type': 'chat_message',
                 'message': msg.content,
                 'message_type': msg.message_type,
                 'file_url': msg.file.url,
                 'file_name': msg.file_name,
                 'file_size': msg.file_size,
-                'sender_id': user.id,
                 'username': user.username,
-                'display_name': user.first_name or user.username,
+                'display_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'profile_picture': user.profile_picture.url if user.profile_picture else None,
                 'timestamp': msg.timestamp.isoformat(),
-                'status': 'sent',
+                'message_id': msg.id,
+                'is_forwarded': False,
+                'receiver': receiver.username,
             }
-            async_to_sync(channel_layer.group_send)(f'user_{receiver.id}', msg_data)
-            async_to_sync(channel_layer.group_send)(f'user_{user.id}', msg_data)
+            async_to_sync(channel_layer.group_send)(room_name, room_data)
+            # Notify sidebar
+            notify_data = {
+                'type': 'new_message_notify',
+                'message_id': msg.id,
+                'message': msg.content,
+                'sender_id': user.id,
+                'sender_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'sender_pic': user.profile_picture.url if user.profile_picture else None,
+                'timestamp': msg.timestamp.isoformat(),
+                'group_id': None,
+            }
+            async_to_sync(channel_layer.group_send)(f'user_{receiver.id}', notify_data)
         
         return Response({
             'id': msg.id,
@@ -882,24 +912,36 @@ class UserViewSet(viewsets.ModelViewSet):
         from asgiref.sync import async_to_sync
         channel_layer = get_channel_layer()
         
-        msg_data = {
-            'type': 'voice_message',
-            'id': msg.id,
-            'message_id': msg.id,
+        # Broadcast to chat room (real-time)
+        room_name = f'{participants[0]}_{participants[1]}'
+        room_data = {
+            'type': 'chat_message',
             'message': msg.content,
             'message_type': 'voice',
             'file_url': msg.file.url,
             'file_name': msg.file_name,
-            'duration': duration,
-            'sender_id': user.id,
+            'file_size': msg.file_size,
             'username': user.username,
-            'display_name': user.first_name or user.username,
+            'display_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+            'profile_picture': user.profile_picture.url if user.profile_picture else None,
             'timestamp': msg.timestamp.isoformat(),
-            'status': 'sent'
+            'message_id': msg.id,
+            'is_forwarded': False,
+            'receiver': receiver.username,
         }
-        
-        async_to_sync(channel_layer.group_send)(f'user_{receiver.id}', msg_data)
-        async_to_sync(channel_layer.group_send)(f'user_{user.id}', msg_data)
+        async_to_sync(channel_layer.group_send)(room_name, room_data)
+        # Notify sidebar
+        notify_data = {
+            'type': 'new_message_notify',
+            'message_id': msg.id,
+            'message': msg.content,
+            'sender_id': user.id,
+            'sender_name': f"{user.first_name} {user.last_name}".strip() or user.username,
+            'sender_pic': user.profile_picture.url if user.profile_picture else None,
+            'timestamp': msg.timestamp.isoformat(),
+            'group_id': None,
+        }
+        async_to_sync(channel_layer.group_send)(f'user_{receiver.id}', notify_data)
         
         return Response({
             'id': msg.id,
