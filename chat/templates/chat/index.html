@@ -24,7 +24,7 @@
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
     crossorigin="anonymous">
-<link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260422d">
+<link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260422e">
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
 </head>
 
@@ -341,15 +341,26 @@
 
   <!-- FORWARD MESSAGE MODAL -->
   <div class="modal-bg" id="fwd-modal">
-    <div class="modal" style="max-width:400px;">
-      <div class="modal-title"><i class="fa-solid fa-share"></i>Forward Message</div>
-      <div id="fwd-msg-preview"
-        style="background:var(--bg);padding:12px;border-radius:10px;margin-bottom:12px;font-size:13px;color:var(--sub);max-height:80px;overflow:hidden;">
+    <div class="modal fwd-modal-box">
+      <div class="fwd-header">
+        <button class="fwd-close-btn" onclick="closeM('fwd-modal')"><i class="fa-solid fa-xmark"></i></button>
+        <span class="fwd-title">Forward message to</span>
       </div>
-      <input type="text" class="srch" id="fwd-search" placeholder="Search contacts..."
-        oninput="searchForwardList(this.value)" style="margin-bottom:12px;">
-      <div id="fwd-list" style="max-height:300px;overflow-y:auto;"></div>
-      <div class="modal-foot"><button class="mbtn mbtn-cancel" onclick="closeM('fwd-modal')">Cancel</button></div>
+      <div class="fwd-search-wrap">
+        <i class="fa-solid fa-search fwd-search-icon"></i>
+        <input type="text" class="fwd-search-input" id="fwd-search" placeholder="Search name or group..."
+          oninput="searchForwardList(this.value)">
+      </div>
+      <div class="fwd-selected-bar" id="fwd-selected-bar" style="display:none;">
+        <div class="fwd-selected-chips" id="fwd-selected-chips"></div>
+      </div>
+      <div id="fwd-list" class="fwd-list"></div>
+      <div class="fwd-footer" id="fwd-footer" style="display:none;">
+        <div id="fwd-msg-preview" class="fwd-preview-text"></div>
+        <button class="fwd-send-btn" id="fwd-send-btn" onclick="sendForwardToSelected()">
+          <i class="fa-solid fa-paper-plane"></i>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -693,7 +704,7 @@
   <!-- TOASTS -->
   <div id="toasts"></div>
 
-<script src="{% static 'js/chat.js' %}?v=20260422d"></script>
+<script src="{% static 'js/chat.js' %}?v=20260422e"></script>
 
   <!-- Service Worker Registration -->
   <script>

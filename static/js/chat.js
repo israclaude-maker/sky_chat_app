@@ -1135,18 +1135,21 @@ function cancelReply() {
 // Forward message
 var ForwardState = {
   msgId: null,
-  msgText: null
+  msgText: null,
+  selected: [] // [{type:'user',id:1,name:'X',av:'...'}, {type:'group',id:2,name:'G',av:'...'}]
 };
 
 function forwardMsg(msgId, text) {
   ForwardState.msgId = msgId;
   ForwardState.msgText = text;
+  ForwardState.selected = [];
 
   // Show preview
-  $('fwd-msg-preview').textContent = text.length > 100 ? text.substring(0, 100) + '...' : text;
+  $('fwd-msg-preview').textContent = text.length > 80 ? text.substring(0, 80) + '...' : text;
   $('fwd-search').value = '';
+  updateFwdSelectedUI();
 
-  // Load user list
+  // Load list
   loadForwardList();
   openM('fwd-modal');
   document.querySelectorAll('.msg-dropdown.show').forEach(function (d) { d.classList.remove('show'); });
@@ -1178,48 +1181,75 @@ function searchForwardList(q) {
   });
 }
 
+function isFwdSelected(type, id) {
+  return ForwardState.selected.some(function (s) { return s.type === type && s.id === id; });
+}
+
+function toggleFwdSelect(type, id, name, av) {
+  var idx = -1;
+  for (var i = 0; i < ForwardState.selected.length; i++) {
+    if (ForwardState.selected[i].type === type && ForwardState.selected[i].id === id) { idx = i; break; }
+  }
+  if (idx >= 0) {
+    ForwardState.selected.splice(idx, 1);
+  } else {
+    ForwardState.selected.push({ type: type, id: id, name: name, av: av });
+  }
+  updateFwdSelectedUI();
+  // Update row highlight
+  var rows = document.querySelectorAll('.fwd-row');
+  rows.forEach(function (r) {
+    var rt = r.dataset.type;
+    var ri = parseInt(r.dataset.id);
+    if (isFwdSelected(rt, ri)) { r.classList.add('selected'); } else { r.classList.remove('selected'); }
+  });
+}
+
+function updateFwdSelectedUI() {
+  var bar = $('fwd-selected-bar');
+  var chips = $('fwd-selected-chips');
+  var footer = $('fwd-footer');
+  if (ForwardState.selected.length === 0) {
+    bar.style.display = 'none';
+    footer.style.display = 'none';
+  } else {
+    bar.style.display = 'block';
+    footer.style.display = 'flex';
+    chips.innerHTML = ForwardState.selected.map(function (s, i) {
+      return '<span class="fwd-chip"><img src="' + esc(s.av) + '"> ' + esc(s.name) + ' <i class="fa-solid fa-xmark fwd-chip-x" onclick="event.stopPropagation();toggleFwdSelect(\'' + s.type + '\',' + s.id + ',\'' + esc(s.name).replace(/'/g, "\\'") + '\',\'' + esc(s.av).replace(/'/g, "\\'") + '\')"></i></span>';
+    }).join('');
+  }
+}
+
 function renderForwardList(users, groups) {
   var el = $('fwd-list');
   var html = '';
 
-  // Groups section
+  // Mix groups and users in one list — groups first
   if (groups && groups.length) {
-    html += '<div style="padding:6px 12px;font-size:11px;color:var(--sub);font-weight:600;text-transform:uppercase;">Groups</div>';
-    html += groups.map(function (g) {
+    groups.forEach(function (g) {
       var av = g.group_picture || seed(g.name);
       var memberCount = g.members ? g.members.length : 0;
-      return '<div class="user-row" onclick="sendForwardedMsgToGroup(' + g.id + ')">' +
-        '<div class="av-wrap">' +
-          '<img class="av-img av-36" src="' + esc(av) + '">' +
-          '<div style="position:absolute;bottom:0;right:0;background:#3b82f6;color:#fff;width:16px;height:16px;border-radius:50%;font-size:8px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-users"></i></div>' +
-        '</div>' +
-        '<div>' +
-          '<div class="ur-name">' + esc(g.name) + '</div>' +
-          '<div class="ur-sub">' + memberCount + ' members</div>' +
-        '</div>' +
+      var sel = isFwdSelected('group', g.id) ? ' selected' : '';
+      html += '<div class="fwd-row' + sel + '" data-type="group" data-id="' + g.id + '" onclick="toggleFwdSelect(\'group\',' + g.id + ',\'' + esc(g.name).replace(/'/g, "\\'") + '\',\'' + esc(av).replace(/'/g, "\\'") + '\')">' +
+        '<div class="fwd-check"></div>' +
+        '<div class="fwd-av-wrap"><img class="fwd-av" src="' + esc(av) + '"><div class="fwd-group-badge"><i class="fa-solid fa-users"></i></div></div>' +
+        '<div class="fwd-info"><div class="fwd-name">' + esc(g.name) + '</div><div class="fwd-sub">' + memberCount + ' members</div></div>' +
       '</div>';
-    }).join('');
+    });
   }
 
-  // Users section
   if (users && users.length) {
-    if (groups && groups.length) {
-      html += '<div style="padding:6px 12px;font-size:11px;color:var(--sub);font-weight:600;text-transform:uppercase;">Contacts</div>';
-    }
-    html += users.map(function (u) {
+    users.forEach(function (u) {
       var name = dname(u);
       var av = u.profile_picture || seed(u.username || name);
-      return '<div class="user-row" onclick="sendForwardedMsg(' + u.id + ')">' +
-        '<div class="av-wrap">' +
-          '<img class="av-img av-36" src="' + esc(av) + '">' +
-          '<div class="sdot ' + (u.is_online ? 'on' : 'off') + '"></div>' +
-        '</div>' +
-        '<div>' +
-          '<div class="ur-name">' + esc(name) + '</div>' +
-          '<div class="ur-sub">@' + esc(u.username) + '</div>' +
-        '</div>' +
+      var sel = isFwdSelected('user', u.id) ? ' selected' : '';
+      html += '<div class="fwd-row' + sel + '" data-type="user" data-id="' + u.id + '" onclick="toggleFwdSelect(\'user\',' + u.id + ',\'' + esc(name).replace(/'/g, "\\'") + '\',\'' + esc(av).replace(/'/g, "\\'") + '\')">' +
+        '<div class="fwd-check"></div>' +
+        '<div class="fwd-av-wrap"><img class="fwd-av" src="' + esc(av) + '"></div>' +
+        '<div class="fwd-info"><div class="fwd-name">' + esc(name) + '</div><div class="fwd-sub">@' + esc(u.username) + '</div></div>' +
       '</div>';
-    }).join('');
+    });
   }
 
   if (!html) {
@@ -1229,46 +1259,41 @@ function renderForwardList(users, groups) {
   el.innerHTML = html;
 }
 
-function sendForwardedMsg(userId) {
-  if (!ForwardState.msgId) {
-    toast('No message to forward', 'e');
-    return;
-  }
+function sendForwardToSelected() {
+  if (!ForwardState.msgId || ForwardState.selected.length === 0) return;
+  var total = ForwardState.selected.length;
+  var done = 0;
+  var failed = 0;
 
-  api('/messages/forward/', {
-    method: 'POST',
-    body: JSON.stringify({ message_id: ForwardState.msgId, target_user_id: userId })
-  }).then(function (data) {
-    if (data.error) { toast(data.error, 'e'); return; }
-    toast('Message forwarded!', 's');
-    closeM('fwd-modal');
-    ForwardState.msgId = null;
-    ForwardState.msgText = null;
-    loadConvs();
-  }).catch(function () {
-    toast('Failed to forward message', 'e');
+  ForwardState.selected.forEach(function (s) {
+    var body = { message_id: ForwardState.msgId };
+    if (s.type === 'group') body.target_group_id = s.id;
+    else body.target_user_id = s.id;
+
+    api('/messages/forward/', { method: 'POST', body: JSON.stringify(body) })
+      .then(function (data) {
+        if (data.error) failed++;
+        done++;
+        if (done === total) fwdComplete(total, failed);
+      }).catch(function () {
+        failed++; done++;
+        if (done === total) fwdComplete(total, failed);
+      });
   });
 }
 
-function sendForwardedMsgToGroup(groupId) {
-  if (!ForwardState.msgId) {
-    toast('No message to forward', 'e');
-    return;
+function fwdComplete(total, failed) {
+  if (failed === 0) {
+    toast('Forwarded to ' + total + (total > 1 ? ' chats' : ' chat') + '!', 's');
+  } else {
+    toast((total - failed) + ' sent, ' + failed + ' failed', 'e');
   }
-
-  api('/messages/forward/', {
-    method: 'POST',
-    body: JSON.stringify({ message_id: ForwardState.msgId, target_group_id: groupId })
-  }).then(function (data) {
-    if (data.error) { toast(data.error, 'e'); return; }
-    toast('Message forwarded!', 's');
-    closeM('fwd-modal');
-    ForwardState.msgId = null;
-    ForwardState.msgText = null;
-    loadGroups();
-  }).catch(function () {
-    toast('Failed to forward message', 'e');
-  });
+  closeM('fwd-modal');
+  ForwardState.msgId = null;
+  ForwardState.msgText = null;
+  ForwardState.selected = [];
+  loadConvs();
+  loadGroups();
 }
 
 // Copy message
