@@ -3044,3 +3044,11 @@ body {
   animation: recPulse 1s infinite;
 }
 
+.ctrl-btn.rec-active {
+  background: rgba(211, 47, 47, .25) !important;
+}
+.ctrl-btn.rec-active i {
+  color: #ff5252 !important;
+  animation: recPulse 1s infinite;
+}
+

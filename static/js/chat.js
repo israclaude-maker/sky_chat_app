@@ -4764,6 +4764,7 @@ function cancelCall() {
 
 function endCall() {
   stopAllRingtones();
+  if (CallRec.isRecording) stopCallRecord();
 
   // Calculate duration in seconds
   var duration = 0;
@@ -4822,6 +4823,7 @@ function handleCallRejected(data) {
 
 function handleCallEnded(data) {
   stopAllRingtones();
+  if (CallRec.isRecording) stopCallRecord();
   if (window.AndroidBridge) AndroidBridge.cancelCallNotification();
   if (window.DesktopBridge) DesktopBridge.cancelCallNotification();
   hideAllCallOverlays();
@@ -6736,6 +6738,7 @@ function updateGcWaiting() {
 
 function leaveGroupCall() {
   if (!GC.active) return;
+  if (CallRec.isRecording) stopCallRecord();
 
   // Save call info BEFORE cleanup so we can restore the banner
   var savedGroupCallId = GC.groupCallId;
@@ -7685,7 +7688,7 @@ requestNotificationPermission();
 })();
 
 // ═══════════════════════════════════════════════════════════════
-// SCREEN RECORDING
+// SCREEN RECORDING (sidebar button)
 // ═══════════════════════════════════════════════════════════════
 var ScreenRec = {
   isRecording: false,
@@ -7730,23 +7733,7 @@ function startScreenRecord() {
     ScreenRec.mediaRecorder.onstop = function () {
       stream.getTracks().forEach(function (t) { t.stop(); });
       if (ScreenRec.chunks.length > 0) {
-        var blob = new Blob(ScreenRec.chunks, { type: 'video/webm' });
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        var now = new Date();
-        var ts = now.getFullYear() + '' +
-          String(now.getMonth() + 1).padStart(2, '0') +
-          String(now.getDate()).padStart(2, '0') + '_' +
-          String(now.getHours()).padStart(2, '0') +
-          String(now.getMinutes()).padStart(2, '0') +
-          String(now.getSeconds()).padStart(2, '0');
-        a.download = 'SkyChat_Recording_' + ts + '.webm';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
-        toast('Recording saved!', 's');
+        downloadRecording(ScreenRec.chunks, 'SkyChat_Recording');
       }
       ScreenRec.chunks = [];
       ScreenRec.isRecording = false;
@@ -7759,7 +7746,6 @@ function startScreenRecord() {
     updateScreenRecTimer();
     updateScreenRecUI();
 
-    // If user stops sharing from browser native UI
     stream.getVideoTracks()[0].onended = function () {
       if (ScreenRec.isRecording) stopScreenRecord();
     };
@@ -7807,6 +7793,197 @@ function updateScreenRecUI() {
     var el = document.getElementById('screen-rec-timer');
     if (el) el.textContent = '00:00';
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CALL RECORDING (in-call button — captures screen + all audio)
+// ═══════════════════════════════════════════════════════════════
+var CallRec = {
+  isRecording: false,
+  mediaRecorder: null,
+  chunks: [],
+  displayStream: null,
+  mixedStream: null,
+  audioCtx: null,
+  audioDest: null,
+  startTime: null,
+  timerInterval: null
+};
+
+function toggleCallRecord() {
+  if (CallRec.isRecording) {
+    stopCallRecord();
+  } else {
+    startCallRecord();
+  }
+}
+
+function startCallRecord() {
+  if (CallRec.isRecording) return;
+
+  navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).then(function (displayStream) {
+    CallRec.displayStream = displayStream;
+
+    // Create AudioContext to mix all audio sources
+    var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    CallRec.audioCtx = audioCtx;
+    var dest = audioCtx.createMediaStreamDestination();
+    CallRec.audioDest = dest;
+
+    // Add display audio if available (tab/system audio)
+    var displayAudioTracks = displayStream.getAudioTracks();
+    if (displayAudioTracks.length > 0) {
+      var displayAudioStream = new MediaStream(displayAudioTracks);
+      audioCtx.createMediaStreamSource(displayAudioStream).connect(dest);
+    }
+
+    // Add local mic audio
+    var localStream = GC.active ? GC.localStream : CallState.localStream;
+    if (localStream) {
+      var localAudioTracks = localStream.getAudioTracks();
+      if (localAudioTracks.length > 0) {
+        audioCtx.createMediaStreamSource(new MediaStream(localAudioTracks)).connect(dest);
+      }
+    }
+
+    // Add remote audio — group call: all peers; DM call: remoteStream
+    if (GC.active) {
+      Object.keys(GC.peers).forEach(function (pid) {
+        var peer = GC.peers[pid];
+        if (peer.stream) {
+          var remoteTracks = peer.stream.getAudioTracks();
+          if (remoteTracks.length > 0) {
+            audioCtx.createMediaStreamSource(new MediaStream(remoteTracks)).connect(dest);
+          }
+        }
+      });
+    } else if (CallState.remoteStream) {
+      var remoteTracks = CallState.remoteStream.getAudioTracks();
+      if (remoteTracks.length > 0) {
+        audioCtx.createMediaStreamSource(new MediaStream(remoteTracks)).connect(dest);
+      }
+    }
+
+    // Combine display video + mixed audio into one stream
+    var videoTrack = displayStream.getVideoTracks()[0];
+    var mixedAudioTrack = dest.stream.getAudioTracks()[0];
+    var tracks = [videoTrack];
+    if (mixedAudioTrack) tracks.push(mixedAudioTrack);
+    CallRec.mixedStream = new MediaStream(tracks);
+
+    var options = { mimeType: 'video/webm;codecs=vp9,opus' };
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+      options = { mimeType: 'video/webm;codecs=vp8,opus' };
+    }
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+      options = { mimeType: 'video/webm' };
+    }
+
+    CallRec.mediaRecorder = new MediaRecorder(CallRec.mixedStream, options);
+    CallRec.chunks = [];
+
+    CallRec.mediaRecorder.ondataavailable = function (e) {
+      if (e.data && e.data.size > 0) CallRec.chunks.push(e.data);
+    };
+
+    CallRec.mediaRecorder.onstop = function () {
+      if (CallRec.displayStream) {
+        CallRec.displayStream.getTracks().forEach(function (t) { t.stop(); });
+      }
+      if (CallRec.audioCtx) {
+        CallRec.audioCtx.close().catch(function () {});
+      }
+      if (CallRec.chunks.length > 0) {
+        var label = GC.active ? 'SkyChat_GroupCall' : 'SkyChat_Call';
+        downloadRecording(CallRec.chunks, label);
+      }
+      CallRec.chunks = [];
+      CallRec.isRecording = false;
+      CallRec.displayStream = null;
+      CallRec.mixedStream = null;
+      CallRec.audioCtx = null;
+      CallRec.audioDest = null;
+      updateCallRecUI();
+    };
+
+    CallRec.mediaRecorder.start(1000);
+    CallRec.isRecording = true;
+    CallRec.startTime = Date.now();
+    CallRec.timerInterval = setInterval(updateCallRecTimer, 1000);
+    updateCallRecTimer();
+    updateCallRecUI();
+
+    videoTrack.onended = function () {
+      if (CallRec.isRecording) stopCallRecord();
+    };
+
+    toast('Call recording started', 's');
+  }).catch(function (err) {
+    if (err.name !== 'NotAllowedError') {
+      toast('Could not start call recording', 'e');
+      console.error(err);
+    }
+  });
+}
+
+function stopCallRecord() {
+  if (!CallRec.isRecording || !CallRec.mediaRecorder) return;
+  CallRec.mediaRecorder.stop();
+  CallRec.isRecording = false;
+  clearInterval(CallRec.timerInterval);
+  updateCallRecUI();
+}
+
+function updateCallRecTimer() {
+  var el = document.getElementById('screen-rec-timer');
+  if (!el || !CallRec.startTime) return;
+  var sec = Math.floor((Date.now() - CallRec.startTime) / 1000);
+  var h = Math.floor(sec / 3600);
+  var m = Math.floor((sec % 3600) / 60);
+  var s = sec % 60;
+  if (h > 0) {
+    el.textContent = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  } else {
+    el.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+}
+
+function updateCallRecUI() {
+  var bar = document.getElementById('screen-rec-bar');
+  var btn1 = document.getElementById('call-rec-btn');
+  var btn2 = document.getElementById('gc-rec-btn');
+  if (CallRec.isRecording) {
+    if (bar) bar.classList.remove('hidden');
+    if (btn1) btn1.classList.add('rec-active');
+    if (btn2) btn2.classList.add('rec-active');
+  } else {
+    if (bar) bar.classList.add('hidden');
+    if (btn1) btn1.classList.remove('rec-active');
+    if (btn2) btn2.classList.remove('rec-active');
+    var el = document.getElementById('screen-rec-timer');
+    if (el) el.textContent = '00:00';
+  }
+}
+
+// Shared download helper
+function downloadRecording(chunks, prefix) {
+  var blob = new Blob(chunks, { type: 'video/webm' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  var now = new Date();
+  var ts = now.getFullYear() + '' +
+    String(now.getMonth() + 1).padStart(2, '0') +
+    String(now.getDate()).padStart(2, '0') + '_' +
+    String(now.getHours()).padStart(2, '0') +
+    String(now.getMinutes()).padStart(2, '0') +
+    String(now.getSeconds()).padStart(2, '0');
+  a.download = prefix + '_' + ts + '.webm';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+  toast('Recording saved!', 's');
 }
 
 init();
