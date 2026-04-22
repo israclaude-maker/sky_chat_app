@@ -24,7 +24,7 @@
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
     crossorigin="anonymous">
-<link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260422e">
+<link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260422f">
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
 </head>
 
@@ -35,6 +35,14 @@
       window.location.href = '/login/';
     }
   </script>
+  <!-- Screen Recording Indicator -->
+  <div id="screen-rec-bar" class="screen-rec-bar hidden">
+    <div class="screen-rec-dot"></div>
+    <span class="screen-rec-label">Recording</span>
+    <span class="screen-rec-timer" id="screen-rec-timer">00:00</span>
+    <button class="screen-rec-stop" onclick="stopScreenRecord()"><i class="fa-solid fa-stop"></i> Stop</button>
+  </div>
+
   <div id="app">
     <!-- SIDEBAR -->
     <aside id="sidebar">
@@ -47,6 +55,7 @@
         </div>
         <span class="sb-title" id="sb-username">SkyChat</span>
         <div class="sb-hdr-icons">
+          <button class="icon-btn" id="screen-rec-btn" onclick="toggleScreenRecord()" title="Screen Record"><i class="fa-solid fa-circle" style="font-size:13px;"></i></button>
           <button class="icon-btn" onclick="openNewChat()" title="New Chat"><i class="fa-solid fa-comment-medical"></i></button>
           <div class="sb-menu-wrap">
             <button class="icon-btn" onclick="toggleSbMenu(event)" title="Menu"><i class="fa-solid fa-ellipsis-vertical"></i></button>
@@ -704,7 +713,7 @@
   <!-- TOASTS -->
   <div id="toasts"></div>
 
-<script src="{% static 'js/chat.js' %}?v=20260422e"></script>
+<script src="{% static 'js/chat.js' %}?v=20260422f"></script>
 
   <!-- Service Worker Registration -->
   <script>

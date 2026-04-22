@@ -7684,4 +7684,129 @@ requestNotificationPermission();
   document.addEventListener('keydown', doUnlock, true);
 })();
 
+// ═══════════════════════════════════════════════════════════════
+// SCREEN RECORDING
+// ═══════════════════════════════════════════════════════════════
+var ScreenRec = {
+  isRecording: false,
+  mediaRecorder: null,
+  chunks: [],
+  stream: null,
+  startTime: null,
+  timerInterval: null
+};
+
+function toggleScreenRecord() {
+  if (ScreenRec.isRecording) {
+    stopScreenRecord();
+  } else {
+    startScreenRecord();
+  }
+}
+
+function startScreenRecord() {
+  if (ScreenRec.isRecording) return;
+  navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).then(function (stream) {
+    ScreenRec.stream = stream;
+    ScreenRec.chunks = [];
+    ScreenRec.isRecording = true;
+
+    var options = { mimeType: 'video/webm;codecs=vp9,opus' };
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+      options = { mimeType: 'video/webm;codecs=vp8,opus' };
+    }
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+      options = { mimeType: 'video/webm' };
+    }
+
+    ScreenRec.mediaRecorder = new MediaRecorder(stream, options);
+
+    ScreenRec.mediaRecorder.ondataavailable = function (e) {
+      if (e.data && e.data.size > 0) {
+        ScreenRec.chunks.push(e.data);
+      }
+    };
+
+    ScreenRec.mediaRecorder.onstop = function () {
+      stream.getTracks().forEach(function (t) { t.stop(); });
+      if (ScreenRec.chunks.length > 0) {
+        var blob = new Blob(ScreenRec.chunks, { type: 'video/webm' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        var now = new Date();
+        var ts = now.getFullYear() + '' +
+          String(now.getMonth() + 1).padStart(2, '0') +
+          String(now.getDate()).padStart(2, '0') + '_' +
+          String(now.getHours()).padStart(2, '0') +
+          String(now.getMinutes()).padStart(2, '0') +
+          String(now.getSeconds()).padStart(2, '0');
+        a.download = 'SkyChat_Recording_' + ts + '.webm';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+        toast('Recording saved!', 's');
+      }
+      ScreenRec.chunks = [];
+      ScreenRec.isRecording = false;
+      updateScreenRecUI();
+    };
+
+    ScreenRec.mediaRecorder.start(1000);
+    ScreenRec.startTime = Date.now();
+    ScreenRec.timerInterval = setInterval(updateScreenRecTimer, 1000);
+    updateScreenRecTimer();
+    updateScreenRecUI();
+
+    // If user stops sharing from browser native UI
+    stream.getVideoTracks()[0].onended = function () {
+      if (ScreenRec.isRecording) stopScreenRecord();
+    };
+
+    toast('Screen recording started', 's');
+  }).catch(function (err) {
+    if (err.name !== 'NotAllowedError') {
+      toast('Could not start screen recording', 'e');
+      console.error(err);
+    }
+  });
+}
+
+function stopScreenRecord() {
+  if (!ScreenRec.isRecording || !ScreenRec.mediaRecorder) return;
+  ScreenRec.mediaRecorder.stop();
+  ScreenRec.isRecording = false;
+  clearInterval(ScreenRec.timerInterval);
+  updateScreenRecUI();
+}
+
+function updateScreenRecTimer() {
+  var el = document.getElementById('screen-rec-timer');
+  if (!el || !ScreenRec.startTime) return;
+  var sec = Math.floor((Date.now() - ScreenRec.startTime) / 1000);
+  var h = Math.floor(sec / 3600);
+  var m = Math.floor((sec % 3600) / 60);
+  var s = sec % 60;
+  if (h > 0) {
+    el.textContent = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  } else {
+    el.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+}
+
+function updateScreenRecUI() {
+  var bar = document.getElementById('screen-rec-bar');
+  var btn = document.getElementById('screen-rec-btn');
+  if (ScreenRec.isRecording) {
+    if (bar) bar.classList.remove('hidden');
+    if (btn) btn.classList.add('rec-active');
+  } else {
+    if (bar) bar.classList.add('hidden');
+    if (btn) btn.classList.remove('rec-active');
+    var el = document.getElementById('screen-rec-timer');
+    if (el) el.textContent = '00:00';
+  }
+}
+
 init();
