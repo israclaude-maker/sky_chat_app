@@ -6195,14 +6195,18 @@ function handleGroupCallUserLeft(data) {
     GC.peers[uid].pc.close();
     delete GC.peers[uid];
   }
+  delete GC.screenSharers[uid];
   // Remove thumbnail
   var thumb = document.getElementById('gc-thumb-' + uid);
   if (thumb) thumb.remove();
+  // Remove screen thumbnail
+  var sThumb = document.getElementById('gc-thumb-' + uid + '_screen');
+  if (sThumb) sThumb.remove();
   // Remove legacy tile
   var el = document.getElementById('gc-peer-' + uid);
   if (el) el.remove();
   // If focused user left, switch to local
-  if (gcFocusedId == uid) {
+  if (gcFocusedId == uid || gcFocusedId == uid + '_screen') {
     focusGcParticipant('local');
   }
   updateGroupCallParticipantCount();
@@ -6250,6 +6254,13 @@ function createGroupPeerConnection(peerId) {
     });
     boostVideoBitrate(pc);
   }
+  // If we are screen sharing, also add screen track as separate stream
+  if (GC.isScreenSharing && GC.screenStream) {
+    GC.screenStream.getTracks().forEach(function (track) {
+      pc.addTrack(track, GC.screenStream);
+    });
+    GC.screenSenders = GC.screenSenders || {};
+  }
 
   pc.onicecandidate = function (event) {
     if (event.candidate && S.globalWs && S.globalWs.readyState === 1) {
@@ -6263,7 +6274,26 @@ function createGroupPeerConnection(peerId) {
   };
 
   pc.ontrack = function (event) {
-    peer.stream = event.streams[0] || peer.stream;
+    var incomingStream = event.streams[0];
+    // If this is a second stream (screen share), store separately
+    if (peer.stream && incomingStream && incomingStream.id !== peer.stream.id) {
+      peer.screenStream = incomingStream;
+      console.log('[GC] ontrack: got SCREEN stream for peer', peerId);
+      // Auto-mark as screen sharer
+      GC.screenSharers[peerId] = true;
+      buildGcScreenThumb(peerId, peer);
+      focusGcParticipant(peerId + '_screen');
+      peer.screenStream.onremovetrack = function () {
+        peer.screenStream = null;
+        delete GC.screenSharers[peerId];
+        var sThumb = document.getElementById('gc-thumb-' + peerId + '_screen');
+        if (sThumb) sThumb.remove();
+        if (gcFocusedId === peerId + '_screen') focusGcParticipant(peerId);
+        buildGcThumb(peerId, peer);
+      };
+      return;
+    }
+    peer.stream = incomingStream || peer.stream;
     renderGroupCallPeer(peerId, peer);
     // Listen for future tracks added to this stream (e.g. camera turned on later)
     if (peer.stream && !peer.stream._trackListenerAdded) {
@@ -6325,15 +6355,10 @@ function buildGcThumb(id, peer) {
   thumb.id = 'gc-thumb-' + id;
   thumb.onclick = function() { focusGcParticipant(id); };
 
-  var isScreenSharer = GC.screenSharers[id];
   var videoTracks = peer.stream ? peer.stream.getVideoTracks() : [];
 
-  // If screen sharing, their video track IS the screen (replaceTrack).
-  // So always show avatar for screen sharers. For normal users show camera.
-  var showCamera = false;
-  if (!isScreenSharer && videoTracks.length > 0) {
-    showCamera = videoTracks.some(function(t) { return t.enabled; });
-  }
+  // Always show camera if available (screen is in separate thumb now)
+  var showCamera = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
 
   if (showCamera && peer.stream) {
     var vid = document.createElement('video');
@@ -6346,14 +6371,6 @@ function buildGcThumb(id, peer) {
     av.className = 'gc-thumb-av';
     av.src = peer.pic || seed(peer.name || 'User');
     thumb.appendChild(av);
-  }
-
-  // Screen share badge
-  if (isScreenSharer) {
-    var badge = document.createElement('div');
-    badge.className = 'gc-thumb-screen-badge';
-    badge.innerHTML = '<i class="fa-solid fa-display"></i>';
-    thumb.appendChild(badge);
   }
 
   // Audio (always)
@@ -6398,18 +6415,10 @@ function buildLocalThumb() {
 
   var hasVideo = false;
 
-  if (GC.isScreenSharing && GC.originalVideoTrack && GC.originalVideoTrack.enabled) {
-    var camStream = new MediaStream([GC.originalVideoTrack]);
-    var vid = document.createElement('video');
-    vid.autoplay = true; vid.playsInline = true; vid.muted = true;
-    vid.srcObject = camStream;
-    vid.style.transform = 'scaleX(-1)';
-    thumb.appendChild(vid);
-    hasVideo = true;
-  } else if (!GC.isScreenSharing && GC.localStream) {
+  // Always show camera in local thumb (screen is separate)
+  if (GC.localStream) {
     var videoTracks = GC.localStream.getVideoTracks();
     hasVideo = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
-    console.log('[GC] buildLocalThumb: videoTracks=' + videoTracks.length + ', hasVideo=' + hasVideo);
     if (hasVideo) {
       var vid = document.createElement('video');
       vid.autoplay = true; vid.playsInline = true; vid.muted = true;
@@ -6417,8 +6426,6 @@ function buildLocalThumb() {
       vid.style.transform = 'scaleX(-1)';
       thumb.appendChild(vid);
     }
-  } else {
-    console.log('[GC] buildLocalThumb: no stream, isScreenSharing=' + GC.isScreenSharing);
   }
 
   if (!hasVideo) {
@@ -6426,13 +6433,6 @@ function buildLocalThumb() {
     av.className = 'gc-thumb-av';
     av.src = S.user && S.user.profile_picture ? S.user.profile_picture : seed(S.user ? (S.user.first_name || S.user.username) : 'You');
     thumb.appendChild(av);
-  }
-
-  if (GC.isScreenSharing) {
-    var badge = document.createElement('div');
-    badge.className = 'gc-thumb-screen-badge';
-    badge.innerHTML = '<i class="fa-solid fa-display"></i>';
-    thumb.appendChild(badge);
   }
 
   var label = document.createElement('div');
@@ -6443,44 +6443,133 @@ function buildLocalThumb() {
   strip.insertBefore(thumb, strip.firstChild);
 }
 
+// Build a separate screen share thumbnail for a remote peer
+function buildGcScreenThumb(id, peer) {
+  var strip = $('gc-thumb-strip');
+  if (!strip) return;
+  var thumbId = id + '_screen';
+  var old = document.getElementById('gc-thumb-' + thumbId);
+  if (old) old.remove();
+
+  var thumb = document.createElement('div');
+  thumb.className = 'gc-thumb gc-screen-thumb' + (gcFocusedId === thumbId ? ' active' : '');
+  thumb.id = 'gc-thumb-' + thumbId;
+  thumb.onclick = function() { focusGcParticipant(thumbId); };
+
+  // Show screen stream preview
+  var screenStream = peer.screenStream || peer.stream;
+  if (screenStream) {
+    var vid = document.createElement('video');
+    vid.autoplay = true; vid.playsInline = true; vid.muted = true;
+    vid.srcObject = screenStream;
+    thumb.appendChild(vid);
+  }
+
+  // Screen badge
+  var badge = document.createElement('div');
+  badge.className = 'gc-thumb-screen-badge';
+  badge.innerHTML = '<i class="fa-solid fa-display"></i>';
+  thumb.appendChild(badge);
+
+  var label = document.createElement('div');
+  label.className = 'gc-thumb-name';
+  label.textContent = (peer.name || 'User') + ' — Screen';
+  thumb.appendChild(label);
+
+  // Insert after the user's camera thumb
+  var camThumb = document.getElementById('gc-thumb-' + id);
+  if (camThumb && camThumb.nextSibling) {
+    strip.insertBefore(thumb, camThumb.nextSibling);
+  } else {
+    strip.appendChild(thumb);
+  }
+}
+
+// Build a separate screen share thumbnail for local user
+function buildLocalScreenThumb() {
+  var strip = $('gc-thumb-strip');
+  if (!strip) return;
+  var old = document.getElementById('gc-thumb-local_screen');
+  if (old) old.remove();
+
+  if (!GC.isScreenSharing || !GC.screenStream) return;
+
+  var thumb = document.createElement('div');
+  thumb.className = 'gc-thumb gc-screen-thumb' + (gcFocusedId === 'local_screen' ? ' active' : '');
+  thumb.id = 'gc-thumb-local_screen';
+  thumb.onclick = function() { focusGcParticipant('local_screen'); };
+
+  var vid = document.createElement('video');
+  vid.autoplay = true; vid.playsInline = true; vid.muted = true;
+  vid.srcObject = GC.screenStream;
+  thumb.appendChild(vid);
+
+  var badge = document.createElement('div');
+  badge.className = 'gc-thumb-screen-badge';
+  badge.innerHTML = '<i class="fa-solid fa-display"></i>';
+  thumb.appendChild(badge);
+
+  var label = document.createElement('div');
+  label.className = 'gc-thumb-name';
+  label.textContent = 'You — Screen';
+  thumb.appendChild(label);
+
+  // Insert right after local camera thumb
+  var localThumb = document.getElementById('gc-thumb-local');
+  if (localThumb && localThumb.nextSibling) {
+    strip.insertBefore(thumb, localThumb.nextSibling);
+  } else {
+    strip.appendChild(thumb);
+  }
+}
+
 function focusGcParticipant(id) {
   gcFocusedId = id;
   // Update active state on all thumbs
   var thumbs = document.querySelectorAll('.gc-thumb');
   for (var i = 0; i < thumbs.length; i++) thumbs[i].classList.remove('active');
-  var active = document.getElementById(id === 'local' ? 'gc-thumb-local' : 'gc-thumb-' + id);
+  var thumbId = (id === 'local' || id === 'local_screen') ? 'gc-thumb-' + id : 'gc-thumb-' + id;
+  var active = document.getElementById(thumbId);
   if (active) active.classList.add('active');
   // Update main view
-  if (id === 'local') {
-    updateGcMainView('local', { stream: GC.localStream, name: 'You', pic: S.user && S.user.profile_picture ? S.user.profile_picture : null });
+  var isScreenView = id.toString().indexOf('_screen') !== -1;
+  var realId = isScreenView ? id.replace('_screen', '') : id;
+
+  if (realId === 'local') {
+    var localPeer = { stream: GC.localStream, screenStream: GC.screenStream, name: 'You', pic: S.user && S.user.profile_picture ? S.user.profile_picture : null };
+    updateGcMainView(id, localPeer, isScreenView);
   } else {
-    var peer = GC.peers[id];
-    if (peer) updateGcMainView(id, peer);
+    var peer = GC.peers[realId];
+    if (peer) updateGcMainView(id, peer, isScreenView);
   }
 }
 
-function updateGcMainView(id, peer) {
+function updateGcMainView(id, peer, showScreen) {
   var mainView = $('gc-main-view');
   if (!mainView) return;
   mainView.innerHTML = '';
   mainView.classList.remove('screen-share');
   mainView.onclick = null;
 
-  var videoTracks = peer.stream ? peer.stream.getVideoTracks() : [];
-  var isScreenSharer = (id === 'local') ? GC.isScreenSharing : GC.screenSharers[id];
+  var realId = id.toString().replace('_screen', '');
+  var isLocal = realId === 'local';
 
-  if (isScreenSharer) {
+  if (showScreen) {
+    // Show screen share content
     var screenStream = null;
-    if (id === 'local' && GC.screenStream) {
+    if (isLocal && GC.screenStream) {
       screenStream = GC.screenStream;
+    } else if (peer.screenStream) {
+      screenStream = peer.screenStream;
     } else if (peer.stream) {
+      // Fallback: if screen stream not separate, use main stream
       screenStream = peer.stream;
     }
     if (screenStream) {
       var vid = document.createElement('video');
       vid.autoplay = true; vid.playsInline = true;
       vid.srcObject = screenStream;
-      if (id === 'local') vid.muted = true;
+      if (isLocal) vid.muted = true;
       mainView.appendChild(vid);
       mainView.classList.add('screen-share');
       var hint = document.createElement('div');
@@ -6489,13 +6578,19 @@ function updateGcMainView(id, peer) {
       mainView.appendChild(hint);
       mainView.onclick = function() { gcOpenScreenZoom(screenStream); };
     }
+    var nameEl = document.createElement('div');
+    nameEl.className = 'gc-main-name';
+    nameEl.innerHTML = '<i class="fa-solid fa-display"></i> ' + esc(peer.name || 'User') + ' \u2014 Screen';
+    mainView.appendChild(nameEl);
   } else {
+    // Show camera/avatar
+    var videoTracks = peer.stream ? peer.stream.getVideoTracks() : [];
     var hasActiveVideo = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
     if (hasActiveVideo && peer.stream) {
       var vid = document.createElement('video');
       vid.autoplay = true; vid.playsInline = true;
       vid.srcObject = peer.stream;
-      if (id === 'local') { vid.muted = true; vid.style.transform = 'scaleX(-1)'; }
+      if (isLocal) { vid.muted = true; vid.style.transform = 'scaleX(-1)'; }
       mainView.appendChild(vid);
     } else {
       var av = document.createElement('img');
@@ -6503,16 +6598,11 @@ function updateGcMainView(id, peer) {
       av.src = peer.pic || seed(peer.name || 'User');
       mainView.appendChild(av);
     }
-  }
-
-  var nameEl = document.createElement('div');
-  nameEl.className = 'gc-main-name';
-  if (isScreenSharer) {
-    nameEl.innerHTML = '<i class="fa-solid fa-display"></i> ' + (peer.name || 'User') + ' \u2014 Screen';
-  } else {
+    var nameEl = document.createElement('div');
+    nameEl.className = 'gc-main-name';
     nameEl.textContent = peer.name || 'User';
+    mainView.appendChild(nameEl);
   }
-  mainView.appendChild(nameEl);
 }
 
 function showGroupCallUI() {
@@ -6628,6 +6718,8 @@ function cleanupGroupCall() {
     if (el) el.remove();
     var thumb = document.getElementById('gc-thumb-' + pid);
     if (thumb) thumb.remove();
+    var sThumb = document.getElementById('gc-thumb-' + pid + '_screen');
+    if (sThumb) sThumb.remove();
   });
   GC.peers = {};
   if (GC.localStream) {
@@ -6732,55 +6824,38 @@ function gcStartScreenShare() {
     GC.screenStream = screenStream;
     GC.isScreenSharing = true;
     var screenTrack = screenStream.getVideoTracks()[0];
-    GC.screenSenders = {}; // Track senders per peer for voice call cleanup
-    var needsRenegotiation = false;
+    GC.screenSenders = {};
 
+    // Always add screen as a SEPARATE stream (don't replace camera)
     Object.keys(GC.peers).forEach(function (pid) {
       var pc = GC.peers[pid].pc;
-      var senders = pc.getSenders();
-      var videoSender = null;
-      for (var i = 0; i < senders.length; i++) {
-        if (senders[i].track && senders[i].track.kind === 'video') {
-          videoSender = senders[i];
-          break;
-        }
-      }
-      if (videoSender) {
-        // Video call — just replace the track
-        if (!GC.originalVideoTrack) GC.originalVideoTrack = videoSender.track;
-        videoSender.replaceTrack(screenTrack);
-      } else {
-        // Voice call — no video sender, add track and renegotiate
-        GC.screenSenders[pid] = pc.addTrack(screenTrack, screenStream);
-        needsRenegotiation = true;
-      }
+      GC.screenSenders[pid] = pc.addTrack(screenTrack, screenStream);
     });
 
-    // Renegotiate with all peers if we added new tracks (voice call)
-    if (needsRenegotiation) {
-      Object.keys(GC.peers).forEach(function (pid) {
-        var pc = GC.peers[pid].pc;
-        pc.createOffer().then(function (offer) {
-          return pc.setLocalDescription(offer);
-        }).then(function () {
-          if (S.globalWs && S.globalWs.readyState === 1) {
-            S.globalWs.send(JSON.stringify({
-              type: 'group_call_offer',
-              group_call_id: GC.groupCallId,
-              target_user_id: pid,
-              sdp: pc.localDescription,
-            }));
-          }
-        }).catch(function (err) { console.error('GC screen share renegotiation error:', err); });
-      });
-    }
+    // Renegotiate with all peers
+    Object.keys(GC.peers).forEach(function (pid) {
+      var pc = GC.peers[pid].pc;
+      pc.createOffer().then(function (offer) {
+        return pc.setLocalDescription(offer);
+      }).then(function () {
+        if (S.globalWs && S.globalWs.readyState === 1) {
+          S.globalWs.send(JSON.stringify({
+            type: 'group_call_offer',
+            group_call_id: GC.groupCallId,
+            target_user_id: pid,
+            sdp: pc.localDescription,
+          }));
+        }
+      }).catch(function (err) { console.error('GC screen share renegotiation error:', err); });
+    });
 
     // Notify all peers about screen share
     gcSendScreenToggle(true);
 
-    // Update local thumb and focus
+    // Build separate screen thumbnail for local user
     buildLocalThumb();
-    focusGcParticipant('local');
+    buildLocalScreenThumb();
+    focusGcParticipant('local_screen');
 
     // Update button
     var btn = $('gc-screen-btn');
@@ -6800,58 +6875,44 @@ function gcStopScreenShare() {
     GC.screenStream = null;
   }
 
-  var needsRenegotiation = false;
-
-  if (GC.originalVideoTrack) {
-    // Video call — restore camera track
-    Object.keys(GC.peers).forEach(function (pid) {
-      var pc = GC.peers[pid].pc;
-      var senders = pc.getSenders();
-      for (var i = 0; i < senders.length; i++) {
-        if (senders[i].track && senders[i].track.kind === 'video') {
-          senders[i].replaceTrack(GC.originalVideoTrack);
-          break;
-        }
-      }
-    });
-  } else if (GC.screenSenders) {
-    // Voice call — remove screen senders and renegotiate
+  // Remove screen senders from all peers and renegotiate
+  if (GC.screenSenders) {
     Object.keys(GC.screenSenders).forEach(function (pid) {
       var pc = GC.peers[pid] && GC.peers[pid].pc;
       if (pc && GC.screenSenders[pid]) {
         try { pc.removeTrack(GC.screenSenders[pid]); } catch (e) {}
-        needsRenegotiation = true;
       }
     });
     GC.screenSenders = null;
   }
 
-  // Renegotiate with all peers if we removed tracks (voice call)
-  if (needsRenegotiation) {
-    Object.keys(GC.peers).forEach(function (pid) {
-      var pc = GC.peers[pid].pc;
-      pc.createOffer().then(function (offer) {
-        return pc.setLocalDescription(offer);
-      }).then(function () {
-        if (S.globalWs && S.globalWs.readyState === 1) {
-          S.globalWs.send(JSON.stringify({
-            type: 'group_call_offer',
-            group_call_id: GC.groupCallId,
-            target_user_id: pid,
-            sdp: pc.localDescription,
-          }));
-        }
-      }).catch(function (err) { console.error('GC screen stop renegotiation error:', err); });
-    });
-  }
+  // Renegotiate with all peers
+  Object.keys(GC.peers).forEach(function (pid) {
+    var pc = GC.peers[pid].pc;
+    pc.createOffer().then(function (offer) {
+      return pc.setLocalDescription(offer);
+    }).then(function () {
+      if (S.globalWs && S.globalWs.readyState === 1) {
+        S.globalWs.send(JSON.stringify({
+          type: 'group_call_offer',
+          group_call_id: GC.groupCallId,
+          target_user_id: pid,
+          sdp: pc.localDescription,
+        }));
+      }
+    }).catch(function (err) { console.error('GC screen stop renegotiation error:', err); });
+  });
 
   // Notify all peers screen share stopped
   gcSendScreenToggle(false);
 
   GC.originalVideoTrack = null;
-  // Rebuild local thumb and view
+  // Remove local screen thumb
+  var localScreenThumb = document.getElementById('gc-thumb-local_screen');
+  if (localScreenThumb) localScreenThumb.remove();
+  // Rebuild local camera thumb
   buildLocalThumb();
-  if (gcFocusedId === 'local') focusGcParticipant('local');
+  if (gcFocusedId === 'local_screen') focusGcParticipant('local');
   var btn = $('gc-screen-btn');
   if (btn) { btn.classList.remove('screen-active'); btn.innerHTML = '<i class="fa-solid fa-display"></i>'; }
 }
@@ -6876,16 +6937,23 @@ function handleGcScreenToggle(data) {
   if (sharing) {
     GC.screenSharers[fromId] = true;
     if (peer) {
-      // Auto-focus screen sharer in main view
-      focusGcParticipant(fromId);
-      // Rebuild their thumb (will show camera/avatar, not screen)
+      // Rebuild camera thumb (removes screen badge, keeps camera)
       buildGcThumb(fromId, peer);
+      // Build separate screen thumb
+      buildGcScreenThumb(fromId, peer);
+      // Auto-focus screen in main view
+      focusGcParticipant(fromId + '_screen');
     }
   } else {
     delete GC.screenSharers[fromId];
     if (peer) {
+      peer.screenStream = null;
+      // Remove screen thumb
+      var sThumb = document.getElementById('gc-thumb-' + fromId + '_screen');
+      if (sThumb) sThumb.remove();
+      // Rebuild camera thumb
       buildGcThumb(fromId, peer);
-      if (gcFocusedId == fromId) focusGcParticipant(fromId);
+      if (gcFocusedId == fromId + '_screen') focusGcParticipant(fromId);
     }
   }
 }

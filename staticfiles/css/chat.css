@@ -2644,6 +2644,7 @@ body {
   position: relative; cursor: pointer; flex-shrink: 0;
   background: #16213e; display: flex; align-items: center; justify-content: center;
   border: 2px solid transparent; transition: border-color 0.2s, transform 0.2s;
+  min-height: 80px;
 }
 .gc-thumb:hover { border-color: rgba(255,255,255,0.4); transform: scale(1.03); }
 .gc-thumb.active { border-color: #3b82f6; }
@@ -2667,6 +2668,15 @@ body {
   box-shadow: 0 1px 4px rgba(0,0,0,.4);
 }
 .gc-local-thumb { border-color: rgba(59,130,246,0.5); }
+
+/* Screen share thumb — distinct green border */
+.gc-screen-thumb {
+  border-color: rgba(37,211,102,0.5);
+  background: #0d1b2a;
+}
+.gc-screen-thumb:hover { border-color: #25d366; }
+.gc-screen-thumb.active { border-color: #25d366; box-shadow: 0 0 8px rgba(37,211,102,0.3); }
+.gc-screen-thumb video { object-fit: contain; background: #000; }
 
 /* Legacy classes - hidden */
 .gc-peer-tile { display: none; }
