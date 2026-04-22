@@ -541,6 +541,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'display_name': event.get('display_name', event['username']),
             'timestamp': event['timestamp'],
             'status': event.get('status', 'sent'),
+            'is_forwarded': event.get('is_forwarded', False),
         }))
 
     async def file_message(self, event):
@@ -558,6 +559,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'display_name': event.get('display_name', event['username']),
             'timestamp': event['timestamp'],
             'status': event.get('status', 'sent'),
+            'is_forwarded': event.get('is_forwarded', False),
         }))
 
     async def group_read_receipt(self, event):

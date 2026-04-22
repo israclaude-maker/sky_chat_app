@@ -1230,76 +1230,43 @@ function renderForwardList(users, groups) {
 }
 
 function sendForwardedMsg(userId) {
-  if (!ForwardState.msgText) {
+  if (!ForwardState.msgId) {
     toast('No message to forward', 'e');
     return;
   }
 
-  // Start conversation and send
-  api('/start_conversation/', {
+  api('/messages/forward/', {
     method: 'POST',
-    body: JSON.stringify({ user_id: userId })
-  }).then(function (conv) {
-    // Send the forwarded message
-    var roomName = [S.user.id, userId].sort().join('_');
-    var tempWs = new WebSocket(WS_URL + roomName + '/?token=' + S.token);
-
-    tempWs.onopen = function () {
-      tempWs.send(JSON.stringify({
-        type: 'chat.message',
-        message: ForwardState.msgText,
-        receiver: conv.user.username,
-        is_forwarded: true
-      }));
-
-      setTimeout(function () {
-        tempWs.close();
-        toast('Message forwarded!', 's');
-        closeM('fwd-modal');
-        ForwardState.msgId = null;
-        ForwardState.msgText = null;
-        loadConvs();
-      }, 500);
-    };
-
-    tempWs.onerror = function () {
-      toast('Failed to forward message', 'e');
-    };
+    body: JSON.stringify({ message_id: ForwardState.msgId, target_user_id: userId })
+  }).then(function () {
+    toast('Message forwarded!', 's');
+    closeM('fwd-modal');
+    ForwardState.msgId = null;
+    ForwardState.msgText = null;
+    loadConvs();
   }).catch(function () {
     toast('Failed to forward message', 'e');
   });
 }
 
 function sendForwardedMsgToGroup(groupId) {
-  if (!ForwardState.msgText) {
+  if (!ForwardState.msgId) {
     toast('No message to forward', 'e');
     return;
   }
 
-  var roomName = 'group_' + groupId;
-  var tempWs = new WebSocket(WS_URL + roomName + '/?token=' + S.token);
-
-  tempWs.onopen = function () {
-    tempWs.send(JSON.stringify({
-      type: 'chat.message',
-      message: ForwardState.msgText,
-      group_id: groupId,
-      is_forwarded: true
-    }));
-
-    setTimeout(function () {
-      tempWs.close();
-      toast('Message forwarded!', 's');
-      closeM('fwd-modal');
-      ForwardState.msgId = null;
-      ForwardState.msgText = null;
-      loadGroups();
-    }, 500);
-  };
-
-  tempWs.onerror = function () {
+  api('/messages/forward/', {
+    method: 'POST',
+    body: JSON.stringify({ message_id: ForwardState.msgId, target_group_id: groupId })
+  }).then(function () {
+    toast('Message forwarded!', 's');
+    closeM('fwd-modal');
+    ForwardState.msgId = null;
+    ForwardState.msgText = null;
+    loadGroups();
+  }).catch(function () {
     toast('Failed to forward message', 'e');
-  };
+  });
 }
 
 // Copy message
@@ -2389,7 +2356,8 @@ function handleWS(data) {
       message_type: 'voice',
       file_url: data.file_url,
       file_name: data.file_name,
-      duration: data.duration || 0
+      duration: data.duration || 0,
+      is_forwarded: data.is_forwarded || false
     }, false);
     loadConvs();
   }
@@ -2404,7 +2372,8 @@ function handleWS(data) {
       message_type: data.message_type || 'file',
       file_url: data.file_url,
       file_name: data.file_name,
-      file_size: data.file_size || 0
+      file_size: data.file_size || 0,
+      is_forwarded: data.is_forwarded || false
     }, false);
     loadConvs();
   }

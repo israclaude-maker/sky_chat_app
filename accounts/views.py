@@ -1507,6 +1507,178 @@ class MessageViewSet(viewsets.ViewSet):
             'timestamp': msg.timestamp.isoformat()
         })
     
+    @action(detail=False, methods=['post'], url_path='forward')
+    def forward_message(self, request):
+        """Forward a message (including files/voice) to a user or group"""
+        message_id = request.data.get('message_id')
+        target_user_id = request.data.get('target_user_id')
+        target_group_id = request.data.get('target_group_id')
+        
+        if not message_id:
+            return Response({'error': 'message_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not target_user_id and not target_group_id:
+            return Response({'error': 'target_user_id or target_group_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            original = Message.objects.get(id=message_id)
+        except Message.DoesNotExist:
+            return Response({'error': 'Message not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        user = request.user
+        
+        if target_group_id:
+            try:
+                group = Group.objects.get(id=target_group_id)
+            except Group.DoesNotExist:
+                return Response({'error': 'Group not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+            fwd = Message.objects.create(
+                group=group,
+                sender=user,
+                content=original.content or '',
+                message_type=original.message_type,
+                file=original.file if original.file else None,
+                file_name=original.file_name,
+                file_size=original.file_size,
+            )
+        else:
+            try:
+                receiver = CustomUser.objects.get(id=target_user_id)
+            except CustomUser.DoesNotExist:
+                return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+            participants = sorted([user.id, receiver.id])
+            conversation, _ = Conversation.objects.get_or_create(
+                participant1_id=participants[0],
+                participant2_id=participants[1]
+            )
+            
+            fwd = Message.objects.create(
+                conversation=conversation,
+                sender=user,
+                content=original.content or '',
+                message_type=original.message_type,
+                file=original.file if original.file else None,
+                file_name=original.file_name,
+                file_size=original.file_size,
+            )
+        
+        # Build response
+        resp = {
+            'id': fwd.id,
+            'message': fwd.content or '',
+            'message_type': fwd.message_type,
+            'file_url': fwd.file.url if fwd.file else None,
+            'file_name': fwd.file_name,
+            'file_size': fwd.file_size,
+            'timestamp': fwd.timestamp.isoformat(),
+            'is_forwarded': True,
+        }
+        
+        # Send via WebSocket channel layer
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        
+        sender_name = f"{user.first_name} {user.last_name}".strip() or user.username
+        sender_pic = user.profile_picture.url if user.profile_picture else None
+        
+        if target_group_id:
+            room = f'group_{target_group_id}'
+            if fwd.message_type in ('image', 'video', 'audio', 'file'):
+                async_to_sync(channel_layer.group_send)(room, {
+                    'type': 'file_message',
+                    'id': fwd.id,
+                    'message_id': fwd.id,
+                    'message': fwd.content or '',
+                    'message_type': fwd.message_type,
+                    'file_url': fwd.file.url if fwd.file else '',
+                    'file_name': fwd.file_name or '',
+                    'file_size': fwd.file_size or 0,
+                    'sender_id': user.id,
+                    'username': user.username,
+                    'display_name': sender_name,
+                    'timestamp': fwd.timestamp.isoformat(),
+                    'is_forwarded': True,
+                    'group_id': target_group_id,
+                })
+            elif fwd.message_type == 'voice':
+                async_to_sync(channel_layer.group_send)(room, {
+                    'type': 'voice_message',
+                    'id': fwd.id,
+                    'message_id': fwd.id,
+                    'message': fwd.content or '',
+                    'message_type': 'voice',
+                    'file_url': fwd.file.url if fwd.file else '',
+                    'file_name': fwd.file_name or '',
+                    'duration': int(fwd.content) if fwd.content and fwd.content.isdigit() else 0,
+                    'sender_id': user.id,
+                    'username': user.username,
+                    'display_name': sender_name,
+                    'timestamp': fwd.timestamp.isoformat(),
+                    'is_forwarded': True,
+                    'group_id': target_group_id,
+                })
+            else:
+                async_to_sync(channel_layer.group_send)(room, {
+                    'type': 'chat_message',
+                    'message': fwd.content or '',
+                    'username': user.username,
+                    'display_name': sender_name,
+                    'profile_picture': sender_pic,
+                    'timestamp': fwd.timestamp.isoformat(),
+                    'message_id': fwd.id,
+                    'is_forwarded': True,
+                    'group_id': target_group_id,
+                })
+        else:
+            room_name = '_'.join(str(x) for x in sorted([user.id, int(target_user_id)]))
+            if fwd.message_type in ('image', 'video', 'audio', 'file'):
+                async_to_sync(channel_layer.group_send)(room_name, {
+                    'type': 'file_message',
+                    'id': fwd.id,
+                    'message_id': fwd.id,
+                    'message': fwd.content or '',
+                    'message_type': fwd.message_type,
+                    'file_url': fwd.file.url if fwd.file else '',
+                    'file_name': fwd.file_name or '',
+                    'file_size': fwd.file_size or 0,
+                    'sender_id': user.id,
+                    'username': user.username,
+                    'display_name': sender_name,
+                    'timestamp': fwd.timestamp.isoformat(),
+                    'is_forwarded': True,
+                })
+            elif fwd.message_type == 'voice':
+                async_to_sync(channel_layer.group_send)(room_name, {
+                    'type': 'voice_message',
+                    'id': fwd.id,
+                    'message_id': fwd.id,
+                    'message': fwd.content or '',
+                    'message_type': 'voice',
+                    'file_url': fwd.file.url if fwd.file else '',
+                    'file_name': fwd.file_name or '',
+                    'duration': int(fwd.content) if fwd.content and fwd.content.isdigit() else 0,
+                    'sender_id': user.id,
+                    'username': user.username,
+                    'display_name': sender_name,
+                    'timestamp': fwd.timestamp.isoformat(),
+                    'is_forwarded': True,
+                })
+            else:
+                async_to_sync(channel_layer.group_send)(room_name, {
+                    'type': 'chat_message',
+                    'message': fwd.content or '',
+                    'username': user.username,
+                    'display_name': sender_name,
+                    'profile_picture': sender_pic,
+                    'timestamp': fwd.timestamp.isoformat(),
+                    'message_id': fwd.id,
+                    'is_forwarded': True,
+                })
+        
+        return Response(resp)
+    
     @action(detail=True, methods=['post'], url_path='read')
     def mark_read(self, request, pk=None):
         """Mark message as read"""
