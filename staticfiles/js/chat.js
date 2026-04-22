@@ -6657,7 +6657,7 @@ function updateGcWaiting() {
   var w = $('gc-waiting');
   var sidebar = $('gc-sidebar');
   var peerCount = Object.keys(GC.peers).length;
-  if (peerCount === 0) {
+  if (peerCount === 0 && !GC.isScreenSharing) {
     if (w) w.style.display = 'flex';
     if (sidebar) sidebar.style.display = 'none';
   } else {
@@ -6852,7 +6852,8 @@ function gcStartScreenShare() {
     // Notify all peers about screen share
     gcSendScreenToggle(true);
 
-    // Build separate screen thumbnail for local user
+    // Show sidebar (even if alone) and build thumbnails
+    updateGcWaiting();
     buildLocalThumb();
     buildLocalScreenThumb();
     focusGcParticipant('local_screen');
@@ -6910,8 +6911,9 @@ function gcStopScreenShare() {
   // Remove local screen thumb
   var localScreenThumb = document.getElementById('gc-thumb-local_screen');
   if (localScreenThumb) localScreenThumb.remove();
-  // Rebuild local camera thumb
+  // Rebuild local camera thumb and update sidebar visibility
   buildLocalThumb();
+  updateGcWaiting();
   if (gcFocusedId === 'local_screen') focusGcParticipant('local');
   var btn = $('gc-screen-btn');
   if (btn) { btn.classList.remove('screen-active'); btn.innerHTML = '<i class="fa-solid fa-display"></i>'; }
