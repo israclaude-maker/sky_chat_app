@@ -1238,7 +1238,8 @@ function sendForwardedMsg(userId) {
   api('/messages/forward/', {
     method: 'POST',
     body: JSON.stringify({ message_id: ForwardState.msgId, target_user_id: userId })
-  }).then(function () {
+  }).then(function (data) {
+    if (data.error) { toast(data.error, 'e'); return; }
     toast('Message forwarded!', 's');
     closeM('fwd-modal');
     ForwardState.msgId = null;
@@ -1258,7 +1259,8 @@ function sendForwardedMsgToGroup(groupId) {
   api('/messages/forward/', {
     method: 'POST',
     body: JSON.stringify({ message_id: ForwardState.msgId, target_group_id: groupId })
-  }).then(function () {
+  }).then(function (data) {
+    if (data.error) { toast(data.error, 'e'); return; }
     toast('Message forwarded!', 's');
     closeM('fwd-modal');
     ForwardState.msgId = null;
@@ -2318,7 +2320,10 @@ function handleWS(data) {
       reply_to: data.reply_to,
       reply_data: data.reply_data,
       is_forwarded: data.is_forwarded || false,
-      message_type: 'text'
+      message_type: data.message_type || 'text',
+      file_url: data.file_url || null,
+      file_name: data.file_name || null,
+      file_size: data.file_size || null
     }, false);
 
     // Update sidebar preview
@@ -2356,8 +2361,7 @@ function handleWS(data) {
       message_type: 'voice',
       file_url: data.file_url,
       file_name: data.file_name,
-      duration: data.duration || 0,
-      is_forwarded: data.is_forwarded || false
+      duration: data.duration || 0
     }, false);
     loadConvs();
   }
@@ -2372,8 +2376,7 @@ function handleWS(data) {
       message_type: data.message_type || 'file',
       file_url: data.file_url,
       file_name: data.file_name,
-      file_size: data.file_size || 0,
-      is_forwarded: data.is_forwarded || false
+      file_size: data.file_size || 0
     }, false);
     loadConvs();
   }

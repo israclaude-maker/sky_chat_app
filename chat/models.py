@@ -37,6 +37,7 @@ class Message(models.Model):
     delivered_at = models.DateTimeField(null=True, blank=True)
     read_at = models.DateTimeField(null=True, blank=True)
     is_edited = models.BooleanField(default=False)
+    is_forwarded = models.BooleanField(default=False)
     reply_to = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replies')
 
     class Meta:
