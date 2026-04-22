@@ -214,6 +214,7 @@ class UserViewSet(viewsets.ModelViewSet):
                     'is_read': msg.is_read,
                     'read_at': msg.read_at.isoformat() if msg.read_at else None,
                     'is_edited': msg.is_edited,
+                    'is_forwarded': msg.is_forwarded,
                     'reactions': reaction_data,
                     'reply_data': reply_data
                 })
@@ -710,6 +711,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 'read_at': msg.read_at.isoformat() if msg.read_at else None,
                 'read_count': read_count,
                 'is_edited': msg.is_edited,
+                'is_forwarded': msg.is_forwarded,
                 'reactions': reaction_data,
                 'reply_data': reply_data
             })
