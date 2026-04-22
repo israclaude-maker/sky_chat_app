@@ -465,17 +465,18 @@ body {
 .msg-dropdown-btn i { font-size: 14px; color: var(--sub); }
 
 .msg-dropdown {
-  position: absolute; top: 36px;
+  position: absolute; bottom: 100%;
   min-width: 180px; background: #fff;
   border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.18);
   z-index: 100; overflow: hidden;
   display: none; animation: dropIn .15s ease-out;
+  margin-bottom: 4px;
 }
 .msg-dropdown.show { display: block; }
 .msg-row.in .msg-dropdown { left: 0; }
 .msg-row.out .msg-dropdown { right: 0; }
 @keyframes dropIn {
-  from { opacity: 0; transform: translateY(-8px) scale(.95); }
+  from { opacity: 0; transform: translateY(8px) scale(.95); }
   to { opacity: 1; transform: none; }
 }
 
