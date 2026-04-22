@@ -1153,41 +1153,80 @@ function forwardMsg(msgId, text) {
 }
 
 function loadForwardList() {
-  api('/all_users/').then(function (users) {
-    renderForwardList(users || []);
+  Promise.all([
+    api('/all_users/'),
+    api('/groups/')
+  ]).then(function (results) {
+    renderForwardList(results[0] || [], results[1] || []);
   });
 }
 
 function searchForwardList(q) {
-  api('/all_users/').then(function (users) {
-    var filtered = (users || []).filter(function (u) {
-      return u.username.toLowerCase().indexOf(q.toLowerCase()) !== -1 ||
-        (u.first_name && u.first_name.toLowerCase().indexOf(q.toLowerCase()) !== -1);
+  var ql = q.toLowerCase();
+  Promise.all([
+    api('/all_users/'),
+    api('/groups/')
+  ]).then(function (results) {
+    var users = (results[0] || []).filter(function (u) {
+      return u.username.toLowerCase().indexOf(ql) !== -1 ||
+        (u.first_name && u.first_name.toLowerCase().indexOf(ql) !== -1);
     });
-    renderForwardList(filtered);
+    var groups = (results[1] || []).filter(function (g) {
+      return g.name.toLowerCase().indexOf(ql) !== -1;
+    });
+    renderForwardList(users, groups);
   });
 }
 
-function renderForwardList(users) {
+function renderForwardList(users, groups) {
   var el = $('fwd-list');
-  if (!users.length) {
+  var html = '';
+
+  // Groups section
+  if (groups && groups.length) {
+    html += '<div style="padding:6px 12px;font-size:11px;color:var(--sub);font-weight:600;text-transform:uppercase;">Groups</div>';
+    html += groups.map(function (g) {
+      var av = g.group_picture || seed(g.name);
+      var memberCount = g.members ? g.members.length : 0;
+      return '<div class="user-row" onclick="sendForwardedMsgToGroup(' + g.id + ')">' +
+        '<div class="av-wrap">' +
+          '<img class="av-img av-36" src="' + esc(av) + '">' +
+          '<div style="position:absolute;bottom:0;right:0;background:#3b82f6;color:#fff;width:16px;height:16px;border-radius:50%;font-size:8px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-users"></i></div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="ur-name">' + esc(g.name) + '</div>' +
+          '<div class="ur-sub">' + memberCount + ' members</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // Users section
+  if (users && users.length) {
+    if (groups && groups.length) {
+      html += '<div style="padding:6px 12px;font-size:11px;color:var(--sub);font-weight:600;text-transform:uppercase;">Contacts</div>';
+    }
+    html += users.map(function (u) {
+      var name = dname(u);
+      var av = u.profile_picture || seed(u.username || name);
+      return '<div class="user-row" onclick="sendForwardedMsg(' + u.id + ')">' +
+        '<div class="av-wrap">' +
+          '<img class="av-img av-36" src="' + esc(av) + '">' +
+          '<div class="sdot ' + (u.is_online ? 'on' : 'off') + '"></div>' +
+        '</div>' +
+        '<div>' +
+          '<div class="ur-name">' + esc(name) + '</div>' +
+          '<div class="ur-sub">@' + esc(u.username) + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  if (!html) {
     el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--sub);">No contacts found</div>';
     return;
   }
-  el.innerHTML = users.map(function (u) {
-    var name = dname(u);
-    var av = u.profile_picture || seed(u.username || name);
-    return `<div class="user-row" onclick="sendForwardedMsg(${u.id})">
-      <div class="av-wrap">
-        <img class="av-img av-36" src="${esc(av)}">
-        <div class="sdot ${u.is_online ? 'on' : 'off'}"></div>
-      </div>
-      <div>
-        <div class="ur-name">${esc(name)}</div>
-        <div class="ur-sub">@${esc(u.username)}</div>
-      </div>
-    </div>`;
-  }).join('');
+  el.innerHTML = html;
 }
 
 function sendForwardedMsg(userId) {
@@ -1229,6 +1268,38 @@ function sendForwardedMsg(userId) {
   }).catch(function () {
     toast('Failed to forward message', 'e');
   });
+}
+
+function sendForwardedMsgToGroup(groupId) {
+  if (!ForwardState.msgText) {
+    toast('No message to forward', 'e');
+    return;
+  }
+
+  var roomName = 'group_' + groupId;
+  var tempWs = new WebSocket(WS_URL + roomName + '/?token=' + S.token);
+
+  tempWs.onopen = function () {
+    tempWs.send(JSON.stringify({
+      type: 'chat.message',
+      message: ForwardState.msgText,
+      group_id: groupId,
+      is_forwarded: true
+    }));
+
+    setTimeout(function () {
+      tempWs.close();
+      toast('Message forwarded!', 's');
+      closeM('fwd-modal');
+      ForwardState.msgId = null;
+      ForwardState.msgText = null;
+      loadGroups();
+    }, 500);
+  };
+
+  tempWs.onerror = function () {
+    toast('Failed to forward message', 'e');
+  };
 }
 
 // Copy message
