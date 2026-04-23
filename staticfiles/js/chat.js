@@ -7825,7 +7825,8 @@ function startCallRecord() {
     video: { displaySurface: 'browser', frameRate: 30 },
     audio: false,
     preferCurrentTab: true,
-    selfBrowserSurface: 'include'
+    selfBrowserSurface: 'include',
+    monitorTypeSurfaces: 'exclude'
   }).then(function(displayStream) {
     try {
       CallRec.displayStream = displayStream;
