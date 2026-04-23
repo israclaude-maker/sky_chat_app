@@ -7820,71 +7820,114 @@ function toggleCallRecord() {
   }
 }
 
-// Collect all active video elements from the call (local + remote)
-function _getCallVideoSources() {
-  var sources = [];
+// Collect all participants for recording (always includes everyone, even without video)
+function _getCallParticipants() {
+  var participants = [];
   if (GC.active) {
-    // Group call — local
+    // Group call — local user (always present)
     var localVid = document.getElementById('gc-local-video');
-    if (localVid && localVid.srcObject && localVid.videoWidth > 0) {
-      sources.push({ video: localVid, name: 'You' });
-    }
-    // Group call — remote peers
+    var localHasVideo = localVid && localVid.srcObject && localVid.videoWidth > 0 && !GC.isCamOff;
+    var localName = S.user ? (S.user.first_name || S.user.username || 'You') : 'You';
+    var localPic = S.user && S.user.profile_picture ? S.user.profile_picture : null;
+    participants.push({ video: localHasVideo ? localVid : null, name: localName + ' (You)', pic: localPic, initials: localName });
+
+    // Group call — remote peers (always add, even if no video)
     Object.keys(GC.peers).forEach(function (pid) {
       var peer = GC.peers[pid];
-      // Camera stream
+      var peerName = peer.name || 'User';
+      var peerPic = peer.pic || null;
+      var peerVid = null;
+      // Try to find an active video element for this peer
       if (peer.stream) {
         var vTracks = peer.stream.getVideoTracks();
-        if (vTracks.length > 0 && vTracks[0].enabled) {
-          // Find the video element playing this stream
+        var hasActiveVideo = vTracks.length > 0 && vTracks.some(function(t) { return t.enabled; });
+        if (hasActiveVideo) {
           var vids = document.querySelectorAll('video');
           for (var i = 0; i < vids.length; i++) {
             if (vids[i].srcObject === peer.stream && vids[i].videoWidth > 0) {
-              sources.push({ video: vids[i], name: peer.name || 'User' });
+              peerVid = vids[i];
               break;
             }
           }
         }
       }
-      // Screen share stream
+      participants.push({ video: peerVid, name: peerName, pic: peerPic, initials: peerName });
+
+      // Screen share stream (add as separate tile)
       if (peer.screenStream) {
         var sTracks = peer.screenStream.getVideoTracks();
         if (sTracks.length > 0 && sTracks[0].enabled) {
+          var screenVid = null;
           var vids = document.querySelectorAll('video');
           for (var i = 0; i < vids.length; i++) {
             if (vids[i].srcObject === peer.screenStream && vids[i].videoWidth > 0) {
-              sources.push({ video: vids[i], name: (peer.name || 'User') + ' Screen' });
+              screenVid = vids[i];
               break;
             }
           }
+          if (screenVid) participants.push({ video: screenVid, name: peerName + ' Screen', pic: null, initials: peerName, isScreen: true });
         }
       }
     });
+
     // Local screen share
     if (GC.isScreenSharing && GC.screenStream) {
-      var screenVids = document.querySelectorAll('video');
-      for (var i = 0; i < screenVids.length; i++) {
-        if (screenVids[i].srcObject === GC.screenStream && screenVids[i].videoWidth > 0) {
-          sources.push({ video: screenVids[i], name: 'You Screen' });
+      var screenVid = null;
+      var vids = document.querySelectorAll('video');
+      for (var i = 0; i < vids.length; i++) {
+        if (vids[i].srcObject === GC.screenStream && vids[i].videoWidth > 0) {
+          screenVid = vids[i];
           break;
         }
       }
+      if (screenVid) participants.push({ video: screenVid, name: 'Your Screen', pic: null, initials: localName, isScreen: true });
     }
   } else {
-    // DM call
+    // DM call — always show both participants
+    var localName = S.user ? (S.user.first_name || S.user.username || 'You') : 'You';
+    var localPic = S.user && S.user.profile_picture ? S.user.profile_picture : null;
     var localVid = document.getElementById('local-video');
-    if (localVid && localVid.srcObject && localVid.videoWidth > 0) {
-      sources.push({ video: localVid, name: 'You' });
-    }
+    var localHasVideo = localVid && localVid.srcObject && localVid.videoWidth > 0 && !CallState.isCamOff;
+    participants.push({ video: localHasVideo ? localVid : null, name: localName + ' (You)', pic: localPic, initials: localName });
+
+    var remoteName = CallState.remoteUserName || 'User';
+    var remotePic = CallState.remoteProfilePic || null;
     var remoteVid = document.getElementById('remote-video');
-    if (remoteVid && remoteVid.srcObject && remoteVid.videoWidth > 0) {
-      sources.push({ video: remoteVid, name: '' });
-    }
+    var remoteHasVideo = remoteVid && remoteVid.srcObject && remoteVid.videoWidth > 0;
+    participants.push({ video: remoteHasVideo ? remoteVid : null, name: remoteName, pic: remotePic, initials: remoteName });
   }
-  return sources;
+  return participants;
 }
 
-// Draw all video sources onto the recording canvas in a grid
+// Preloaded avatar images cache for canvas drawing
+var _recAvatarCache = {};
+function _getRecAvatar(key, url) {
+  if (_recAvatarCache[key] && _recAvatarCache[key].complete) return _recAvatarCache[key];
+  if (!_recAvatarCache[key]) {
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = url;
+    _recAvatarCache[key] = img;
+  }
+  return _recAvatarCache[key].complete ? _recAvatarCache[key] : null;
+}
+
+// Helper: draw a rounded rect (fallback for browsers without roundRect)
+function _recRoundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
+// Draw all participants onto the recording canvas in a grid
 function _drawCallFrame() {
   if (!CallRec.canvasCtx || !CallRec.canvas) return;
   var ctx = CallRec.canvasCtx;
@@ -7893,8 +7936,8 @@ function _drawCallFrame() {
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, W, H);
 
-  var sources = _getCallVideoSources();
-  if (sources.length === 0) {
+  var participants = _getCallParticipants();
+  if (participants.length === 0) {
     ctx.fillStyle = '#ffffff';
     ctx.font = '24px sans-serif';
     ctx.textAlign = 'center';
@@ -7904,7 +7947,7 @@ function _drawCallFrame() {
 
   // Calculate grid layout
   var cols, rows;
-  var n = sources.length;
+  var n = participants.length;
   if (n === 1) { cols = 1; rows = 1; }
   else if (n === 2) { cols = 2; rows = 1; }
   else if (n <= 4) { cols = 2; rows = 2; }
@@ -7912,47 +7955,100 @@ function _drawCallFrame() {
   else if (n <= 9) { cols = 3; rows = 3; }
   else { cols = 4; rows = Math.ceil(n / 4); }
 
-  var gap = 4;
+  var gap = 6;
   var cellW = Math.floor((W - gap * (cols + 1)) / cols);
   var cellH = Math.floor((H - gap * (rows + 1)) / rows);
 
-  for (var i = 0; i < sources.length; i++) {
+  for (var i = 0; i < participants.length; i++) {
     var col = i % cols;
     var row = Math.floor(i / cols);
     var x = gap + col * (cellW + gap);
     var y = gap + row * (cellH + gap);
+    var p = participants[i];
 
-    // Draw rounded cell background
+    // Draw cell background
     ctx.fillStyle = '#16213e';
-    ctx.beginPath();
-    ctx.roundRect(x, y, cellW, cellH, 8);
+    _recRoundRect(ctx, x, y, cellW, cellH, 10);
     ctx.fill();
 
-    var vid = sources[i].video;
+    var vid = p.video;
     if (vid && vid.readyState >= 2 && vid.videoWidth > 0) {
-      // Maintain aspect ratio — cover the cell
+      // Draw video — maintain aspect ratio, cover the cell
       var vw = vid.videoWidth, vh = vid.videoHeight;
       var scale = Math.max(cellW / vw, cellH / vh);
       var sw = cellW / scale, sh = cellH / scale;
       var sx = (vw - sw) / 2, sy = (vh - sh) / 2;
       ctx.save();
-      ctx.beginPath();
-      ctx.roundRect(x, y, cellW, cellH, 8);
+      _recRoundRect(ctx, x, y, cellW, cellH, 10);
       ctx.clip();
       ctx.drawImage(vid, sx, sy, sw, sh, x, y, cellW, cellH);
       ctx.restore();
+    } else {
+      // No video — draw avatar circle + initials (like Teams)
+      var cx = x + cellW / 2;
+      var cy = y + cellH / 2 - 12;
+      var radius = Math.min(cellW, cellH) * 0.22;
+
+      // Try loading profile pic
+      var avatarUrl = p.pic || seed(p.initials || p.name || 'U');
+      var avatarImg = _getRecAvatar(p.name || ('p' + i), avatarUrl);
+      if (avatarImg) {
+        // Draw circular avatar
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(avatarImg, cx - radius, cy - radius, radius * 2, radius * 2);
+        ctx.restore();
+      } else {
+        // Fallback: colored circle with initials
+        ctx.fillStyle = '#1a73e8';
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
+        var initials = (p.initials || p.name || 'U').trim().split(/[\s@]+/);
+        var ini = initials[0] ? initials[0][0] : 'U';
+        if (initials.length > 1 && initials[1]) ini += initials[1][0];
+        ini = ini.toUpperCase();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold ' + Math.floor(radius * 0.9) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(ini, cx, cy);
+      }
     }
 
-    // Draw name label
-    if (sources[i].name) {
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillRect(x, y + cellH - 28, cellW, 28);
+    // Draw name label at bottom of cell
+    if (p.name) {
+      var labelH = 30;
+      ctx.save();
+      _recRoundRect(ctx, x, y + cellH - labelH, cellW, labelH, 0);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(x, y + cellH - labelH, cellW, labelH);
       ctx.fillStyle = '#ffffff';
       ctx.font = '14px sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText(sources[i].name, x + 8, y + cellH - 8);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(p.name, x + cellW / 2, y + cellH - labelH / 2);
+      ctx.restore();
     }
   }
+
+  // Draw recording indicator dot
+  var dotTime = Math.floor(Date.now() / 1000);
+  if (dotTime % 2 === 0) {
+    ctx.fillStyle = '#ff0000';
+    ctx.beginPath();
+    ctx.arc(W - 24, 24, 8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '13px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('REC', W - 38, 24);
 }
 
 function startCallRecord() {
