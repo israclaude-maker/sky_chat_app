@@ -7809,7 +7809,8 @@ var CallRec = {
   canvasCtx: null,
   drawInterval: null,
   startTime: null,
-  timerInterval: null
+  timerInterval: null,
+  _videos: {} // hidden video elements we control
 };
 
 function toggleCallRecord() {
@@ -7820,95 +7821,168 @@ function toggleCallRecord() {
   }
 }
 
-// Collect all participants for recording (always includes everyone, even without video)
-function _getCallParticipants() {
-  var participants = [];
+// Create/update a hidden video element for a stream (reliable — not from DOM)
+function _recEnsureVideo(key, stream) {
+  if (!stream) {
+    if (CallRec._videos[key]) {
+      CallRec._videos[key].srcObject = null;
+      if (CallRec._videos[key].parentNode) CallRec._videos[key].parentNode.removeChild(CallRec._videos[key]);
+      delete CallRec._videos[key];
+    }
+    return null;
+  }
+  if (!CallRec._videos[key]) {
+    var v = document.createElement('video');
+    v.autoplay = true;
+    v.playsInline = true;
+    v.muted = true;
+    v.setAttribute('style', 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;');
+    document.body.appendChild(v);
+    CallRec._videos[key] = v;
+  }
+  var v = CallRec._videos[key];
+  if (v.srcObject !== stream) {
+    v.srcObject = stream;
+    v.play().catch(function() {});
+  }
+  return v;
+}
+
+// Destroy all hidden recording video elements
+function _recCleanupVideos() {
+  Object.keys(CallRec._videos).forEach(function(key) {
+    var v = CallRec._videos[key];
+    if (v) {
+      v.srcObject = null;
+      if (v.parentNode) v.parentNode.removeChild(v);
+    }
+  });
+  CallRec._videos = {};
+}
+
+// Check if a stream has active video tracks
+function _hasVideo(stream) {
+  if (!stream) return false;
+  var vt = stream.getVideoTracks();
+  return vt.length > 0 && vt.some(function(t) { return t.enabled && t.readyState === 'live'; });
+}
+
+// Gather all call participants with their own hidden video elements
+function _getRecParticipants() {
+  var list = [];
+  var usedKeys = {};
   try {
     if (GC.active) {
-      // Group call — local user always present
-      var localVid = document.getElementById('gc-local-video');
-      var localHasVideo = false;
-      if (localVid && localVid.srcObject && !GC.isCamOff) {
-        var vt = localVid.srcObject.getVideoTracks();
-        localHasVideo = vt.length > 0 && vt.some(function(t) { return t.enabled && t.readyState === 'live'; }) && localVid.videoWidth > 0;
-      }
+      // === GROUP CALL ===
       var localName = S.user ? (S.user.first_name || S.user.username || 'You') : 'You';
-      participants.push({ video: localHasVideo ? localVid : null, name: localName + ' (You)', initials: localName, color: '#1a73e8' });
 
-      // Remote peers — always add even if no video
-      var colorPalette = ['#e91e63','#9c27b0','#00bcd4','#ff9800','#4caf50','#f44336','#3f51b5','#009688'];
+      // Local camera
+      var localVid = null;
+      if (GC.localStream && _hasVideo(GC.localStream) && !GC.isCamOff) {
+        localVid = _recEnsureVideo('local_cam', GC.localStream);
+      } else {
+        _recEnsureVideo('local_cam', null);
+      }
+      usedKeys['local_cam'] = true;
+      list.push({ vid: localVid, name: localName + ' (You)', color: '#1a73e8' });
+
+      // Remote peers
+      var colors = ['#e91e63','#9c27b0','#00bcd4','#ff9800','#4caf50','#f44336','#3f51b5','#009688'];
       var ci = 0;
-      Object.keys(GC.peers).forEach(function (pid) {
+      Object.keys(GC.peers).forEach(function(pid) {
         var peer = GC.peers[pid];
-        var peerName = peer.name || 'User';
-        var peerVid = null;
-        if (peer.stream) {
-          var vt = peer.stream.getVideoTracks();
-          var hasVid = vt.length > 0 && vt.some(function(t) { return t.enabled && t.readyState === 'live'; });
-          if (hasVid) {
-            var allVids = document.querySelectorAll('video');
-            for (var i = 0; i < allVids.length; i++) {
-              if (allVids[i].srcObject === peer.stream && allVids[i].videoWidth > 0) {
-                peerVid = allVids[i]; break;
-              }
-            }
-          }
-        }
-        participants.push({ video: peerVid, name: peerName, initials: peerName, color: colorPalette[ci % colorPalette.length] });
-        ci++;
+        var pName = peer.name || 'User';
+        var camKey = 'peer_' + pid + '_cam';
+        var scrKey = 'peer_' + pid + '_scr';
 
-        // Screen share as separate tile
-        if (peer.screenStream) {
-          var st = peer.screenStream.getVideoTracks();
-          if (st.length > 0 && st[0].enabled) {
-            var sVid = null;
-            var allVids = document.querySelectorAll('video');
-            for (var i = 0; i < allVids.length; i++) {
-              if (allVids[i].srcObject === peer.screenStream && allVids[i].videoWidth > 0) {
-                sVid = allVids[i]; break;
-              }
-            }
-            if (sVid) participants.push({ video: sVid, name: peerName + ' Screen', initials: peerName, color: '#607d8b', isScreen: true });
-          }
+        // Peer camera
+        var pVid = null;
+        if (peer.stream && _hasVideo(peer.stream)) {
+          pVid = _recEnsureVideo(camKey, peer.stream);
+        } else {
+          _recEnsureVideo(camKey, null);
         }
+        usedKeys[camKey] = true;
+        list.push({ vid: pVid, name: pName, color: colors[ci % colors.length] });
+
+        // Peer screen share
+        if (peer.screenStream && _hasVideo(peer.screenStream)) {
+          var sVid = _recEnsureVideo(scrKey, peer.screenStream);
+          usedKeys[scrKey] = true;
+          list.push({ vid: sVid, name: pName + ' Screen', color: '#607d8b' });
+        } else {
+          _recEnsureVideo(scrKey, null);
+          usedKeys[scrKey] = true;
+        }
+        ci++;
       });
 
       // Local screen share
-      if (GC.isScreenSharing && GC.screenStream) {
-        var sVid = null;
-        var allVids = document.querySelectorAll('video');
-        for (var i = 0; i < allVids.length; i++) {
-          if (allVids[i].srcObject === GC.screenStream && allVids[i].videoWidth > 0) {
-            sVid = allVids[i]; break;
-          }
-        }
-        if (sVid) participants.push({ video: sVid, name: 'Your Screen', initials: localName, color: '#607d8b', isScreen: true });
+      if (GC.isScreenSharing && GC.screenStream && _hasVideo(GC.screenStream)) {
+        var lsVid = _recEnsureVideo('local_scr', GC.screenStream);
+        usedKeys['local_scr'] = true;
+        list.push({ vid: lsVid, name: 'Your Screen', color: '#607d8b' });
+      } else {
+        _recEnsureVideo('local_scr', null);
+        usedKeys['local_scr'] = true;
       }
-    } else {
-      // DM call — always both users
-      var localName = S.user ? (S.user.first_name || S.user.username || 'You') : 'You';
-      var localVid = document.getElementById('local-video');
-      var localHasVideo = false;
-      if (localVid && localVid.srcObject && !CallState.isCamOff) {
-        var vt = localVid.srcObject.getVideoTracks();
-        localHasVideo = vt.length > 0 && vt.some(function(t) { return t.enabled && t.readyState === 'live'; }) && localVid.videoWidth > 0;
-      }
-      participants.push({ video: localHasVideo ? localVid : null, name: localName + ' (You)', initials: localName, color: '#1a73e8' });
 
+    } else {
+      // === DM CALL ===
+      var localName = S.user ? (S.user.first_name || S.user.username || 'You') : 'You';
       var remoteName = CallState.remoteUserName || 'User';
-      var remoteVid = document.getElementById('remote-video');
-      var remoteHasVideo = false;
-      if (remoteVid && remoteVid.srcObject) {
-        var rvt = remoteVid.srcObject.getVideoTracks();
-        remoteHasVideo = rvt.length > 0 && rvt.some(function(t) { return t.enabled && t.readyState === 'live'; }) && remoteVid.videoWidth > 0;
+
+      // Local camera
+      var localVid = null;
+      if (CallState.localStream && _hasVideo(CallState.localStream) && !CallState.isCamOff) {
+        localVid = _recEnsureVideo('local_cam', CallState.localStream);
+      } else {
+        _recEnsureVideo('local_cam', null);
       }
-      participants.push({ video: remoteHasVideo ? remoteVid : null, name: remoteName, initials: remoteName, color: '#e91e63' });
+      usedKeys['local_cam'] = true;
+      list.push({ vid: localVid, name: localName + ' (You)', color: '#1a73e8' });
+
+      // Remote stream (camera or screen share from remote)
+      var remoteVid = null;
+      if (CallState.remoteStream && _hasVideo(CallState.remoteStream)) {
+        remoteVid = _recEnsureVideo('remote_cam', CallState.remoteStream);
+      } else {
+        _recEnsureVideo('remote_cam', null);
+      }
+      usedKeys['remote_cam'] = true;
+      list.push({ vid: remoteVid, name: remoteName, color: '#e91e63' });
+
+      // Local screen share (DM)
+      if (CallState.isScreenSharing && CallState.screenStream && _hasVideo(CallState.screenStream)) {
+        var lsVid = _recEnsureVideo('local_scr', CallState.screenStream);
+        usedKeys['local_scr'] = true;
+        list.push({ vid: lsVid, name: 'Your Screen', color: '#607d8b' });
+      } else {
+        _recEnsureVideo('local_scr', null);
+        usedKeys['local_scr'] = true;
+      }
     }
-  } catch (e) { console.error('_getCallParticipants error:', e); }
-  return participants;
+  } catch (e) {
+    console.error('[REC] _getRecParticipants error:', e);
+  }
+
+  // Clean up stale video elements
+  Object.keys(CallRec._videos).forEach(function(key) {
+    if (!usedKeys[key]) _recEnsureVideo(key, null);
+  });
+
+  return list;
 }
 
-// Helper: draw a rounded rect path
+// Get initials from name
+function _getInitials(name) {
+  var parts = (name || 'U').trim().split(/[\s@]+/).filter(function(p) { return p.length > 0; });
+  var f = parts[0] || 'U';
+  var s = parts.length > 1 ? parts[1] : '';
+  return (f[0] + (s ? s[0] : '')).toUpperCase();
+}
+
+// Helper: draw rounded rect path
 function _recRoundRect(ctx, x, y, w, h, r) {
   if (r > w / 2) r = w / 2;
   if (r > h / 2) r = h / 2;
@@ -7925,15 +7999,7 @@ function _recRoundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// Get initials from a name string
-function _getInitials(name) {
-  var parts = (name || 'U').trim().split(/[\s@]+/).filter(function(p) { return p.length > 0; });
-  var first = parts[0] || 'U';
-  var second = parts.length > 1 ? parts[1] : '';
-  return (first[0] + (second ? second[0] : '')).toUpperCase();
-}
-
-// Draw all participants onto the recording canvas in a Teams-like grid
+// Draw all participants onto canvas — called every frame
 function _drawCallFrame() {
   if (!CallRec.canvasCtx || !CallRec.canvas) return;
   try {
@@ -7941,12 +8007,11 @@ function _drawCallFrame() {
     var W = CallRec.canvas.width;
     var H = CallRec.canvas.height;
 
-    // Dark background
     ctx.fillStyle = '#1b1b2f';
     ctx.fillRect(0, 0, W, H);
 
-    var participants = _getCallParticipants();
-    if (participants.length === 0) {
+    var list = _getRecParticipants();
+    if (list.length === 0) {
       ctx.fillStyle = '#aaa';
       ctx.font = '28px Arial, sans-serif';
       ctx.textAlign = 'center';
@@ -7955,8 +8020,7 @@ function _drawCallFrame() {
       return;
     }
 
-    // Grid layout
-    var n = participants.length;
+    var n = list.length;
     var cols, rows;
     if (n === 1) { cols = 1; rows = 1; }
     else if (n === 2) { cols = 2; rows = 1; }
@@ -7966,29 +8030,27 @@ function _drawCallFrame() {
     else { cols = 4; rows = Math.ceil(n / 4); }
 
     var gap = 8;
-    var totalGapX = gap * (cols + 1);
-    var totalGapY = gap * (rows + 1);
-    var cellW = Math.floor((W - totalGapX) / cols);
-    var cellH = Math.floor((H - totalGapY) / rows);
+    var cellW = Math.floor((W - gap * (cols + 1)) / cols);
+    var cellH = Math.floor((H - gap * (rows + 1)) / rows);
 
     for (var i = 0; i < n; i++) {
       var col = i % cols;
       var row = Math.floor(i / cols);
       var x = gap + col * (cellW + gap);
       var y = gap + row * (cellH + gap);
-      var p = participants[i];
+      var p = list[i];
 
-      // Cell background
+      // Cell bg
       ctx.fillStyle = '#162447';
       _recRoundRect(ctx, x, y, cellW, cellH, 12);
       ctx.fill();
 
-      var vid = p.video;
       var drewVideo = false;
-
+      var vid = p.vid;
       if (vid) {
         try {
-          if (vid.readyState >= 2 && vid.videoWidth > 0 && vid.videoHeight > 0) {
+          // Check if video is actually playing and has dimensions
+          if (vid.videoWidth > 0 && vid.videoHeight > 0 && !vid.paused) {
             var vw = vid.videoWidth, vh = vid.videoHeight;
             var scale = Math.max(cellW / vw, cellH / vh);
             var sw = cellW / scale, sh = cellH / scale;
@@ -8000,80 +8062,71 @@ function _drawCallFrame() {
             ctx.restore();
             drewVideo = true;
           }
-        } catch (e) { /* video draw failed, show avatar */ }
+        } catch (e) { /* draw failed */ }
       }
 
       if (!drewVideo) {
-        // Avatar circle with initials (Teams style — no image loading needed)
-        var centerX = x + cellW / 2;
-        var centerY = y + cellH / 2 - 14;
-        var radius = Math.min(cellW, cellH) * 0.25;
-        if (radius < 20) radius = 20;
-        if (radius > 80) radius = 80;
-
-        // Colored circle
+        // Initials avatar
+        var cx = x + cellW / 2;
+        var cy = y + cellH / 2 - 14;
+        var r = Math.min(cellW, cellH) * 0.25;
+        if (r < 20) r = 20;
+        if (r > 80) r = 80;
         ctx.fillStyle = p.color || '#1a73e8';
         ctx.beginPath();
-        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.fill();
-
-        // White initials
-        var ini = _getInitials(p.initials || p.name);
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold ' + Math.max(16, Math.floor(radius * 0.85)) + 'px Arial, sans-serif';
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold ' + Math.max(16, Math.floor(r * 0.85)) + 'px Arial, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(ini, centerX, centerY);
+        ctx.fillText(_getInitials(p.name), cx, cy);
       }
 
-      // Name label at bottom
+      // Name label
       if (p.name) {
-        var labelH = 32;
-        var labelY = y + cellH - labelH;
-        // Semi-transparent background
+        var lH = 32;
+        var lY = y + cellH - lH;
         ctx.fillStyle = 'rgba(0,0,0,0.65)';
-        ctx.fillRect(x, labelY, cellW, labelH);
-        // Name text
-        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x, lY, cellW, lH);
+        ctx.fillStyle = '#fff';
         ctx.font = '14px Arial, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        var displayName = p.name.length > 25 ? p.name.substring(0, 25) + '...' : p.name;
-        ctx.fillText(displayName, x + cellW / 2, labelY + labelH / 2);
+        var dn = p.name.length > 25 ? p.name.substring(0, 25) + '...' : p.name;
+        ctx.fillText(dn, x + cellW / 2, lY + lH / 2);
       }
     }
 
-    // REC indicator (top-right, blinking red dot)
-    var blink = Math.floor(Date.now() / 600) % 2 === 0;
-    if (blink) {
+    // REC dot (blinking)
+    if (Math.floor(Date.now() / 600) % 2 === 0) {
       ctx.fillStyle = '#ff0000';
       ctx.beginPath();
       ctx.arc(W - 28, 28, 9, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#fff';
     ctx.font = 'bold 14px Arial, sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     ctx.fillText('REC', W - 44, 28);
 
-    // Timer (top-left)
+    // Timer
     if (CallRec.startTime) {
-      var elapsed = Math.floor((Date.now() - CallRec.startTime) / 1000);
-      var mm = Math.floor(elapsed / 60);
-      var ss = elapsed % 60;
-      var timeStr = (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
+      var el = Math.floor((Date.now() - CallRec.startTime) / 1000);
+      var mm = Math.floor(el / 60), ss = el % 60;
+      var ts = (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
       _recRoundRect(ctx, 12, 12, 80, 32, 6);
       ctx.fill();
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#fff';
       ctx.font = '15px Arial, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(timeStr, 52, 28);
+      ctx.fillText(ts, 52, 28);
     }
   } catch (e) {
-    console.error('_drawCallFrame error:', e);
+    console.error('[REC] _drawCallFrame error:', e);
   }
 }
 
@@ -8081,79 +8134,72 @@ function startCallRecord() {
   if (CallRec.isRecording) return;
 
   try {
-    // Create off-screen canvas for compositing video
+    // Canvas 1280x720
     var canvas = document.createElement('canvas');
     canvas.width = 1280;
     canvas.height = 720;
     CallRec.canvas = canvas;
     CallRec.canvasCtx = canvas.getContext('2d');
 
-    // Start drawing frames
-    CallRec.drawInterval = setInterval(_drawCallFrame, 1000 / 30); // 30 fps
+    // Draw first frame immediately so captureStream has content
+    _drawCallFrame();
 
-    // Get canvas video stream
+    // 30 fps drawing
+    CallRec.drawInterval = setInterval(_drawCallFrame, 1000 / 30);
+
+    // Canvas → video stream
     var canvasStream = canvas.captureStream(30);
 
-    // Create AudioContext to mix all audio sources
+    // Mix all audio
     var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     CallRec.audioCtx = audioCtx;
     var dest = audioCtx.createMediaStreamDestination();
     CallRec.audioDest = dest;
 
-    // Add local mic audio
+    // Local mic
     var localStream = GC.active ? GC.localStream : CallState.localStream;
     if (localStream) {
-      var localAudioTracks = localStream.getAudioTracks();
-      if (localAudioTracks.length > 0) {
-        audioCtx.createMediaStreamSource(new MediaStream(localAudioTracks)).connect(dest);
-      }
+      var la = localStream.getAudioTracks();
+      if (la.length > 0) audioCtx.createMediaStreamSource(new MediaStream(la)).connect(dest);
     }
 
-    // Add remote audio — group call: all peers; DM call: remoteStream
+    // Remote audio
     if (GC.active) {
-      Object.keys(GC.peers).forEach(function (pid) {
+      Object.keys(GC.peers).forEach(function(pid) {
         var peer = GC.peers[pid];
         if (peer.stream) {
-          var remoteTracks = peer.stream.getAudioTracks();
-          if (remoteTracks.length > 0) {
-            audioCtx.createMediaStreamSource(new MediaStream(remoteTracks)).connect(dest);
-          }
+          var ra = peer.stream.getAudioTracks();
+          if (ra.length > 0) audioCtx.createMediaStreamSource(new MediaStream(ra)).connect(dest);
         }
       });
     } else if (CallState.remoteStream) {
-      var remoteTracks = CallState.remoteStream.getAudioTracks();
-      if (remoteTracks.length > 0) {
-        audioCtx.createMediaStreamSource(new MediaStream(remoteTracks)).connect(dest);
-      }
+      var ra = CallState.remoteStream.getAudioTracks();
+      if (ra.length > 0) audioCtx.createMediaStreamSource(new MediaStream(ra)).connect(dest);
     }
 
-    // Combine canvas video + mixed audio into one stream
+    // Combine video + audio
     var videoTrack = canvasStream.getVideoTracks()[0];
-    var mixedAudioTrack = dest.stream.getAudioTracks()[0];
+    var audioTrack = dest.stream.getAudioTracks()[0];
     var tracks = [videoTrack];
-    if (mixedAudioTrack) tracks.push(mixedAudioTrack);
+    if (audioTrack) tracks.push(audioTrack);
     CallRec.mixedStream = new MediaStream(tracks);
 
+    // MediaRecorder
     var options = { mimeType: 'video/webm;codecs=vp9,opus' };
-    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-      options = { mimeType: 'video/webm;codecs=vp8,opus' };
-    }
-    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-      options = { mimeType: 'video/webm' };
-    }
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) options = { mimeType: 'video/webm;codecs=vp8,opus' };
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) options = { mimeType: 'video/webm' };
 
     CallRec.mediaRecorder = new MediaRecorder(CallRec.mixedStream, options);
     CallRec.chunks = [];
 
-    CallRec.mediaRecorder.ondataavailable = function (e) {
+    CallRec.mediaRecorder.ondataavailable = function(e) {
       if (e.data && e.data.size > 0) CallRec.chunks.push(e.data);
     };
 
-    CallRec.mediaRecorder.onstop = function () {
+    CallRec.mediaRecorder.onstop = function() {
       if (CallRec.drawInterval) { clearInterval(CallRec.drawInterval); CallRec.drawInterval = null; }
-      if (CallRec.audioCtx) {
-        CallRec.audioCtx.close().catch(function () {});
-      }
+      _recCleanupVideos();
+      if (CallRec.audioCtx) CallRec.audioCtx.close().catch(function() {});
       if (CallRec.chunks.length > 0) {
         var label = GC.active ? 'SkyChat_GroupCall' : 'SkyChat_Call';
         downloadRecording(CallRec.chunks, label);
@@ -8176,12 +8222,13 @@ function startCallRecord() {
     updateCallRecUI();
 
     toast('Call recording started', 's');
+    console.log('[REC] Recording started — canvas:', canvas.width, 'x', canvas.height);
   } catch (err) {
     toast('Could not start call recording', 'e');
-    console.error(err);
-    // Cleanup on failure
+    console.error('[REC] startCallRecord error:', err);
     if (CallRec.drawInterval) { clearInterval(CallRec.drawInterval); CallRec.drawInterval = null; }
-    if (CallRec.audioCtx) { CallRec.audioCtx.close().catch(function () {}); }
+    _recCleanupVideos();
+    if (CallRec.audioCtx) CallRec.audioCtx.close().catch(function() {});
     CallRec.canvas = null;
     CallRec.canvasCtx = null;
   }
@@ -8189,6 +8236,7 @@ function startCallRecord() {
 
 function stopCallRecord() {
   if (!CallRec.isRecording || !CallRec.mediaRecorder) return;
+  console.log('[REC] Stopping recording, chunks:', CallRec.chunks.length);
   CallRec.mediaRecorder.stop();
   CallRec.isRecording = false;
   if (CallRec.drawInterval) { clearInterval(CallRec.drawInterval); CallRec.drawInterval = null; }
