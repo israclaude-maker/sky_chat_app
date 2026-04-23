@@ -7893,7 +7893,8 @@ function startCallRecord() {
         if (CallRec.audioCtx) CallRec.audioCtx.close().catch(function() {});
         if (CallRec.chunks.length > 0) {
           var label = GC.active ? 'SkyChat_GroupCall' : 'SkyChat_Call';
-          downloadRecording(CallRec.chunks, label);
+          var durationMs = CallRec.startTime ? (Date.now() - CallRec.startTime) : 0;
+          downloadRecording(CallRec.chunks, label, durationMs);
         }
         CallRec.chunks = [];
         CallRec.isRecording = false;
@@ -7964,12 +7965,77 @@ function updateCallRecUI() {
   }
 }
 
+// ---- WebM Duration Fix (EBML patching) ----
+function ebmlReadVint(buf, pos) {
+  var b = buf[pos], len = 1, mask = 0x80;
+  while (len <= 8 && !(b & mask)) { mask >>= 1; len++; }
+  if (len > 8) return null;
+  var val = b & (mask - 1);
+  for (var i = 1; i < len; i++) val = val * 256 + buf[pos + i];
+  return { len: len, val: val };
+}
+function ebmlWriteVint(val, minLen) {
+  var len = minLen || 1;
+  while (len <= 8 && val > Math.pow(2, 7 * len) - 2) len++;
+  if (len > 8) return null;
+  var bytes = new Uint8Array(len), v = val;
+  for (var i = len - 1; i >= 0; i--) { bytes[i] = v & 0xFF; v = Math.floor(v / 256); }
+  bytes[0] |= (1 << (8 - len));
+  return bytes;
+}
+function fixWebmDuration(blob, durationMs) {
+  return new Promise(function(resolve) {
+    var fr = new FileReader();
+    fr.onerror = function() { resolve(blob); };
+    fr.onload = function() {
+      try {
+        var data = new Uint8Array(fr.result);
+        // Find Segment Info element (ID: 0x1549A966)
+        var infoPos = -1;
+        for (var i = 0; i < Math.min(data.length - 4, 4096); i++) {
+          if (data[i]===0x15 && data[i+1]===0x49 && data[i+2]===0xA9 && data[i+3]===0x66) { infoPos = i; break; }
+        }
+        if (infoPos === -1) { resolve(blob); return; }
+        var sv = ebmlReadVint(data, infoPos + 4);
+        if (!sv) { resolve(blob); return; }
+        var infoDataStart = infoPos + 4 + sv.len;
+        var infoDataEnd = infoDataStart + sv.val;
+        // Check if Duration (0x4489) already exists
+        for (var j = infoDataStart; j < Math.min(infoDataEnd - 1, data.length - 1); j++) {
+          if (data[j]===0x44 && data[j+1]===0x89) {
+            var ds = ebmlReadVint(data, j + 2);
+            if (ds && ds.val === 8) {
+              new DataView(data.buffer, j + 2 + ds.len, 8).setFloat64(0, durationMs, false);
+              resolve(new Blob([data], {type:'video/webm'})); return;
+            }
+            resolve(blob); return;
+          }
+        }
+        // Inject Duration element: ID(2) + size-vint(1) + float64(8) = 11 bytes
+        var durElem = new Uint8Array(11);
+        durElem[0]=0x44; durElem[1]=0x89; durElem[2]=0x88;
+        new DataView(durElem.buffer).setFloat64(3, durationMs, false);
+        var newInfoSize = sv.val + 11;
+        var newSizeBytes = ebmlWriteVint(newInfoSize, sv.len);
+        if (!newSizeBytes) newSizeBytes = ebmlWriteVint(newInfoSize, sv.len + 1);
+        if (!newSizeBytes) { resolve(blob); return; }
+        var sizeDiff = newSizeBytes.length - sv.len;
+        var result = new Uint8Array(data.length + 11 + sizeDiff);
+        result.set(data.subarray(0, infoPos + 4), 0);
+        var off = infoPos + 4;
+        result.set(newSizeBytes, off); off += newSizeBytes.length;
+        result.set(durElem, off); off += 11;
+        result.set(data.subarray(infoDataStart), off);
+        resolve(new Blob([result], {type:'video/webm'}));
+      } catch(e) { console.warn('[REC] duration fix failed:', e); resolve(blob); }
+    };
+    fr.readAsArrayBuffer(blob);
+  });
+}
+
 // Shared download helper
-function downloadRecording(chunks, prefix) {
+function downloadRecording(chunks, prefix, durationMs) {
   var blob = new Blob(chunks, { type: 'video/webm' });
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a');
-  a.href = url;
   var now = new Date();
   var ts = now.getFullYear() + '' +
     String(now.getMonth() + 1).padStart(2, '0') +
@@ -7977,12 +8043,23 @@ function downloadRecording(chunks, prefix) {
     String(now.getHours()).padStart(2, '0') +
     String(now.getMinutes()).padStart(2, '0') +
     String(now.getSeconds()).padStart(2, '0');
-  a.download = prefix + '_' + ts + '.webm';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
-  toast('Recording saved!', 's');
+  var filename = prefix + '_' + ts + '.webm';
+  var doDownload = function(finalBlob) {
+    var url = URL.createObjectURL(finalBlob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+    toast('Recording saved!', 's');
+  };
+  if (durationMs && durationMs > 0) {
+    fixWebmDuration(blob, durationMs).then(doDownload);
+  } else {
+    doDownload(blob);
+  }
 }
 
 init();
