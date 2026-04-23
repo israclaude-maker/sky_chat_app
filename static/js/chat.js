@@ -5067,7 +5067,7 @@ function toggleScreenShare() {
 
 function startScreenShare() {
   if (!CallState.pc || !CallState.isInCall) return;
-  navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }).then(function (screenStream) {
+  navigator.mediaDevices.getDisplayMedia({ video: true, audio: false, monitorTypeSurfaces: 'exclude' }).then(function (screenStream) {
     CallState.screenStream = screenStream;
     CallState.isScreenSharing = true;
     var screenTrack = screenStream.getVideoTracks()[0];
@@ -6891,7 +6891,7 @@ function gcToggleScreenShare() {
 
 function gcStartScreenShare() {
   if (!GC.active) return;
-  navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }).then(function (screenStream) {
+  navigator.mediaDevices.getDisplayMedia({ video: true, audio: false, monitorTypeSurfaces: 'exclude' }).then(function (screenStream) {
     GC.screenStream = screenStream;
     GC.isScreenSharing = true;
     var screenTrack = screenStream.getVideoTracks()[0];
