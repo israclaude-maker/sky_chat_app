@@ -7796,16 +7796,18 @@ function updateScreenRecUI() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CALL RECORDING (in-call button — captures screen + all audio)
+// CALL RECORDING (in-call button — captures call video/audio only, like Teams)
 // ═══════════════════════════════════════════════════════════════
 var CallRec = {
   isRecording: false,
   mediaRecorder: null,
   chunks: [],
-  displayStream: null,
   mixedStream: null,
   audioCtx: null,
   audioDest: null,
+  canvas: null,
+  canvasCtx: null,
+  drawInterval: null,
   startTime: null,
   timerInterval: null
 };
@@ -7818,24 +7820,163 @@ function toggleCallRecord() {
   }
 }
 
+// Collect all active video elements from the call (local + remote)
+function _getCallVideoSources() {
+  var sources = [];
+  if (GC.active) {
+    // Group call — local
+    var localVid = document.getElementById('gc-local-video');
+    if (localVid && localVid.srcObject && localVid.videoWidth > 0) {
+      sources.push({ video: localVid, name: 'You' });
+    }
+    // Group call — remote peers
+    Object.keys(GC.peers).forEach(function (pid) {
+      var peer = GC.peers[pid];
+      // Camera stream
+      if (peer.stream) {
+        var vTracks = peer.stream.getVideoTracks();
+        if (vTracks.length > 0 && vTracks[0].enabled) {
+          // Find the video element playing this stream
+          var vids = document.querySelectorAll('video');
+          for (var i = 0; i < vids.length; i++) {
+            if (vids[i].srcObject === peer.stream && vids[i].videoWidth > 0) {
+              sources.push({ video: vids[i], name: peer.name || 'User' });
+              break;
+            }
+          }
+        }
+      }
+      // Screen share stream
+      if (peer.screenStream) {
+        var sTracks = peer.screenStream.getVideoTracks();
+        if (sTracks.length > 0 && sTracks[0].enabled) {
+          var vids = document.querySelectorAll('video');
+          for (var i = 0; i < vids.length; i++) {
+            if (vids[i].srcObject === peer.screenStream && vids[i].videoWidth > 0) {
+              sources.push({ video: vids[i], name: (peer.name || 'User') + ' Screen' });
+              break;
+            }
+          }
+        }
+      }
+    });
+    // Local screen share
+    if (GC.isScreenSharing && GC.screenStream) {
+      var screenVids = document.querySelectorAll('video');
+      for (var i = 0; i < screenVids.length; i++) {
+        if (screenVids[i].srcObject === GC.screenStream && screenVids[i].videoWidth > 0) {
+          sources.push({ video: screenVids[i], name: 'You Screen' });
+          break;
+        }
+      }
+    }
+  } else {
+    // DM call
+    var localVid = document.getElementById('local-video');
+    if (localVid && localVid.srcObject && localVid.videoWidth > 0) {
+      sources.push({ video: localVid, name: 'You' });
+    }
+    var remoteVid = document.getElementById('remote-video');
+    if (remoteVid && remoteVid.srcObject && remoteVid.videoWidth > 0) {
+      sources.push({ video: remoteVid, name: '' });
+    }
+  }
+  return sources;
+}
+
+// Draw all video sources onto the recording canvas in a grid
+function _drawCallFrame() {
+  if (!CallRec.canvasCtx || !CallRec.canvas) return;
+  var ctx = CallRec.canvasCtx;
+  var W = CallRec.canvas.width;
+  var H = CallRec.canvas.height;
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, W, H);
+
+  var sources = _getCallVideoSources();
+  if (sources.length === 0) {
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Call in progress...', W / 2, H / 2);
+    return;
+  }
+
+  // Calculate grid layout
+  var cols, rows;
+  var n = sources.length;
+  if (n === 1) { cols = 1; rows = 1; }
+  else if (n === 2) { cols = 2; rows = 1; }
+  else if (n <= 4) { cols = 2; rows = 2; }
+  else if (n <= 6) { cols = 3; rows = 2; }
+  else if (n <= 9) { cols = 3; rows = 3; }
+  else { cols = 4; rows = Math.ceil(n / 4); }
+
+  var gap = 4;
+  var cellW = Math.floor((W - gap * (cols + 1)) / cols);
+  var cellH = Math.floor((H - gap * (rows + 1)) / rows);
+
+  for (var i = 0; i < sources.length; i++) {
+    var col = i % cols;
+    var row = Math.floor(i / cols);
+    var x = gap + col * (cellW + gap);
+    var y = gap + row * (cellH + gap);
+
+    // Draw rounded cell background
+    ctx.fillStyle = '#16213e';
+    ctx.beginPath();
+    ctx.roundRect(x, y, cellW, cellH, 8);
+    ctx.fill();
+
+    var vid = sources[i].video;
+    if (vid && vid.readyState >= 2 && vid.videoWidth > 0) {
+      // Maintain aspect ratio — cover the cell
+      var vw = vid.videoWidth, vh = vid.videoHeight;
+      var scale = Math.max(cellW / vw, cellH / vh);
+      var sw = cellW / scale, sh = cellH / scale;
+      var sx = (vw - sw) / 2, sy = (vh - sh) / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(x, y, cellW, cellH, 8);
+      ctx.clip();
+      ctx.drawImage(vid, sx, sy, sw, sh, x, y, cellW, cellH);
+      ctx.restore();
+    }
+
+    // Draw name label
+    if (sources[i].name) {
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(x, y + cellH - 28, cellW, 28);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(sources[i].name, x + 8, y + cellH - 8);
+    }
+  }
+}
+
 function startCallRecord() {
   if (CallRec.isRecording) return;
 
-  navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).then(function (displayStream) {
-    CallRec.displayStream = displayStream;
+  try {
+    // Create off-screen canvas for compositing video
+    var canvas = document.createElement('canvas');
+    canvas.width = 1280;
+    canvas.height = 720;
+    CallRec.canvas = canvas;
+    CallRec.canvasCtx = canvas.getContext('2d');
+
+    // Start drawing frames
+    CallRec.drawInterval = setInterval(_drawCallFrame, 1000 / 30); // 30 fps
+
+    // Get canvas video stream
+    var canvasStream = canvas.captureStream(30);
 
     // Create AudioContext to mix all audio sources
     var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     CallRec.audioCtx = audioCtx;
     var dest = audioCtx.createMediaStreamDestination();
     CallRec.audioDest = dest;
-
-    // Add display audio if available (tab/system audio)
-    var displayAudioTracks = displayStream.getAudioTracks();
-    if (displayAudioTracks.length > 0) {
-      var displayAudioStream = new MediaStream(displayAudioTracks);
-      audioCtx.createMediaStreamSource(displayAudioStream).connect(dest);
-    }
 
     // Add local mic audio
     var localStream = GC.active ? GC.localStream : CallState.localStream;
@@ -7864,8 +8005,8 @@ function startCallRecord() {
       }
     }
 
-    // Combine display video + mixed audio into one stream
-    var videoTrack = displayStream.getVideoTracks()[0];
+    // Combine canvas video + mixed audio into one stream
+    var videoTrack = canvasStream.getVideoTracks()[0];
     var mixedAudioTrack = dest.stream.getAudioTracks()[0];
     var tracks = [videoTrack];
     if (mixedAudioTrack) tracks.push(mixedAudioTrack);
@@ -7887,9 +8028,7 @@ function startCallRecord() {
     };
 
     CallRec.mediaRecorder.onstop = function () {
-      if (CallRec.displayStream) {
-        CallRec.displayStream.getTracks().forEach(function (t) { t.stop(); });
-      }
+      if (CallRec.drawInterval) { clearInterval(CallRec.drawInterval); CallRec.drawInterval = null; }
       if (CallRec.audioCtx) {
         CallRec.audioCtx.close().catch(function () {});
       }
@@ -7899,7 +8038,8 @@ function startCallRecord() {
       }
       CallRec.chunks = [];
       CallRec.isRecording = false;
-      CallRec.displayStream = null;
+      CallRec.canvas = null;
+      CallRec.canvasCtx = null;
       CallRec.mixedStream = null;
       CallRec.audioCtx = null;
       CallRec.audioDest = null;
@@ -7913,23 +8053,23 @@ function startCallRecord() {
     updateCallRecTimer();
     updateCallRecUI();
 
-    videoTrack.onended = function () {
-      if (CallRec.isRecording) stopCallRecord();
-    };
-
     toast('Call recording started', 's');
-  }).catch(function (err) {
-    if (err.name !== 'NotAllowedError') {
-      toast('Could not start call recording', 'e');
-      console.error(err);
-    }
-  });
+  } catch (err) {
+    toast('Could not start call recording', 'e');
+    console.error(err);
+    // Cleanup on failure
+    if (CallRec.drawInterval) { clearInterval(CallRec.drawInterval); CallRec.drawInterval = null; }
+    if (CallRec.audioCtx) { CallRec.audioCtx.close().catch(function () {}); }
+    CallRec.canvas = null;
+    CallRec.canvasCtx = null;
+  }
 }
 
 function stopCallRecord() {
   if (!CallRec.isRecording || !CallRec.mediaRecorder) return;
   CallRec.mediaRecorder.stop();
   CallRec.isRecording = false;
+  if (CallRec.drawInterval) { clearInterval(CallRec.drawInterval); CallRec.drawInterval = null; }
   clearInterval(CallRec.timerInterval);
   updateCallRecUI();
 }
