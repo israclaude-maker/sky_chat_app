@@ -5067,7 +5067,7 @@ function toggleScreenShare() {
 
 function startScreenShare() {
   if (!CallState.pc || !CallState.isInCall) return;
-  navigator.mediaDevices.getDisplayMedia({ video: true, audio: false, monitorTypeSurfaces: 'exclude' }).then(function (screenStream) {
+  navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }).then(function (screenStream) {
     CallState.screenStream = screenStream;
     CallState.isScreenSharing = true;
     var screenTrack = screenStream.getVideoTracks()[0];
@@ -5109,9 +5109,18 @@ function startScreenShare() {
         }
       }).catch(function (err) { console.error('Screen share renegotiation error:', err); });
     }
-    // Show screen in local video preview
+    // Show "sharing" indicator in local preview (don't show actual screen to avoid infinite mirror)
     var localVid = $('local-video');
-    if (localVid) { localVid.srcObject = screenStream; localVid.style.display = ''; }
+    if (localVid) { localVid.style.display = 'none'; }
+    var shareIndicator = document.getElementById('local-screen-indicator');
+    if (!shareIndicator) {
+      shareIndicator = document.createElement('div');
+      shareIndicator.id = 'local-screen-indicator';
+      shareIndicator.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:#1a1a2e;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#fff;font-size:13px;z-index:2;border-radius:12px;';
+      shareIndicator.innerHTML = '<i class="fa-solid fa-display" style="font-size:28px;margin-bottom:8px;color:#4fc3f7"></i><span>Sharing your screen</span>';
+      var localContainer = localVid ? localVid.parentElement : null;
+      if (localContainer) localContainer.appendChild(shareIndicator);
+    }
     // Update button
     updateScreenBtn(true);
     // When user stops sharing from browser UI
@@ -5129,6 +5138,11 @@ function stopScreenShare() {
     CallState.screenStream.getTracks().forEach(function (t) { t.stop(); });
     CallState.screenStream = null;
   }
+  // Remove screen indicator and restore local video
+  var shareIndicator = document.getElementById('local-screen-indicator');
+  if (shareIndicator) shareIndicator.remove();
+  var localVid = $('local-video');
+  if (localVid && CallState.localStream) { localVid.srcObject = CallState.localStream; localVid.style.display = ''; }
   // Restore camera track or remove screen sender
   if (CallState.originalVideoTrack && CallState.pc) {
     var senders = CallState.pc.getSenders();
@@ -6571,8 +6585,14 @@ function buildLocalScreenThumb() {
 
   var vid = document.createElement('video');
   vid.autoplay = true; vid.playsInline = true; vid.muted = true;
-  vid.srcObject = GC.screenStream;
+  vid.style.display = 'none';
   thumb.appendChild(vid);
+
+  // Show placeholder instead of actual screen to avoid infinite mirror
+  var placeholder = document.createElement('div');
+  placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;flex-direction:column;width:100%;height:100%;background:#1a1a2e;color:#fff;font-size:10px;';
+  placeholder.innerHTML = '<i class="fa-solid fa-display" style="font-size:16px;color:#4fc3f7"></i>';
+  thumb.appendChild(placeholder);
 
   var badge = document.createElement('div');
   badge.className = 'gc-thumb-screen-badge';
@@ -6636,17 +6656,26 @@ function updateGcMainView(id, peer, showScreen) {
       screenStream = peer.stream;
     }
     if (screenStream) {
-      var vid = document.createElement('video');
-      vid.autoplay = true; vid.playsInline = true;
-      vid.srcObject = screenStream;
-      if (isLocal) vid.muted = true;
-      mainView.appendChild(vid);
+      if (isLocal) {
+        // Don't show actual local screen capture to avoid infinite mirror
+        var placeholder = document.createElement('div');
+        placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;flex-direction:column;width:100%;height:100%;background:#1a1a2e;color:#fff;font-size:18px;';
+        placeholder.innerHTML = '<i class="fa-solid fa-display" style="font-size:48px;margin-bottom:12px;color:#4fc3f7"></i><span>You are sharing your screen</span>';
+        mainView.appendChild(placeholder);
+      } else {
+        var vid = document.createElement('video');
+        vid.autoplay = true; vid.playsInline = true;
+        vid.srcObject = screenStream;
+        mainView.appendChild(vid);
+      }
       mainView.classList.add('screen-share');
-      var hint = document.createElement('div');
-      hint.className = 'gc-zoom-hint';
-      hint.innerHTML = '<i class="fa-solid fa-expand"></i> Click to zoom';
-      mainView.appendChild(hint);
-      mainView.onclick = function() { gcOpenScreenZoom(screenStream); };
+      if (!isLocal) {
+        var hint = document.createElement('div');
+        hint.className = 'gc-zoom-hint';
+        hint.innerHTML = '<i class="fa-solid fa-expand"></i> Click to zoom';
+        mainView.appendChild(hint);
+        mainView.onclick = function() { gcOpenScreenZoom(screenStream); };
+      }
     }
     var nameEl = document.createElement('div');
     nameEl.className = 'gc-main-name';
@@ -6891,7 +6920,7 @@ function gcToggleScreenShare() {
 
 function gcStartScreenShare() {
   if (!GC.active) return;
-  navigator.mediaDevices.getDisplayMedia({ video: true, audio: false, monitorTypeSurfaces: 'exclude' }).then(function (screenStream) {
+  navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }).then(function (screenStream) {
     GC.screenStream = screenStream;
     GC.isScreenSharing = true;
     var screenTrack = screenStream.getVideoTracks()[0];
