@@ -7801,7 +7801,8 @@ function startScreenRecord() {
         ScreenRec._audioCtx = null;
       }
       if (ScreenRec.chunks.length > 0) {
-        downloadRecording(ScreenRec.chunks, 'SkyChat_Recording');
+        var durationMs = ScreenRec.startTime ? (Date.now() - ScreenRec.startTime) : 0;
+        downloadRecording(ScreenRec.chunks, 'SkyChat_Recording', durationMs);
       }
       ScreenRec.chunks = [];
       ScreenRec.isRecording = false;
