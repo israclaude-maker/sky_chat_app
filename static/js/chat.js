@@ -7738,8 +7738,39 @@ function toggleScreenRecord() {
 
 function startScreenRecord() {
   if (ScreenRec.isRecording) return;
-  navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).then(function (stream) {
-    ScreenRec.stream = stream;
+  navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).then(function (screenStream) {
+    // Also capture microphone audio and mix with screen audio
+    return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (micStream) {
+      var audioCtx = new AudioContext();
+      var dest = audioCtx.createMediaStreamDestination();
+
+      // Mix microphone audio
+      var micSource = audioCtx.createMediaStreamSource(micStream);
+      micSource.connect(dest);
+
+      // Mix screen/system audio if present
+      if (screenStream.getAudioTracks().length > 0) {
+        var screenAudioSource = audioCtx.createMediaStreamSource(
+          new MediaStream(screenStream.getAudioTracks())
+        );
+        screenAudioSource.connect(dest);
+      }
+
+      // Build combined stream: screen video + mixed audio
+      var combinedStream = new MediaStream();
+      screenStream.getVideoTracks().forEach(function (t) { combinedStream.addTrack(t); });
+      dest.stream.getAudioTracks().forEach(function (t) { combinedStream.addTrack(t); });
+
+      ScreenRec.stream = screenStream;
+      ScreenRec._micStream = micStream;
+      ScreenRec._audioCtx = audioCtx;
+      return combinedStream;
+    }).catch(function () {
+      // Mic denied — record screen-only
+      ScreenRec.stream = screenStream;
+      return screenStream;
+    });
+  }).then(function (stream) {
     ScreenRec.chunks = [];
     ScreenRec.isRecording = true;
 
@@ -7761,6 +7792,14 @@ function startScreenRecord() {
 
     ScreenRec.mediaRecorder.onstop = function () {
       stream.getTracks().forEach(function (t) { t.stop(); });
+      if (ScreenRec._micStream) {
+        ScreenRec._micStream.getTracks().forEach(function (t) { t.stop(); });
+        ScreenRec._micStream = null;
+      }
+      if (ScreenRec._audioCtx) {
+        ScreenRec._audioCtx.close();
+        ScreenRec._audioCtx = null;
+      }
       if (ScreenRec.chunks.length > 0) {
         downloadRecording(ScreenRec.chunks, 'SkyChat_Recording');
       }
@@ -7775,7 +7814,7 @@ function startScreenRecord() {
     updateScreenRecTimer();
     updateScreenRecUI();
 
-    stream.getVideoTracks()[0].onended = function () {
+    ScreenRec.stream.getVideoTracks()[0].onended = function () {
       if (ScreenRec.isRecording) stopScreenRecord();
     };
 
