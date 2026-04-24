@@ -3052,6 +3052,21 @@ body {
   transition: background .2s;
 }
 .screen-rec-stop:hover { background: rgba(255,255,255,.4); }
+.screen-rec-mic {
+  background: rgba(255,255,255,.2);
+  border: none;
+  color: #fff;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .2s, color .2s;
+}
+.screen-rec-mic:hover { background: rgba(255,255,255,.4); }
 
 #screen-rec-btn.rec-active i {
   color: #d32f2f !important;

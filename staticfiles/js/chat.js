@@ -7725,7 +7725,12 @@ var ScreenRec = {
   chunks: [],
   stream: null,
   startTime: null,
-  timerInterval: null
+  timerInterval: null,
+  micEnabled: false,
+  _micStream: null,
+  _audioCtx: null,
+  _micSource: null,
+  _micGain: null
 };
 
 function toggleScreenRecord() {
@@ -7738,38 +7743,32 @@ function toggleScreenRecord() {
 
 function startScreenRecord() {
   if (ScreenRec.isRecording) return;
+  ScreenRec.micEnabled = false;
   navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).then(function (screenStream) {
-    // Also capture microphone audio and mix with screen audio
-    return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (micStream) {
-      var audioCtx = new AudioContext();
-      var dest = audioCtx.createMediaStreamDestination();
+    // Setup audio context for mixing mic + screen audio
+    var audioCtx = new AudioContext();
+    var dest = audioCtx.createMediaStreamDestination();
 
-      // Mix microphone audio
-      var micSource = audioCtx.createMediaStreamSource(micStream);
-      micSource.connect(dest);
+    // Mix screen/system audio if present
+    if (screenStream.getAudioTracks().length > 0) {
+      var screenAudioSource = audioCtx.createMediaStreamSource(
+        new MediaStream(screenStream.getAudioTracks())
+      );
+      screenAudioSource.connect(dest);
+    }
 
-      // Mix screen/system audio if present
-      if (screenStream.getAudioTracks().length > 0) {
-        var screenAudioSource = audioCtx.createMediaStreamSource(
-          new MediaStream(screenStream.getAudioTracks())
-        );
-        screenAudioSource.connect(dest);
-      }
+    ScreenRec.stream = screenStream;
+    ScreenRec._audioCtx = audioCtx;
+    ScreenRec._dest = dest;
+    ScreenRec._micGain = null;
+    ScreenRec._micSource = null;
+    ScreenRec._micStream = null;
 
-      // Build combined stream: screen video + mixed audio
-      var combinedStream = new MediaStream();
-      screenStream.getVideoTracks().forEach(function (t) { combinedStream.addTrack(t); });
-      dest.stream.getAudioTracks().forEach(function (t) { combinedStream.addTrack(t); });
-
-      ScreenRec.stream = screenStream;
-      ScreenRec._micStream = micStream;
-      ScreenRec._audioCtx = audioCtx;
-      return combinedStream;
-    }).catch(function () {
-      // Mic denied — record screen-only
-      ScreenRec.stream = screenStream;
-      return screenStream;
-    });
+    // Build combined stream: screen video + mixed audio
+    var combinedStream = new MediaStream();
+    screenStream.getVideoTracks().forEach(function (t) { combinedStream.addTrack(t); });
+    dest.stream.getAudioTracks().forEach(function (t) { combinedStream.addTrack(t); });
+    return combinedStream;
   }).then(function (stream) {
     ScreenRec.chunks = [];
     ScreenRec.isRecording = true;
@@ -7806,6 +7805,7 @@ function startScreenRecord() {
       }
       ScreenRec.chunks = [];
       ScreenRec.isRecording = false;
+      ScreenRec.micEnabled = false;
       updateScreenRecUI();
     };
 
@@ -7826,6 +7826,38 @@ function startScreenRecord() {
       console.error(err);
     }
   });
+}
+
+function toggleScreenRecMic() {
+  if (!ScreenRec.isRecording || !ScreenRec._audioCtx) return;
+  if (ScreenRec.micEnabled) {
+    // Turn OFF mic
+    if (ScreenRec._micGain) ScreenRec._micGain.gain.value = 0;
+    ScreenRec.micEnabled = false;
+    toast('Mic off', 'i');
+  } else {
+    // Turn ON mic — get mic stream if not already
+    if (ScreenRec._micStream && ScreenRec._micGain) {
+      ScreenRec._micGain.gain.value = 1;
+      ScreenRec.micEnabled = true;
+      toast('Mic on', 's');
+    } else {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (micStream) {
+        ScreenRec._micStream = micStream;
+        ScreenRec._micSource = ScreenRec._audioCtx.createMediaStreamSource(micStream);
+        ScreenRec._micGain = ScreenRec._audioCtx.createGain();
+        ScreenRec._micGain.gain.value = 1;
+        ScreenRec._micSource.connect(ScreenRec._micGain);
+        ScreenRec._micGain.connect(ScreenRec._dest);
+        ScreenRec.micEnabled = true;
+        updateScreenRecUI();
+        toast('Mic on', 's');
+      }).catch(function () {
+        toast('Mic access denied', 'e');
+      });
+    }
+  }
+  updateScreenRecUI();
 }
 
 function stopScreenRecord() {
@@ -7853,9 +7885,17 @@ function updateScreenRecTimer() {
 function updateScreenRecUI() {
   var bar = document.getElementById('screen-rec-bar');
   var btn = document.getElementById('screen-rec-btn');
+  var micBtn = document.getElementById('screen-rec-mic');
   if (ScreenRec.isRecording) {
     if (bar) bar.classList.remove('hidden');
     if (btn) btn.classList.add('rec-active');
+    if (micBtn) {
+      micBtn.innerHTML = ScreenRec.micEnabled
+        ? '<i class="fa-solid fa-microphone"></i>'
+        : '<i class="fa-solid fa-microphone-slash"></i>';
+      micBtn.title = ScreenRec.micEnabled ? 'Mic On' : 'Mic Off';
+      micBtn.style.color = ScreenRec.micEnabled ? '#4fc3f7' : '';
+    }
   } else {
     if (bar) bar.classList.add('hidden');
     if (btn) btn.classList.remove('rec-active');
