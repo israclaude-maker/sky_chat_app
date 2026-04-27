@@ -6400,6 +6400,7 @@ function createGroupPeerConnection(peerId) {
       GC.screenSharers[peerId] = true;
       buildGcScreenThumb(peerId, peer);
       focusGcParticipant(peerId + '_screen');
+      refreshDualScreenView();
       peer.screenStream.onremovetrack = function () {
         peer.screenStream = null;
         delete GC.screenSharers[peerId];
@@ -6407,6 +6408,7 @@ function createGroupPeerConnection(peerId) {
         if (sThumb) sThumb.remove();
         if (gcFocusedId === peerId + '_screen') focusGcParticipant(peerId);
         buildGcThumb(peerId, peer);
+        refreshDualScreenView();
       };
       return;
     }
@@ -6672,7 +6674,53 @@ function updateGcMainView(id, peer, showScreen) {
   if (!mainView) return;
   mainView.innerHTML = '';
   mainView.classList.remove('screen-share');
+  mainView.classList.remove('dual-screen');
   mainView.onclick = null;
+
+  // Check if 2 screens are being shared — show split view
+  var sharerIds = Object.keys(GC.screenSharers);
+  if (GC.isScreenSharing) sharerIds.push('local');
+  // Deduplicate
+  var uniqueSharers = [];
+  sharerIds.forEach(function(sid) { if (uniqueSharers.indexOf(sid) === -1) uniqueSharers.push(sid); });
+
+  if (uniqueSharers.length >= 2) {
+    mainView.classList.add('dual-screen');
+    uniqueSharers.slice(0, 2).forEach(function(sid) {
+      var panel = document.createElement('div');
+      panel.className = 'gc-split-panel';
+      var screenStream = null;
+      var panelName = '';
+      if (sid === 'local') {
+        panelName = 'You';
+        // Show placeholder for local screen
+        var placeholder = document.createElement('div');
+        placeholder.style.cssText = 'display:flex;align-items:center;justify-content:center;flex-direction:column;width:100%;height:100%;background:#1a1a2e;color:#fff;font-size:14px;';
+        placeholder.innerHTML = '<i class="fa-solid fa-display" style="font-size:36px;margin-bottom:8px;color:#4fc3f7"></i><span>Your screen</span>';
+        panel.appendChild(placeholder);
+      } else {
+        var sPeer = GC.peers[sid];
+        panelName = sPeer ? (sPeer.name || 'User') : 'User';
+        screenStream = sPeer ? sPeer.screenStream : null;
+        if (screenStream) {
+          var vid = document.createElement('video');
+          vid.autoplay = true; vid.playsInline = true;
+          vid.srcObject = screenStream;
+          panel.appendChild(vid);
+          (function(ss) {
+            panel.onclick = function() { gcOpenScreenZoom(ss); };
+            panel.style.cursor = 'pointer';
+          })(screenStream);
+        }
+      }
+      var label = document.createElement('div');
+      label.className = 'gc-split-label';
+      label.innerHTML = '<i class="fa-solid fa-display"></i> ' + esc(panelName);
+      panel.appendChild(label);
+      mainView.appendChild(panel);
+    });
+    return;
+  }
 
   var realId = id.toString().replace('_screen', '');
   var isLocal = realId === 'local';
@@ -6734,6 +6782,21 @@ function updateGcMainView(id, peer, showScreen) {
     nameEl.className = 'gc-main-name';
     nameEl.textContent = peer.name || 'User';
     mainView.appendChild(nameEl);
+  }
+}
+
+function refreshDualScreenView() {
+  // If 2+ screens active, re-render main view as split; otherwise re-focus current
+  var sharerIds = Object.keys(GC.screenSharers);
+  if (GC.isScreenSharing) sharerIds.push('local');
+  var uniqueSharers = [];
+  sharerIds.forEach(function(sid) { if (uniqueSharers.indexOf(sid) === -1) uniqueSharers.push(sid); });
+  if (uniqueSharers.length >= 2) {
+    focusGcParticipant(gcFocusedId);
+  } else if (uniqueSharers.length === 1) {
+    // Single screen — focus it
+    var sid = uniqueSharers[0];
+    focusGcParticipant(sid === 'local' ? 'local_screen' : sid + '_screen');
   }
 }
 
@@ -7010,7 +7073,7 @@ function gcToggleScreenShare() {
 
 function gcStartScreenShare() {
   if (!GC.active) return;
-  // Max 4 simultaneous screen shares allowed
+  // Max 2 simultaneous screen shares allowed
   var currentSharers = Object.keys(GC.screenSharers).length;
   if (currentSharers >= 2) {
     toast('Maximum 2 screen shares allowed. Someone must stop sharing first.', 'e');
@@ -7052,7 +7115,8 @@ function gcStartScreenShare() {
     updateGcWaiting();
     buildLocalThumb();
     buildLocalScreenThumb();
-    focusGcParticipant('local_screen');
+    refreshDualScreenView();
+    if (Object.keys(GC.screenSharers).length === 0) focusGcParticipant('local_screen');
 
     // Update button
     var btn = $('gc-screen-btn');
@@ -7110,6 +7174,7 @@ function gcStopScreenShare() {
   // Rebuild local camera thumb and update sidebar visibility
   buildLocalThumb();
   updateGcWaiting();
+  refreshDualScreenView();
   if (gcFocusedId === 'local_screen') focusGcParticipant('local');
   var btn = $('gc-screen-btn');
   if (btn) { btn.classList.remove('screen-active'); btn.innerHTML = '<i class="fa-solid fa-display"></i>'; }
