@@ -6305,6 +6305,12 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
 
   if (isInitiator) {
     var pc = peer.pc;
+    // Ensure offer includes video m-lines so we can RECEIVE camera + screen from peers
+    // even if we're not sending video ourselves (e.g. voice call or camera off)
+    var existingVideoSenders = pc.getSenders().filter(function(s) { return s.track && s.track.kind === 'video'; }).length;
+    for (var i = existingVideoSenders; i < 2; i++) {
+      pc.addTransceiver('video', { direction: 'recvonly' });
+    }
     pc.createOffer().then(function (offer) {
       return pc.setLocalDescription(offer);
     }).then(function () {
