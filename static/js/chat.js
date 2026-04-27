@@ -3820,7 +3820,7 @@ function initCamFxSegmenter(cb) {
       return 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/' + file;
     }
   });
-  seg.setOptions({ modelSelection: 1, selfieMode: true });
+  seg.setOptions({ modelSelection: 1, selfieMode: false });
   seg.onResults(onCamFxResults);
   seg.initialize().then(function() {
     CamFx.segmenter = seg;
