@@ -4984,24 +4984,48 @@ function toggleCam() {
 
   var videoTracks = CallState.localStream.getVideoTracks();
 
-  if (videoTracks.length > 0) {
-    // Already have camera — just toggle enable/disable
-    CallState.isCamOff = !CallState.isCamOff;
-    videoTracks.forEach(function (t) { t.enabled = !CallState.isCamOff; });
+  if (videoTracks.length > 0 && !CallState.isCamOff) {
+    // Camera is ON — turn it OFF: stop track properly
+    CallState.isCamOff = true;
+    videoTracks.forEach(function (t) {
+      t.stop(); // releases camera hardware (light off)
+      CallState.localStream.removeTrack(t);
+      if (CallState.pc) {
+        var senders = CallState.pc.getSenders();
+        for (var i = 0; i < senders.length; i++) {
+          if (senders[i].track === t) {
+            CallState.pc.removeTrack(senders[i]);
+            break;
+          }
+        }
+      }
+    });
+    // Renegotiate
+    if (CallState.pc) {
+      CallState.pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
+        .then(function (offer) { return CallState.pc.setLocalDescription(offer); })
+        .then(function () {
+          var ws = S.globalWs || S.ws;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'screen_offer',
+              target_user_id: CallState.remoteUserId,
+              sdp: CallState.pc.localDescription
+            }));
+          }
+        });
+    }
     updateCamButton();
     updateVideoDisplay();
   } else {
-    // Voice call — no video track yet. Request camera and add it.
+    // Camera is OFF or no video — request camera and add it
     navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, facingMode: 'user' }
     }).then(function (camStream) {
       var videoTrack = camStream.getVideoTracks()[0];
-      // Add to local stream
       CallState.localStream.addTrack(videoTrack);
-      // Add to PeerConnection and renegotiate
       if (CallState.pc) {
         CallState.pc.addTrack(videoTrack, CallState.localStream);
-        // Renegotiate so remote side receives the new video track
         CallState.pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
           .then(function (offer) { return CallState.pc.setLocalDescription(offer); })
           .then(function () {
@@ -5017,14 +5041,12 @@ function toggleCam() {
       }
       CallState.isCamOff = false;
       updateCamButton();
-      // Show local video
       var lv = $('local-video');
       if (lv) { lv.srcObject = CallState.localStream; lv.style.display = 'block'; }
     }).catch(function (err) {
       console.error('Camera access error:', err);
       toast('Could not access camera', 'e');
     });
-    return;
   }
 }
 
@@ -6899,12 +6921,49 @@ function gcToggleCam() {
   if (!GC.active || !GC.localStream) return;
   var videoTracks = GC.localStream.getVideoTracks();
 
-  if (videoTracks.length > 0) {
-    // Already have camera — toggle enable/disable
-    GC.isCamOff = !GC.isCamOff;
-    videoTracks.forEach(function (t) { t.enabled = !GC.isCamOff; });
+  if (videoTracks.length > 0 && !GC.isCamOff) {
+    // Camera is ON — turn it OFF: stop track, remove from stream & peers
+    GC.isCamOff = true;
+    videoTracks.forEach(function (t) {
+      t.stop(); // releases camera hardware (light off)
+      GC.localStream.removeTrack(t);
+      // Remove from all peer connections
+      Object.keys(GC.peers).forEach(function (pid) {
+        var peer = GC.peers[pid];
+        if (peer && peer.pc) {
+          var senders = peer.pc.getSenders();
+          for (var i = 0; i < senders.length; i++) {
+            if (senders[i].track === t) {
+              peer.pc.removeTrack(senders[i]);
+              break;
+            }
+          }
+        }
+      });
+    });
+    // Renegotiate with all peers so they know video is gone
+    Object.keys(GC.peers).forEach(function (pid) {
+      var peer = GC.peers[pid];
+      if (peer && peer.pc) {
+        peer.pc.createOffer().then(function (offer) {
+          return peer.pc.setLocalDescription(offer);
+        }).then(function () {
+          if (S.globalWs && S.globalWs.readyState === 1) {
+            S.globalWs.send(JSON.stringify({
+              type: 'group_call_offer',
+              group_call_id: GC.groupCallId,
+              target_user_id: parseInt(pid),
+              sdp: peer.pc.localDescription,
+            }));
+          }
+        }).catch(function (e) { console.error('GC cam off renegotiate error:', e); });
+      }
+    });
+    syncGcButtonStates();
+    buildLocalThumb();
+    if (gcFocusedId === 'local') focusGcParticipant('local');
   } else {
-    // Voice group call — no video track. Request camera and add to all peers.
+    // Camera is OFF or no video — request camera and add to all peers
     navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
     }).then(function (camStream) {
@@ -6930,7 +6989,6 @@ function gcToggleCam() {
         }
       });
       GC.isCamOff = false;
-      // Update button + rebuild local thumb and main view
       syncGcButtonStates();
       buildLocalThumb();
       if (gcFocusedId === 'local') focusGcParticipant('local');
@@ -6938,13 +6996,7 @@ function gcToggleCam() {
       console.error('Camera error:', err);
       toast('Could not access camera', 'e');
     });
-    return;
   }
-  // Update button and local video display
-  syncGcButtonStates();
-  // Rebuild local thumb and main view for Zoom layout
-  buildLocalThumb();
-  if (gcFocusedId === 'local') focusGcParticipant('local');
 }
 
 // ═══ SCREEN SHARE (GROUP CALL) ═══
