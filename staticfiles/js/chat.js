@@ -3856,7 +3856,7 @@ function onCamFxResults(results) {
   ctx.globalCompositeOperation = 'destination-over';
 
   if (CamFx.mode === 'blur-light' || CamFx.mode === 'blur-heavy') {
-    var blurPx = CamFx.mode === 'blur-light' ? 10 : 25;
+    var blurPx = CamFx.mode === 'blur-light' ? 6 : 16;
     ctx.filter = 'blur(' + blurPx + 'px)';
     ctx.drawImage(results.image, 0, 0, w, h);
     ctx.filter = 'none';
@@ -3901,9 +3901,13 @@ function startCamFxProcessing() {
     document.body.appendChild(CamFx.canvas);
   }
   var settings = videoTrack.getSettings();
-  CamFx.canvas.width = settings.width || 640;
-  CamFx.canvas.height = settings.height || 480;
-  CamFx.ctx = CamFx.canvas.getContext('2d');
+  var srcW = settings.width || 640;
+  var srcH = settings.height || 480;
+  // Use lower resolution for faster processing
+  var scale = Math.min(1, 480 / Math.max(srcW, srcH));
+  CamFx.canvas.width = Math.round(srcW * scale);
+  CamFx.canvas.height = Math.round(srcH * scale);
+  CamFx.ctx = CamFx.canvas.getContext('2d', { willReadFrequently: false });
 
   // Start processing loop
   CamFx.active = true;
@@ -3953,14 +3957,15 @@ function startCamFxProcessing() {
 
 function camFxLoop() {
   if (!CamFx.active || !CamFx.segmenter || !CamFx.rawVideo) return;
+  CamFx.animFrameId = requestAnimationFrame(camFxLoop);
+  if (CamFx._sending) return;
   if (CamFx.rawVideo.readyState >= 2) {
+    CamFx._sending = true;
     CamFx.segmenter.send({ image: CamFx.rawVideo }).then(function() {
-      CamFx.animFrameId = requestAnimationFrame(camFxLoop);
+      CamFx._sending = false;
     }).catch(function() {
-      CamFx.animFrameId = requestAnimationFrame(camFxLoop);
+      CamFx._sending = false;
     });
-  } else {
-    CamFx.animFrameId = requestAnimationFrame(camFxLoop);
   }
 }
 
