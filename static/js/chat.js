@@ -6756,6 +6756,40 @@ function showGroupCallUI() {
     var secs = elapsed % 60;
     $('gc-timer').textContent = (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
   }, 1000);
+
+  // Sync all toolbar button visuals to current state
+  syncGcButtonStates();
+}
+
+function syncGcButtonStates() {
+  // Mic
+  var micBtn = $('gc-mic-btn');
+  if (micBtn) {
+    micBtn.classList.toggle('muted', !!GC.isMuted);
+    micBtn.innerHTML = GC.isMuted ? '<i class="fa-solid fa-microphone-slash"></i>' : '<i class="fa-solid fa-microphone"></i>';
+  }
+  // Camera
+  var camBtn = $('gc-cam-btn');
+  if (camBtn) {
+    var hasVideo = GC.localStream && GC.localStream.getVideoTracks().length > 0;
+    var camOff = !hasVideo || GC.isCamOff;
+    camBtn.classList.toggle('muted', camOff);
+    camBtn.innerHTML = camOff ? '<i class="fa-solid fa-video-slash"></i>' : '<i class="fa-solid fa-video"></i>';
+  }
+  // Screen share
+  var screenBtn = $('gc-screen-btn');
+  if (screenBtn) {
+    screenBtn.classList.toggle('screen-active', !!GC.isScreenSharing);
+    screenBtn.innerHTML = GC.isScreenSharing ? '<i class="fa-solid fa-display"></i><span class="screen-dot"></span>' : '<i class="fa-solid fa-display"></i>';
+  }
+  // Record
+  updateCallRecUI();
+  // Effects
+  var fxBtn = $('gc-cam-fx-btn');
+  if (fxBtn) {
+    var fxActive = typeof CamFx !== 'undefined' && CamFx.activeEffect && CamFx.activeEffect !== 'none';
+    fxBtn.classList.toggle('cam-fx-active', !!fxActive);
+  }
 }
 
 function updateGcWaiting() {
@@ -6853,11 +6887,7 @@ function gcToggleMic() {
   if (GC.localStream) {
     GC.localStream.getAudioTracks().forEach(function (t) { t.enabled = !GC.isMuted; });
   }
-  var btn = $('gc-mic-btn');
-  if (btn) {
-    btn.classList.toggle('muted', GC.isMuted);
-    btn.innerHTML = GC.isMuted ? '<i class="fa-solid fa-microphone-slash"></i>' : '<i class="fa-solid fa-microphone"></i>';
-  }
+  syncGcButtonStates();
 }
 
 function gcToggleCam() {
@@ -6895,7 +6925,8 @@ function gcToggleCam() {
         }
       });
       GC.isCamOff = false;
-      // Rebuild local thumb and main view
+      // Update button + rebuild local thumb and main view
+      syncGcButtonStates();
       buildLocalThumb();
       if (gcFocusedId === 'local') focusGcParticipant('local');
     }).catch(function (err) {
@@ -6905,11 +6936,7 @@ function gcToggleCam() {
     return;
   }
   // Update button and local video display
-  var btn = $('gc-cam-btn');
-  if (btn) {
-    btn.classList.toggle('muted', GC.isCamOff);
-    btn.innerHTML = GC.isCamOff ? '<i class="fa-solid fa-video-slash"></i>' : '<i class="fa-solid fa-video"></i>';
-  }
+  syncGcButtonStates();
   // Rebuild local thumb and main view for Zoom layout
   buildLocalThumb();
   if (gcFocusedId === 'local') focusGcParticipant('local');
