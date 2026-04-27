@@ -7012,8 +7012,8 @@ function gcStartScreenShare() {
   if (!GC.active) return;
   // Max 4 simultaneous screen shares allowed
   var currentSharers = Object.keys(GC.screenSharers).length;
-  if (currentSharers >= 4) {
-    toast('Maximum 4 screen shares allowed. Someone must stop sharing first.', 'e');
+  if (currentSharers >= 2) {
+    toast('Maximum 2 screen shares allowed. Someone must stop sharing first.', 'e');
     return;
   }
   navigator.mediaDevices.getDisplayMedia({ video: true, audio: false, monitorTypeSurfaces: 'include' }).then(function (screenStream) {
