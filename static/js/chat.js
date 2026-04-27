@@ -6505,6 +6505,20 @@ function buildGcThumb(id, peer) {
   label.textContent = peer.name || 'User';
   thumb.appendChild(label);
 
+  // Hover status icons (mic, camera, screen)
+  var audioTracks = peer.stream ? peer.stream.getAudioTracks() : [];
+  var micOn = audioTracks.length > 0 && audioTracks.some(function(t) { return t.enabled; });
+  var camOn = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
+  var screenOn = !!GC.screenSharers[id];
+
+  var statusDiv = document.createElement('div');
+  statusDiv.className = 'gc-thumb-status';
+  statusDiv.innerHTML =
+    '<span class="gc-status-icon ' + (micOn ? 'on' : 'off') + '" title="Mic ' + (micOn ? 'On' : 'Off') + '"><i class="fa-solid fa-microphone' + (micOn ? '' : '-slash') + '"></i></span>' +
+    '<span class="gc-status-icon ' + (camOn ? 'on' : 'off') + '" title="Camera ' + (camOn ? 'On' : 'Off') + '"><i class="fa-solid fa-video' + (camOn ? '' : '-slash') + '"></i></span>' +
+    '<span class="gc-status-icon ' + (screenOn ? 'on' : 'off') + '" title="Screen ' + (screenOn ? 'Sharing' : 'Off') + '"><i class="fa-solid fa-display"></i></span>';
+  thumb.appendChild(statusDiv);
+
   // Track changes
   if (peer.stream) {
     peer.stream.getVideoTracks().forEach(function(track) {
@@ -6558,6 +6572,19 @@ function buildLocalThumb() {
   label.className = 'gc-thumb-name';
   label.textContent = 'You';
   thumb.appendChild(label);
+
+  // Hover status icons (mic, camera, screen)
+  var micOn = !GC.isMuted;
+  var camOn = hasVideo;
+  var screenOn = !!GC.isScreenSharing;
+
+  var statusDiv = document.createElement('div');
+  statusDiv.className = 'gc-thumb-status';
+  statusDiv.innerHTML =
+    '<span class="gc-status-icon ' + (micOn ? 'on' : 'off') + '" title="Mic ' + (micOn ? 'On' : 'Off') + '"><i class="fa-solid fa-microphone' + (micOn ? '' : '-slash') + '"></i></span>' +
+    '<span class="gc-status-icon ' + (camOn ? 'on' : 'off') + '" title="Camera ' + (camOn ? 'On' : 'Off') + '"><i class="fa-solid fa-video' + (camOn ? '' : '-slash') + '"></i></span>' +
+    '<span class="gc-status-icon ' + (screenOn ? 'on' : 'off') + '" title="Screen ' + (screenOn ? 'Sharing' : 'Off') + '"><i class="fa-solid fa-display"></i></span>';
+  thumb.appendChild(statusDiv);
 
   strip.insertBefore(thumb, strip.firstChild);
 }
