@@ -596,6 +596,8 @@ function connectGlobalWS() {
         handleGroupCallEnded(data);
       } else if (data.type === 'gc_screen_toggle') {
         handleGcScreenToggle(data);
+        } else if (data.type === 'gc_recording_toggle') {   // <-- ADD THIS
+        handleGcRecordingToggle(data); 
       } else if (data.type === 'call_upgraded') {
         handleCallUpgraded(data);
       } else if (data.type === 'call_upgrade_notify') {
@@ -5870,6 +5872,8 @@ var GC = {
   originalVideoTrack: null,
   screenSenders: null,
   screenSharers: {},  // { peerId: true } — tracks who is currently screen sharing
+  recordingUser: null,
+  recordingUserName: null,
 };
 
 function startGroupCall(type) {
@@ -8266,85 +8270,78 @@ function toggleCallRecord() {
   if (CallRec.isRecording) {
     stopCallRecord();
   } else {
+    // Block if someone else already recording
+    if (GC.active && GC.recordingUser && GC.recordingUser !== S.user.id) {
+      showGcRecordingBlockAlert();
+      return;
+    }
     startCallRecord();
   }
 }
 
 function startCallRecord() {
   if (CallRec.isRecording) return;
-
-  // Capture current browser tab (SkyChat) — exactly what user sees
+ 
   navigator.mediaDevices.getDisplayMedia({
     video: { displaySurface: 'browser', frameRate: 30 },
     audio: false,
     preferCurrentTab: true,
     selfBrowserSurface: 'include',
     monitorTypeSurfaces: 'exclude'
-  }).then(function (displayStream) {
+  }).then(function(displayStream) {
     try {
       CallRec.displayStream = displayStream;
-
-      // If user stops sharing via browser UI, stop recording too
-      displayStream.getVideoTracks()[0].onended = function () {
+ 
+      displayStream.getVideoTracks()[0].onended = function() {
         if (CallRec.isRecording) stopCallRecord();
       };
-
-      // Mix all call audio (local mic + remote participants)
+ 
       var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       CallRec.audioCtx = audioCtx;
       var dest = audioCtx.createMediaStreamDestination();
-
-      // Local mic audio
+ 
       var localStream = GC.active ? GC.localStream : CallState.localStream;
       if (localStream) {
         var la = localStream.getAudioTracks();
         if (la.length > 0) audioCtx.createMediaStreamSource(new MediaStream(la)).connect(dest);
       }
-
-      // Remote audio
+ 
       if (GC.active) {
-        Object.keys(GC.peers).forEach(function (pid) {
+        Object.keys(GC.peers).forEach(function(pid) {
           var peer = GC.peers[pid];
           if (peer.stream) {
             var ra = peer.stream.getAudioTracks();
             if (ra.length > 0) audioCtx.createMediaStreamSource(new MediaStream(ra)).connect(dest);
-          }
-          if (peer.screenStream) {
-            var sa = peer.screenStream.getAudioTracks();
-            if (sa.length > 0) audioCtx.createMediaStreamSource(new MediaStream(sa)).connect(dest);
           }
         });
       } else if (CallState.remoteStream) {
         var ra = CallState.remoteStream.getAudioTracks();
         if (ra.length > 0) audioCtx.createMediaStreamSource(new MediaStream(ra)).connect(dest);
       }
-
-      // Combine: tab video + mixed call audio
+ 
       var videoTrack = displayStream.getVideoTracks()[0];
       var audioTrack = dest.stream.getAudioTracks()[0];
       var tracks = [videoTrack];
       if (audioTrack) tracks.push(audioTrack);
       CallRec.mixedStream = new MediaStream(tracks);
-
-      // MediaRecorder
+ 
       var options = { mimeType: 'video/webm;codecs=vp9,opus' };
       if (!MediaRecorder.isTypeSupported(options.mimeType)) options = { mimeType: 'video/webm;codecs=vp8,opus' };
       if (!MediaRecorder.isTypeSupported(options.mimeType)) options = { mimeType: 'video/webm' };
-
+ 
       CallRec.mediaRecorder = new MediaRecorder(CallRec.mixedStream, options);
       CallRec.chunks = [];
-
-      CallRec.mediaRecorder.ondataavailable = function (e) {
+ 
+      CallRec.mediaRecorder.ondataavailable = function(e) {
         if (e.data && e.data.size > 0) CallRec.chunks.push(e.data);
       };
-
-      CallRec.mediaRecorder.onstop = function () {
-        // Stop display capture
+ 
+      CallRec.mediaRecorder.onstop = function() {
         if (CallRec.displayStream) {
-          CallRec.displayStream.getTracks().forEach(function (t) { t.stop(); });
+          CallRec.displayStream.getTracks().forEach(function(t) { t.stop(); });
           CallRec.displayStream = null;
         }
-        if (CallRec.audioCtx) CallRec.audioCtx.close().catch(function () { });
+        if (CallRec.audioCtx) CallRec.audioCtx.close().catch(function() {});
         if (CallRec.chunks.length > 0) {
           var label = GC.active ? 'SkyChat_GroupCall' : 'SkyChat_Call';
           var durationMs = CallRec.startTime ? (Date.now() - CallRec.startTime) : 0;
@@ -8356,23 +8353,31 @@ function startCallRecord() {
         CallRec.audioCtx = null;
         updateCallRecUI();
       };
-
+ 
       CallRec.mediaRecorder.start(1000);
       CallRec.isRecording = true;
       CallRec.startTime = Date.now();
       CallRec.timerInterval = setInterval(updateCallRecTimer, 1000);
       updateCallRecTimer();
       updateCallRecUI();
-
+ 
+      // ── GROUP CALL: notify all peers ──
+      if (GC.active) {
+        GC.recordingUser = S.user.id;
+        GC.recordingUserName = (S.user.first_name || S.user.username || 'Someone');
+        gcSendRecordingToggle(true);
+        showGcRecordingIndicator(GC.recordingUserName, true); // show on own screen too
+      }
+ 
       toast('Recording started', 's');
+ 
     } catch (err) {
       toast('Could not start recording', 'e');
       console.error('[REC] error:', err);
-      if (displayStream) displayStream.getTracks().forEach(function (t) { t.stop(); });
-      if (CallRec.audioCtx) CallRec.audioCtx.close().catch(function () { });
+      if (displayStream) displayStream.getTracks().forEach(function(t) { t.stop(); });
+      if (CallRec.audioCtx) CallRec.audioCtx.close().catch(function() {});
     }
-  }).catch(function (err) {
-    // User cancelled the tab picker or permission denied
+  }).catch(function(err) {
     if (err.name !== 'NotAllowedError') {
       toast('Could not start recording', 'e');
       console.error('[REC] getDisplayMedia error:', err);
@@ -8386,6 +8391,154 @@ function stopCallRecord() {
   CallRec.isRecording = false;
   clearInterval(CallRec.timerInterval);
   updateCallRecUI();
+ 
+  // ── GROUP CALL: notify all peers ──
+  if (GC.active) {
+    gcSendRecordingToggle(false);
+    GC.recordingUser = null;
+    GC.recordingUserName = null;
+    hideGcRecordingIndicator();
+    toast('Recording stopped', 's');
+  }
+}
+
+function gcSendRecordingToggle(isRecording) {
+  if (!S.globalWs || S.globalWs.readyState !== 1) return;
+  var myName = (S.user.first_name || S.user.username || 'Someone');
+  Object.keys(GC.peers).forEach(function(pid) {
+    S.globalWs.send(JSON.stringify({
+      type: 'gc_recording_toggle',
+      group_call_id: GC.groupCallId,
+      target_user_id: parseInt(pid),
+      is_recording: isRecording,
+      recorder_id: S.user.id,
+      recorder_name: myName,
+    }));
+  });
+}
+
+function handleGcRecordingToggle(data) {
+  if (data.is_recording) {
+    GC.recordingUser = data.recorder_id;
+    GC.recordingUserName = data.recorder_name;
+    // Show 10-second alert
+    showGcRecordingAlert(data.recorder_name);
+    // Show persistent indicator
+    showGcRecordingIndicator(data.recorder_name, false);
+  } else {
+    GC.recordingUser = null;
+    GC.recordingUserName = null;
+    hideGcRecordingIndicator();
+    toast(data.recorder_name + ' stopped recording', 'i');
+  }
+}
+
+function showGcRecordingAlert(recorderName) {
+  // Remove existing alert if any
+  var old = document.getElementById('gc-rec-alert');
+  if (old) old.remove();
+ 
+  var alert = document.createElement('div');
+  alert.id = 'gc-rec-alert';
+  alert.style.cssText = [
+    'position:fixed',
+    'top:24px',
+    'left:50%',
+    'transform:translateX(-50%)',
+    'background:rgba(220,38,38,0.95)',
+    'color:#fff',
+    'padding:14px 24px',
+    'border-radius:12px',
+    'font-size:15px',
+    'font-weight:500',
+    'z-index:99999',
+    'display:flex',
+    'align-items:center',
+    'gap:12px',
+    'box-shadow:0 8px 32px rgba(0,0,0,0.4)',
+    'animation:gcRecSlideIn 0.4s ease',
+    'max-width:90vw',
+    'text-align:center'
+  ].join(';');
+ 
+  alert.innerHTML =
+    '<i class="fa-solid fa-circle-dot" style="font-size:18px;animation:gcRecPulse 1s infinite;"></i>' +
+    '<span><strong>' + esc(recorderName) + '</strong> has started recording this call</span>' +
+    '<button onclick="this.parentElement.remove()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:13px;margin-left:8px;">OK</button>';
+ 
+  // Add animation keyframes (once)
+  if (!document.getElementById('gc-rec-styles')) {
+    var style = document.createElement('style');
+    style.id = 'gc-rec-styles';
+    style.textContent =
+      '@keyframes gcRecSlideIn{from{transform:translateX(-50%) translateY(-20px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}' +
+      '@keyframes gcRecPulse{0%,100%{opacity:1}50%{opacity:0.4}}';
+    document.head.appendChild(style);
+  }
+ 
+  document.body.appendChild(alert);
+ 
+  // Auto-remove after 10 seconds
+  setTimeout(function() {
+    if (alert.parentElement) {
+      alert.style.opacity = '0';
+      alert.style.transition = 'opacity 0.4s';
+      setTimeout(function() { if (alert.parentElement) alert.remove(); }, 400);
+    }
+  }, 10000);
+}
+ 
+// Persistent recording indicator (top bar in call UI)
+function showGcRecordingIndicator(recorderName, isSelf) {
+  // Remove old if exists
+  var old = document.getElementById('gc-rec-indicator');
+  if (old) old.remove();
+ 
+  var bar = document.createElement('div');
+  bar.id = 'gc-rec-indicator';
+  bar.style.cssText = [
+    'position:absolute',
+    'top:0',
+    'left:0',
+    'right:0',
+    'background:rgba(220,38,38,0.9)',
+    'color:#fff',
+    'font-size:13px',
+    'padding:6px 16px',
+    'display:flex',
+    'align-items:center',
+    'gap:8px',
+    'z-index:100',
+    'justify-content:center'
+  ].join(';');
+ 
+  var label = isSelf
+    ? 'You are recording this call'
+    : esc(recorderName) + ' is recording this call';
+ 
+  bar.innerHTML =
+    '<i class="fa-solid fa-circle-dot" style="animation:gcRecPulse 1s infinite;color:#fca5a5;"></i>' +
+    '<span>' + label + '</span>';
+ 
+  // Insert into gc-ongoing-call overlay
+  var callOverlay = document.getElementById('gc-ongoing-call');
+  if (callOverlay) {
+    callOverlay.style.position = 'relative';
+    callOverlay.insertBefore(bar, callOverlay.firstChild);
+  } else {
+    document.body.appendChild(bar);
+  }
+}
+ 
+function hideGcRecordingIndicator() {
+  var el = document.getElementById('gc-rec-indicator');
+  if (el) el.remove();
+}
+ 
+// Block alert when someone else is already recording
+function showGcRecordingBlockAlert() {
+  var who = GC.recordingUserName || 'Someone';
+  toast(who + ' is already recording this call', 'e');
 }
 
 function updateCallRecTimer() {
