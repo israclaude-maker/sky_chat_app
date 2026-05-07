@@ -4519,10 +4519,11 @@ function doInitWebRTC(isInitiator, callback) {
         e.track.onunmute = function () {
           if (remoteVideo) remoteVideo.style.display = 'block';
           var ongoingAv = $('ongoing-av');
-        if (ongoingAv) ongoingAv.style.display = 'none';
-      };
+          if (ongoingAv) ongoingAv.style.display = 'none';
+        };
+      }
     }
-  };;
+  };
 
   if (isInitiator) {
 
