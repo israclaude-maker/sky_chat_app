@@ -5150,6 +5150,17 @@ function startScreenShare() {
                 target_user_id: CallState.remoteUserId,
                 sdp: CallState.pc.localDescription
               }));
+              ws.send(JSON.stringify({
+          type: 'screen_offer',
+          target_user_id: CallState.remoteUserId,
+          sdp: CallState.pc.localDescription
+        }));
+        // Also notify for camera PIP
+        ws.send(JSON.stringify({
+          type: 'screen_toggle',
+          target_user_id: CallState.remoteUserId,
+          sharing: true
+        }));
             }
           })
           .catch(function (err) { console.error('Screen renegotiate error:', err); });
@@ -5249,6 +5260,11 @@ function stopScreenShare() {
       .catch(function (err) { console.error('Screen stop error:', err); });
  
     // Hide local video (voice call — no camera)
+    ws.send(JSON.stringify({
+          type: 'screen_toggle',
+          target_user_id: CallState.remoteUserId,
+          sharing: false
+        }));
     if (localVid) localVid.style.display = 'none';
   }
  
