@@ -4421,6 +4421,18 @@ function doInitWebRTC(isInitiator, callback) {
     // Boost video bitrate for HD quality
     boostVideoBitrate(CallState.pc);
   }
+ 
+  // Pre-negotiate screen share transceiver (eliminates renegotiation delay)
+  try {
+    var _sc = document.createElement('canvas');
+    _sc.width = 1; _sc.height = 1;
+    var _sctx = _sc.getContext('2d');
+    _sctx.fillStyle = '#000'; _sctx.fillRect(0, 0, 1, 1);
+    CallState._dummyScreenStream = _sc.captureStream(0);
+    CallState._dummyScreenTrack = CallState._dummyScreenStream.getVideoTracks()[0];
+    CallState._preScreenSender = CallState.pc.addTrack(CallState._dummyScreenTrack, CallState._dummyScreenStream);
+    console.log('Pre-negotiated screen share transceiver');
+  } catch (e) { console.warn('Could not pre-negotiate screen transceiver:', e); }
 
   CallState.pc.onicecandidate = function (e) {
     if (e.candidate) {
@@ -4460,44 +4472,53 @@ function doInitWebRTC(isInitiator, callback) {
     }
 
     if (e.track.kind === 'video') {
-      var remoteVideo = $('remote-video');
-      if (remoteVideo) {
-        remoteVideo.srcObject = e.streams[0];
-        remoteVideo.style.display = 'block';
-        remoteVideo.play().catch(function (err) { console.log('Video play error:', err); });
-        // Detect screen share by track label (not by call type — camera can be added to voice call)
-        var isScreen = (e.track.label && (
-          e.track.label.toLowerCase().indexOf('screen') !== -1 ||
-          e.track.label.toLowerCase().indexOf('monitor') !== -1 ||
-          e.track.label.toLowerCase().indexOf('display') !== -1 ||
-          e.track.label.toLowerCase().indexOf('window') !== -1
-        ));
-        if (isScreen) remoteVideo.classList.add('screen-share');
-        else remoteVideo.classList.remove('screen-share');
-        // Also show the avatar area if it's a camera feed in voice call
-        if (!isScreen) {
+      // Check if we already have a live camera stream assigned
+      var hasExistingCamera = CallState.remoteStream &&
+        CallState.remoteStream.getVideoTracks().length > 0 &&
+        CallState.remoteStream.getVideoTracks().some(function(t) { return t.readyState !== 'ended'; });
+ 
+      if (hasExistingCamera) {
+        // Second video track = screen share transceiver (pre-negotiated)
+        console.log('Routing second video track to remote-screen-video');
+        CallState.remoteScreenStream = e.streams[0];
+        var remoteScreenVideo = $('remote-screen-video');
+        if (remoteScreenVideo) {
+          remoteScreenVideo.srcObject = e.streams[0];
+          // Keep hidden until screen_toggle activates it
+        }
+        e.track.onended = function () {
+          if (remoteScreenVideo) {
+            remoteScreenVideo.style.display = 'none';
+            remoteScreenVideo.srcObject = null;
+          }
+          CallState.remoteScreenStream = null;
+          var rv = $('remote-video');
+          if (rv) { rv.classList.remove('screen-pip'); rv.style.cssText = ''; }
+        };
+      } else {
+        // First video track = camera → remote-video
+        var remoteVideo = $('remote-video');
+        if (remoteVideo) {
+          remoteVideo.srcObject = e.streams[0];
+          remoteVideo.style.display = 'block';
+          remoteVideo.play().catch(function (err) { console.log('Video play error:', err); });
           var ongoingAv = $('ongoing-av');
           if (ongoingAv) ongoingAv.style.display = 'none';
         }
-      }
-      // Track ended = camera/screen share stopped on remote
-      e.track.onended = function () {
-        if (remoteVideo) {
-          remoteVideo.classList.remove('screen-share');
-          remoteVideo.style.display = 'none';
-        }
-        // Show avatar again if voice call
-        var ongoingAv = $('ongoing-av');
-        if (ongoingAv) ongoingAv.style.display = 'block';
-      };
-      e.track.onmute = function () {
-        if (remoteVideo) remoteVideo.style.display = 'none';
-        var ongoingAv = $('ongoing-av');
-        if (ongoingAv) ongoingAv.style.display = 'block';
-      };
-      e.track.onunmute = function () {
-        if (remoteVideo) remoteVideo.style.display = 'block';
-        var ongoingAv = $('ongoing-av');
+        CallState.remoteStream = e.streams[0];
+        e.track.onended = function () {
+          if (remoteVideo) remoteVideo.style.display = 'none';
+          var ongoingAv = $('ongoing-av');
+          if (ongoingAv) ongoingAv.style.display = 'block';
+        };
+        e.track.onmute = function () {
+          if (remoteVideo) remoteVideo.style.display = 'none';
+          var ongoingAv = $('ongoing-av');
+          if (ongoingAv) ongoingAv.style.display = 'block';
+        };
+        e.track.onunmute = function () {
+          if (remoteVideo) remoteVideo.style.display = 'block';
+          var ongoingAv = $('ongoing-av');
         if (ongoingAv) ongoingAv.style.display = 'none';
       };
     }
@@ -4902,31 +4923,46 @@ function handleScreenAnswer(data) {
 }
 
 function handleScreenToggle(data) {
-  var remoteVideo = $('remote-video');
-  var ongoingAv   = $('ongoing-av');
+  var remoteVideo       = $('remote-video');
+  var remoteScreenVideo = $('remote-screen-video');
+  var localVid          = $('local-video');
+  var ongoingAv         = $('ongoing-av');
  
   if (data.sharing) {
-    // ── Remote started sharing ──────────────────────────────
-    if (remoteVideo) {
-      remoteVideo.classList.add('screen-share');
-      // Bring remote video to full frame
-      remoteVideo.style.cssText += ';width:100%;height:100%;object-fit:contain;z-index:2;';
+    // ── Remote started sharing screen ───────────────────────
+    // Screen share video is shown as the main view
+    if (remoteScreenVideo) {
+      remoteScreenVideo.style.display = 'block';
+      if (CallState.remoteScreenStream) {
+        remoteScreenVideo.srcObject = CallState.remoteScreenStream;
+        remoteScreenVideo.play().catch(function(e){});
+      }
     }
-    // Push local video to small PIP in corner (don't hide it)
-    // Push local video to small PIP — check actual live tracks, not callType
-    // (camera can open mid voice-call so callType may still be 'voice')
-    var localVid = $('local-video');
+ 
+    // Remote camera becomes small PIP (bottom-left)
+    var hasRemoteCam = remoteVideo && CallState.remoteStream &&
+      CallState.remoteStream.getVideoTracks().length > 0 &&
+      CallState.remoteStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
+    if (hasRemoteCam) {
+      remoteVideo.classList.add('screen-pip');
+      remoteVideo.style.display = 'block';
+    } else if (remoteVideo) {
+      remoteVideo.style.display = 'none';
+    }
+ 
+    // Local camera PIP (bottom-right)
     var hasLocalCam = localVid &&
-                      CallState.localStream &&
-                      CallState.localStream.getVideoTracks().length > 0 &&
-                      CallState.localStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
+      CallState.localStream &&
+      CallState.localStream.getVideoTracks().length > 0 &&
+      CallState.localStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
     if (hasLocalCam) {
       localVid.srcObject = CallState.localStream;
       localVid.style.cssText =
-        'display:block;width:120px;height:80px;position:absolute;bottom:80px;right:16px;' +
-        'border-radius:10px;z-index:10;object-fit:cover;border:2px solid rgba(255,255,255,0.3);';
+        'display:block;width:100px;height:140px;position:absolute;bottom:80px;right:16px;' +
+        'border-radius:10px;z-index:10;object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);';
     }
-    // Hide name/avatar overlay during screen share
+ 
+    // Hide avatar overlay during screen share
     if (ongoingAv) ongoingAv.style.display = 'none';
  
     // Show a small "Screen share" label
@@ -4948,33 +4984,45 @@ function handleScreenToggle(data) {
  
   } else {
     // ── Remote stopped sharing ──────────────────────────────
+    // Hide screen share video
+    if (remoteScreenVideo) {
+      remoteScreenVideo.style.display = 'none';
+      remoteScreenVideo.srcObject = null;
+    }
+    CallState.remoteScreenStream = null;
+ 
+    // Restore remote camera to full view
     if (remoteVideo) {
-      remoteVideo.classList.remove('screen-share');
-      // Reset styles to defaults
+      remoteVideo.classList.remove('screen-pip');
       remoteVideo.style.cssText = '';
       var hasRemoteCam = CallState.remoteStream &&
-  CallState.remoteStream.getVideoTracks().length > 0 &&
-  CallState.remoteStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
-if (!hasRemoteCam) remoteVideo.style.display = 'none';
+        CallState.remoteStream.getVideoTracks().length > 0 &&
+        CallState.remoteStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
+      if (hasRemoteCam) {
+        remoteVideo.style.display = 'block';
+      } else {
+        remoteVideo.style.display = 'none';
+      }
     }
-    // Restore local video to normal PIP size
-    // Restore local video — check actual live tracks, not callType
-    var localVid = $('local-video');
+ 
+    // Restore local video to normal PIP
     var hadLocalCam = localVid &&
-                      CallState.localStream &&
-                      CallState.localStream.getVideoTracks().length > 0 &&
-                      CallState.localStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
+      CallState.localStream &&
+      CallState.localStream.getVideoTracks().length > 0 &&
+      CallState.localStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
     if (hadLocalCam) {
       localVid.style.cssText = '';
       localVid.style.display = 'block';
       localVid.srcObject = CallState.localStream;
-    } else {
-      if (localVid) localVid.style.display = 'none';
+    } else if (localVid) {
+      localVid.style.display = 'none';
     }
+ 
     // Restore avatar only if no active camera
     if (ongoingAv && !hadLocalCam) {
       ongoingAv.style.display = 'block';
     }
+ 
     // Remove screen label
     var lbl = document.getElementById('remote-screen-label');
     if (lbl) lbl.style.display = 'none';
@@ -5001,7 +5049,10 @@ function showOngoingCall() {
   if (remoteVideo) {
     remoteVideo.style.cssText = '';
     remoteVideo.classList.remove('screen-share');
+    remoteVideo.classList.remove('screen-pip');
   }
+  var remoteScreenVideo = $('remote-screen-video');
+  if (remoteScreenVideo) { remoteScreenVideo.style.display = 'none'; remoteScreenVideo.srcObject = null; }
   var localVid = $('local-video');
   if (localVid) localVid.style.cssText = '';
   var ind = document.getElementById('local-screen-indicator');
@@ -5072,7 +5123,7 @@ function updateVideoDisplay() {
   var lv = $('local-video');
   if (!lv) return;
  
-  if (CallState.isCamOff || CallState.isScreenSharing) {
+  if (CallState.isCamOff) {
     lv.style.display = 'none';
     lv.srcObject     = null;
   } else if (CallState.localStream && CallState.localStream.getVideoTracks().length > 0) {
@@ -5115,20 +5166,10 @@ function startScreenShare() {
       CallState.isScreenSharing = true;
       var screenTrack = screenStream.getVideoTracks()[0];
  
-      // ── find existing video sender ──────────────────────────
-      var senders     = CallState.pc.getSenders();
-      var videoSender = null;
-      for (var i = 0; i < senders.length; i++) {
-        if (senders[i].track && senders[i].track.kind === 'video') {
-          videoSender = senders[i];
-          break;
-        }
-      }
- 
-      if (videoSender) {
-        // video call: replace camera track with screen track
-        CallState.originalVideoTrack = videoSender.track;
-        videoSender.replaceTrack(screenTrack);
+      // Use pre-negotiated screen sender (instant, no renegotiation)
+      if (CallState._preScreenSender) {
+        CallState._preScreenSender.replaceTrack(screenTrack);
+        console.log('Screen share: instant replaceTrack on pre-negotiated sender');
         var ws = S.globalWs || S.ws;
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
@@ -5138,7 +5179,7 @@ function startScreenShare() {
           }));
         }
       } else {
-        // voice call: add screen track + renegotiate
+        // Fallback: add screen track + renegotiate
         CallState.screenSender = CallState.pc.addTrack(screenTrack, screenStream);
         CallState.pc.createOffer()
           .then(function (offer) { return CallState.pc.setLocalDescription(offer); })
@@ -5151,16 +5192,10 @@ function startScreenShare() {
                 sdp: CallState.pc.localDescription
               }));
               ws.send(JSON.stringify({
-          type: 'screen_offer',
-          target_user_id: CallState.remoteUserId,
-          sdp: CallState.pc.localDescription
-        }));
-        // Also notify for camera PIP
-        ws.send(JSON.stringify({
-          type: 'screen_toggle',
-          target_user_id: CallState.remoteUserId,
-          sharing: true
-        }));
+                type: 'screen_toggle',
+                target_user_id: CallState.remoteUserId,
+                sharing: true
+              }));
             }
           })
           .catch(function (err) { console.error('Screen renegotiate error:', err); });
@@ -5220,19 +5255,10 @@ function stopScreenShare() {
   // Restore local video element
   var localVid = $('local-video');
  
-  if (CallState.originalVideoTrack && CallState.pc) {
-    // video call: restore camera track in sender
-    var senders = CallState.pc.getSenders();
-    for (var i = 0; i < senders.length; i++) {
-      if (senders[i].track && senders[i].track.kind === 'video') {
-        senders[i].replaceTrack(CallState.originalVideoTrack);
-        break;
-      }
-    }
-    if (localVid && CallState.localStream) {
-      localVid.srcObject  = CallState.localStream;
-      localVid.style.display = 'block';
-    }
+  if (CallState._preScreenSender && CallState.pc) {
+    // Instant: replaceTrack back to dummy (no renegotiation)
+    CallState._preScreenSender.replaceTrack(CallState._dummyScreenTrack || null);
+    console.log('Screen share stopped: instant replaceTrack');
     var ws = S.globalWs || S.ws;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
@@ -5242,7 +5268,7 @@ function stopScreenShare() {
       }));
     }
   } else if (CallState.screenSender && CallState.pc) {
-    // voice call: remove screen sender + renegotiate
+    // Fallback: remove screen sender + renegotiate
     try { CallState.pc.removeTrack(CallState.screenSender); } catch (e) {}
     CallState.screenSender = null;
     CallState.pc.createOffer()
@@ -5255,17 +5281,27 @@ function stopScreenShare() {
             target_user_id: CallState.remoteUserId,
             sdp: CallState.pc.localDescription
           }));
+          ws.send(JSON.stringify({
+            type: 'screen_toggle',
+            target_user_id: CallState.remoteUserId,
+            sharing: false
+          }));
         }
       })
       .catch(function (err) { console.error('Screen stop error:', err); });
+  }
  
-    // Hide local video (voice call — no camera)
-    ws.send(JSON.stringify({
-          type: 'screen_toggle',
-          target_user_id: CallState.remoteUserId,
-          sharing: false
-        }));
-    if (localVid) localVid.style.display = 'none';
+  // Restore local video if camera is on
+  if (localVid && CallState.localStream && !CallState.isCamOff) {
+    var hasCam = CallState.localStream.getVideoTracks().some(function(t) { return t.readyState === 'live'; });
+    if (hasCam) {
+      localVid.srcObject = CallState.localStream;
+      localVid.style.display = 'block';
+    } else {
+      localVid.style.display = 'none';
+    }
+  } else if (localVid) {
+    localVid.style.display = 'none';
   }
  
   CallState.originalVideoTrack = null;
@@ -5380,6 +5416,7 @@ function cleanupCall() {
   cleanupCamFx();
   if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
   if (CallState.screenStream) { CallState.screenStream.getTracks().forEach(function (t) { t.stop(); }); }
+  if (CallState._dummyScreenTrack) { try { CallState._dummyScreenTrack.stop(); } catch(e){} }
   if (CallState.pc)           { CallState.pc.close(); }
   if (CallState.localStream)  { CallState.localStream.getTracks().forEach(function (t) { t.stop(); }); }
   if (CallState.timerInterval){ clearInterval(CallState.timerInterval); }
@@ -5390,7 +5427,9 @@ function cleanupCall() {
   var lbl = document.getElementById('remote-screen-label');
   if (lbl) lbl.remove();
   var rv = $('remote-video');
-  if (rv) { rv.classList.remove('screen-share'); rv.style.cssText = ''; rv.srcObject = null; }
+  if (rv) { rv.classList.remove('screen-share'); rv.classList.remove('screen-pip'); rv.style.cssText = ''; rv.srcObject = null; }
+  var rsv = $('remote-screen-video');
+  if (rsv) { rsv.style.display = 'none'; rsv.srcObject = null; }
   var lv = $('local-video');
   if (lv) { lv.style.cssText = ''; lv.srcObject = null; }
  
@@ -5406,6 +5445,7 @@ function resetCallState() {
   CallState.pc = null;
   CallState.localStream = null;
   CallState.remoteStream = null;
+  CallState.remoteScreenStream = null;
   CallState.timerInterval = null;
   CallState.callStartTime = null;
   CallState.remoteSdp = null;
@@ -5417,6 +5457,10 @@ function resetCallState() {
   CallState.screenStream = null;
   CallState.screenSender = null;
   CallState.originalVideoTrack = null;
+  CallState._preScreenSender = null;
+  if (CallState._dummyScreenTrack) { try { CallState._dummyScreenTrack.stop(); } catch(e){} }
+  CallState._dummyScreenTrack = null;
+  CallState._dummyScreenStream = null;
   if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
 }
 

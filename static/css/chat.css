@@ -1175,6 +1175,30 @@ body {
 #remote-video.screen-share:active {
   cursor: grabbing;
 }
+#remote-screen-video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #0f172a;
+  z-index: 2;
+  display: none;
+}
+#remote-video.screen-pip {
+  position: absolute;
+  bottom: 80px;
+  left: 16px;
+  width: 120px;
+  height: 160px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 2px solid rgba(255,255,255,0.3);
+  z-index: 10;
+  transform: none;
+  cursor: default;
+}
 /* Group call screen share tile - auto focused */
 .gc-peer-tile.screen-share { display: none; }
 .gc-thumb.screen-share {

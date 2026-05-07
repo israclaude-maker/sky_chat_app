@@ -24,7 +24,7 @@
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
     crossorigin="anonymous">
-<link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260427e">
+<link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260507b">
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
 </head>
 
@@ -472,6 +472,7 @@
     <div class="call-screen">
       <audio id="remote-audio" autoplay playsinline></audio>
       <video id="remote-video" autoplay playsinline></video>
+      <video id="remote-screen-video" autoplay playsinline style="display:none;"></video>
       <video id="local-video" autoplay playsinline muted></video>
       <div class="call-info">
         <img class="call-avatar-sm" id="ongoing-av" src="" alt="">
@@ -718,7 +719,7 @@
   <!-- TOASTS -->
   <div id="toasts"></div>
 
-<script src="{% static 'js/chat.js' %}?v=20260427h"></script>
+<script src="{% static 'js/chat.js' %}?v=20260507b"></script>
 
   <!-- Service Worker Registration -->
   <script>
