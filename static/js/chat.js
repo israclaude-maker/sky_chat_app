@@ -4913,10 +4913,17 @@ function handleScreenToggle(data) {
       remoteVideo.style.cssText += ';width:100%;height:100%;object-fit:contain;z-index:2;';
     }
     // Push local video to small PIP in corner (don't hide it)
+    // Push local video to small PIP — check actual live tracks, not callType
+    // (camera can open mid voice-call so callType may still be 'voice')
     var localVid = $('local-video');
-    if (localVid && CallState.callType === 'video') {
-      localVid.style.cssText +=
-        ';width:120px;height:80px;position:absolute;bottom:80px;right:16px;' +
+    var hasLocalCam = localVid &&
+                      CallState.localStream &&
+                      CallState.localStream.getVideoTracks().length > 0 &&
+                      CallState.localStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
+    if (hasLocalCam) {
+      localVid.srcObject = CallState.localStream;
+      localVid.style.cssText =
+        'display:block;width:120px;height:80px;position:absolute;bottom:80px;right:16px;' +
         'border-radius:10px;z-index:10;object-fit:cover;border:2px solid rgba(255,255,255,0.3);';
     }
     // Hide name/avatar overlay during screen share
@@ -4948,14 +4955,21 @@ function handleScreenToggle(data) {
       if (CallState.callType !== 'video') remoteVideo.style.display = 'none';
     }
     // Restore local video to normal PIP size
+    // Restore local video — check actual live tracks, not callType
     var localVid = $('local-video');
-    if (localVid && CallState.callType === 'video') {
-      localVid.style.cssText = '';            // clear inline overrides
+    var hadLocalCam = localVid &&
+                      CallState.localStream &&
+                      CallState.localStream.getVideoTracks().length > 0 &&
+                      CallState.localStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
+    if (hadLocalCam) {
+      localVid.style.cssText = '';
       localVid.style.display = 'block';
       localVid.srcObject = CallState.localStream;
+    } else {
+      if (localVid) localVid.style.display = 'none';
     }
-    // Restore avatar if voice call
-    if (ongoingAv && CallState.callType !== 'video') {
+    // Restore avatar only if no active camera
+    if (ongoingAv && !hadLocalCam) {
       ongoingAv.style.display = 'block';
     }
     // Remove screen label
