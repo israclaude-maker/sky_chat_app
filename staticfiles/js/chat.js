@@ -4421,18 +4421,6 @@ function doInitWebRTC(isInitiator, callback) {
     // Boost video bitrate for HD quality
     boostVideoBitrate(CallState.pc);
   }
- 
-  // Pre-negotiate screen share transceiver (eliminates renegotiation delay)
-  try {
-    var _sc = document.createElement('canvas');
-    _sc.width = 1; _sc.height = 1;
-    var _sctx = _sc.getContext('2d');
-    _sctx.fillStyle = '#000'; _sctx.fillRect(0, 0, 1, 1);
-    CallState._dummyScreenStream = _sc.captureStream(0);
-    CallState._dummyScreenTrack = CallState._dummyScreenStream.getVideoTracks()[0];
-    CallState._preScreenSender = CallState.pc.addTrack(CallState._dummyScreenTrack, CallState._dummyScreenStream);
-    console.log('Pre-negotiated screen share transceiver');
-  } catch (e) { console.warn('Could not pre-negotiate screen transceiver:', e); }
 
   CallState.pc.onicecandidate = function (e) {
     if (e.candidate) {
@@ -5167,40 +5155,26 @@ function startScreenShare() {
       CallState.isScreenSharing = true;
       var screenTrack = screenStream.getVideoTracks()[0];
  
-      // Use pre-negotiated screen sender (instant, no renegotiation)
-      if (CallState._preScreenSender) {
-        CallState._preScreenSender.replaceTrack(screenTrack);
-        console.log('Screen share: instant replaceTrack on pre-negotiated sender');
-        var ws = S.globalWs || S.ws;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'screen_toggle',
-            target_user_id: CallState.remoteUserId,
-            sharing: true
-          }));
-        }
-      } else {
-        // Fallback: add screen track + renegotiate
-        CallState.screenSender = CallState.pc.addTrack(screenTrack, screenStream);
-        CallState.pc.createOffer()
-          .then(function (offer) { return CallState.pc.setLocalDescription(offer); })
-          .then(function () {
-            var ws = S.globalWs || S.ws;
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({
-                type: 'screen_offer',
-                target_user_id: CallState.remoteUserId,
-                sdp: CallState.pc.localDescription
-              }));
-              ws.send(JSON.stringify({
-                type: 'screen_toggle',
-                target_user_id: CallState.remoteUserId,
-                sharing: true
-              }));
-            }
-          })
-          .catch(function (err) { console.error('Screen renegotiate error:', err); });
-      }
+      // Add screen track as new sender + renegotiate
+      CallState.screenSender = CallState.pc.addTrack(screenTrack, screenStream);
+      CallState.pc.createOffer()
+        .then(function (offer) { return CallState.pc.setLocalDescription(offer); })
+        .then(function () {
+          var ws = S.globalWs || S.ws;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'screen_offer',
+              target_user_id: CallState.remoteUserId,
+              sdp: CallState.pc.localDescription
+            }));
+            ws.send(JSON.stringify({
+              type: 'screen_toggle',
+              target_user_id: CallState.remoteUserId,
+              sharing: true
+            }));
+          }
+        })
+        .catch(function (err) { console.error('Screen renegotiate error:', err); });
  
       // ── local video area: hide video, show indicator ────────
       var localVid  = $('local-video');
@@ -5256,20 +5230,8 @@ function stopScreenShare() {
   // Restore local video element
   var localVid = $('local-video');
  
-  if (CallState._preScreenSender && CallState.pc) {
-    // Instant: replaceTrack back to dummy (no renegotiation)
-    CallState._preScreenSender.replaceTrack(CallState._dummyScreenTrack || null);
-    console.log('Screen share stopped: instant replaceTrack');
-    var ws = S.globalWs || S.ws;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: 'screen_toggle',
-        target_user_id: CallState.remoteUserId,
-        sharing: false
-      }));
-    }
-  } else if (CallState.screenSender && CallState.pc) {
-    // Fallback: remove screen sender + renegotiate
+  if (CallState.screenSender && CallState.pc) {
+    // Remove screen sender + renegotiate
     try { CallState.pc.removeTrack(CallState.screenSender); } catch (e) {}
     CallState.screenSender = null;
     CallState.pc.createOffer()
@@ -5417,7 +5379,6 @@ function cleanupCall() {
   cleanupCamFx();
   if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
   if (CallState.screenStream) { CallState.screenStream.getTracks().forEach(function (t) { t.stop(); }); }
-  if (CallState._dummyScreenTrack) { try { CallState._dummyScreenTrack.stop(); } catch(e){} }
   if (CallState.pc)           { CallState.pc.close(); }
   if (CallState.localStream)  { CallState.localStream.getTracks().forEach(function (t) { t.stop(); }); }
   if (CallState.timerInterval){ clearInterval(CallState.timerInterval); }
@@ -5458,10 +5419,6 @@ function resetCallState() {
   CallState.screenStream = null;
   CallState.screenSender = null;
   CallState.originalVideoTrack = null;
-  CallState._preScreenSender = null;
-  if (CallState._dummyScreenTrack) { try { CallState._dummyScreenTrack.stop(); } catch(e){} }
-  CallState._dummyScreenTrack = null;
-  CallState._dummyScreenStream = null;
   if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
 }
 
