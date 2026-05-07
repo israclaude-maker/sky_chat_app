@@ -4952,7 +4952,10 @@ function handleScreenToggle(data) {
       remoteVideo.classList.remove('screen-share');
       // Reset styles to defaults
       remoteVideo.style.cssText = '';
-      if (CallState.callType !== 'video') remoteVideo.style.display = 'none';
+      var hasRemoteCam = CallState.remoteStream &&
+  CallState.remoteStream.getVideoTracks().length > 0 &&
+  CallState.remoteStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
+if (!hasRemoteCam) remoteVideo.style.display = 'none';
     }
     // Restore local video to normal PIP size
     // Restore local video — check actual live tracks, not callType
@@ -6095,11 +6098,10 @@ function dismissGroupCallPopup(groupId) {
 }
 
 function stopGcRingtone() {
+  var rt = $('ringtone');
+  if (rt) { rt.pause(); rt.currentTime = 0; }
   var anyPopup = document.querySelector('.gc-call-popup');
-  if (!anyPopup) {
-    var rt = $('ringtone');
-    if (rt) { rt.pause(); rt.currentTime = 0; }
-  }
+  if (anyPopup) anyPopup.remove();
 }
 
 function playGcRingtone() {
