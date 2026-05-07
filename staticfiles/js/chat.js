@@ -4438,9 +4438,9 @@ function doInitWebRTC(isInitiator, callback) {
 
   CallState.pc.ontrack = function (e) {
     console.log('Remote track received:', e.track.kind);
-    CallState.remoteStream = e.streams[0];
 
     if (e.track.kind === 'audio') {
+      CallState.remoteStream = e.streams[0];
       var remoteAudio = $('remote-audio');
       if (remoteAudio) {
         remoteAudio.srcObject = e.streams[0];
@@ -4460,13 +4460,14 @@ function doInitWebRTC(isInitiator, callback) {
     }
 
     if (e.track.kind === 'video') {
-      // Check if we already have a live camera stream assigned
-      var hasExistingCamera = CallState.remoteStream &&
-        CallState.remoteStream.getVideoTracks().length > 0 &&
-        CallState.remoteStream.getVideoTracks().some(function(t) { return t.readyState !== 'ended'; });
+      // Check if we already have a camera video element assigned
+      var existingRemoteVideo = $('remote-video');
+      var hasExistingCamera = existingRemoteVideo && existingRemoteVideo.srcObject &&
+        existingRemoteVideo.srcObject.getVideoTracks().length > 0 &&
+        existingRemoteVideo.srcObject.getVideoTracks().some(function(t) { return t.readyState !== 'ended'; });
  
       if (hasExistingCamera) {
-        // Second video track = screen share transceiver (pre-negotiated)
+        // Second video track = screen share
         console.log('Routing second video track to remote-screen-video');
         CallState.remoteScreenStream = e.streams[0];
         var remoteScreenVideo = $('remote-screen-video');
