@@ -5177,36 +5177,33 @@ function startScreenShare() {
         })
         .catch(function (err) { console.error('Screen renegotiate error:', err); });
  
-      // ── local video area: hide video, show indicator ────────
+      // ── local video: keep camera visible as small PIP ────────
       var localVid  = $('local-video');
-      var localWrap = localVid ? localVid.parentElement : null;
- 
-      if (localVid) {
-        localVid.style.display = 'none';
-        localVid.srcObject     = null;   // release camera preview
+      if (localVid && CallState.localStream && !CallState.isCamOff) {
+        var hasCam = CallState.localStream.getVideoTracks().some(function(t) { return t.readyState === 'live'; });
+        if (hasCam) {
+          localVid.srcObject = CallState.localStream;
+          localVid.style.cssText =
+            'display:block;width:100px;height:140px;position:absolute;bottom:80px;right:16px;' +
+            'border-radius:10px;z-index:12;object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);';
+        }
       }
  
-      // Remove stale indicator first
+      // ── Show "Sharing screen" indicator overlay on screen ────
       var old = document.getElementById('local-screen-indicator');
       if (old) old.remove();
- 
-      if (localWrap) {
-        // Make sure parent can contain absolute children
-        if (getComputedStyle(localWrap).position === 'static') {
-          localWrap.style.position = 'relative';
-        }
+      var callScreen = $('ongoing-call');
+      if (callScreen) {
         var ind = document.createElement('div');
         ind.id  = 'local-screen-indicator';
-        ind.style.cssText = [
-          'position:absolute', 'inset:0', 'display:flex',
-          'flex-direction:column', 'align-items:center', 'justify-content:center',
-          'background:#0f0f1a', 'border-radius:12px', 'color:#fff',
-          'font-size:12px', 'gap:6px', 'z-index:5', 'pointer-events:none'
-        ].join(';');
+        ind.style.cssText =
+          'position:absolute;bottom:80px;left:16px;display:flex;align-items:center;gap:6px;' +
+          'background:rgba(0,0,0,0.6);color:#fff;font-size:12px;padding:6px 14px;' +
+          'border-radius:20px;z-index:20;pointer-events:none;';
         ind.innerHTML =
-          '<i class="fa-solid fa-display" style="font-size:22px;color:#4fc3f7;"></i>' +
+          '<i class="fa-solid fa-display" style="color:#4fc3f7;"></i>' +
           '<span>Sharing screen</span>';
-        localWrap.appendChild(ind);
+        callScreen.appendChild(ind);
       }
  
       updateScreenBtn(true);
@@ -5260,11 +5257,14 @@ function stopScreenShare() {
     var hasCam = CallState.localStream.getVideoTracks().some(function(t) { return t.readyState === 'live'; });
     if (hasCam) {
       localVid.srcObject = CallState.localStream;
+      localVid.style.cssText = '';  // reset to default CSS position
       localVid.style.display = 'block';
     } else {
+      localVid.style.cssText = '';
       localVid.style.display = 'none';
     }
   } else if (localVid) {
+    localVid.style.cssText = '';
     localVid.style.display = 'none';
   }
  
