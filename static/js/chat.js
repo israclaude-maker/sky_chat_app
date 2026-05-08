@@ -6383,16 +6383,27 @@ function handleGroupCallUserJoined(data) {
 
 function handleGroupCallOffer(data) {
   var fromId = data.from_user_id;
-  // Create peer for this user (we are the receiver of the offer)
-  var peer = GC.peers[fromId];
-  if (!peer) {
-    peer = createGroupPeerConnection(fromId);
-    GC.peers[fromId] = peer;
+  // Always create a FRESH peer connection for incoming offers
+  // (handles rejoin case where old peer might be stale/closed)
+  var oldPeer = GC.peers[fromId];
+  if (oldPeer) {
+    console.log('[GC] handleGroupCallOffer: replacing old peer for', fromId, 'state:', oldPeer.pc.connectionState);
+    try { oldPeer.pc.close(); } catch(e) {}
+    // Remove old UI elements
+    var oldThumb = document.getElementById('gc-thumb-' + fromId);
+    if (oldThumb) oldThumb.remove();
+    var oldSThumb = document.getElementById('gc-thumb-' + fromId + '_screen');
+    if (oldSThumb) oldSThumb.remove();
+    delete GC.peers[fromId];
   }
+  var peer = createGroupPeerConnection(fromId);
+  GC.peers[fromId] = peer;
   if (data.from_user_name) peer.name = data.from_user_name;
   if (data.from_user_pic) peer.pic = data.from_user_pic;
   var pc = peer.pc;
+  console.log('[GC] handleGroupCallOffer: setting remote desc, local tracks:', pc.getSenders().length, 'transceivers:', pc.getTransceivers().length);
   pc.setRemoteDescription(new RTCSessionDescription(data.sdp)).then(function () {
+    console.log('[GC] handleGroupCallOffer: remote desc set, creating answer. transceivers:', pc.getTransceivers().length);
     return pc.createAnswer();
   }).then(function (answer) {
     return pc.setLocalDescription(answer);
@@ -6410,8 +6421,9 @@ function handleGroupCallOffer(data) {
       peer.pendingIce.forEach(function (c) { pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {}); });
       peer.pendingIce = [];
     }
-    // Re-render peer tile to pick up new video tracks from renegotiation
+    // Re-render peer tile to pick up new video tracks
     setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 500);
+    setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 1500);
   }).catch(function (err) { console.error('Group offer handle error:', err); });
 }
 
@@ -6419,14 +6431,20 @@ function handleGroupCallAnswer(data) {
   var fromId = data.from_user_id;
   var peer = GC.peers[fromId];
   if (!peer) return;
+  console.log('[GC] handleGroupCallAnswer: setting remote desc for peer', fromId);
   peer.pc.setRemoteDescription(new RTCSessionDescription(data.sdp)).then(function () {
+    console.log('[GC] handleGroupCallAnswer: remote desc set, transceivers:', peer.pc.getTransceivers().length);
     if (peer.pendingIce) {
       peer.pendingIce.forEach(function (c) { peer.pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {}); });
       peer.pendingIce = [];
     }
     // Re-render peer tile to pick up video tracks after answer is set
-    setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 500);
+    setTimeout(function() {
+      console.log('[GC] handleGroupCallAnswer render check:', fromId, 'stream:', !!peer.stream, 'videoTracks:', peer.stream ? peer.stream.getVideoTracks().length : 0);
+      renderGroupCallPeer(fromId, peer);
+    }, 500);
     setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 1500);
+    setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 3000);
   }).catch(function (err) { console.error('Group answer error:', err); });
 }
 
@@ -6473,6 +6491,13 @@ function handleGroupCallUserLeft(data) {
 }
 
 function createGroupPeer(peerId, name, pic, isInitiator) {
+  // Close old peer if exists (e.g. rejoin scenario)
+  var oldPeer = GC.peers[peerId];
+  if (oldPeer) {
+    console.log('[GC] createGroupPeer: replacing old peer for', peerId);
+    try { oldPeer.pc.close(); } catch(e) {}
+    delete GC.peers[peerId];
+  }
   var peer = createGroupPeerConnection(peerId);
   peer.name = name;
   peer.pic = pic;
@@ -6517,7 +6542,6 @@ function createGroupPeerConnection(peerId) {
     GC.localStream.getTracks().forEach(function (track) {
       pc.addTrack(track, GC.localStream);
     });
-    boostVideoBitrate(pc);
   }
   // If we are screen sharing, also add screen track as separate stream
   if (GC.isScreenSharing && GC.screenStream) {
@@ -6526,6 +6550,12 @@ function createGroupPeerConnection(peerId) {
     });
     GC.screenSenders = GC.screenSenders || {};
   }
+
+  setupGroupPeerHandlers(pc, peer, peerId);
+  return peer;
+}
+
+function setupGroupPeerHandlers(pc, peer, peerId) {
 
   pc.onicecandidate = function (event) {
     if (event.candidate && S.globalWs && S.globalWs.readyState === 1) {
@@ -6539,9 +6569,11 @@ function createGroupPeerConnection(peerId) {
   };
 
   pc.ontrack = function (event) {
+    console.log('[GC] ontrack fired for peer', peerId, 'track:', event.track.kind, 'readyState:', event.track.readyState, 'streams:', event.streams.length);
     var incomingStream = event.streams[0];
     // Handle case where track is not associated with any stream
     if (!incomingStream) {
+      console.log('[GC] ontrack: no stream, creating manual stream for peer', peerId);
       if (!peer.stream) peer.stream = new MediaStream();
       peer.stream.addTrack(event.track);
       renderGroupCallPeer(peerId, peer);
@@ -6582,15 +6614,22 @@ function createGroupPeerConnection(peerId) {
   };
 
   pc.onconnectionstatechange = function () {
+    console.log('[GC] peer', peerId, 'connectionState:', pc.connectionState);
     if (pc.connectionState === 'connected') {
       // Force re-render once media is actually flowing
-      setTimeout(function() { renderGroupCallPeer(peerId, peer); }, 300);
-    } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-      console.log('Peer ' + peerId + ' connection ' + pc.connectionState);
+      setTimeout(function() {
+        console.log('[GC] connected render for', peerId, 'stream:', !!peer.stream, 'videoTracks:', peer.stream ? peer.stream.getVideoTracks().length : 0);
+        renderGroupCallPeer(peerId, peer);
+      }, 300);
+      setTimeout(function() { renderGroupCallPeer(peerId, peer); }, 1000);
+      setTimeout(function() { renderGroupCallPeer(peerId, peer); }, 2500);
+    } else if (pc.connectionState === 'failed') {
+      console.log('Peer ' + peerId + ' connection failed, restarting ICE');
+      pc.restartIce();
+    } else if (pc.connectionState === 'disconnected') {
+      console.log('Peer ' + peerId + ' connection disconnected');
     }
   };
-
-  return peer;
 }
 
 // Zoom-like focused participant
@@ -6641,6 +6680,7 @@ function buildGcThumb(id, peer) {
     var vid = document.createElement('video');
     vid.autoplay = true; vid.playsInline = true; vid.muted = true;
     vid.srcObject = peer.stream;
+    vid.play().catch(function(e) { console.log('[GC] thumb video play error:', e); });
     thumb.appendChild(vid);
   } else {
     // Show avatar
@@ -6655,6 +6695,7 @@ function buildGcThumb(id, peer) {
     var audio = document.createElement('audio');
     audio.autoplay = true;
     audio.srcObject = peer.stream;
+    audio.play().catch(function(e) { console.log('[GC] thumb audio play error:', e); });
     thumb.appendChild(audio);
   }
 
@@ -6953,10 +6994,11 @@ function updateGcMainView(id, peer, showScreen) {
     var hasActiveVideo = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
     if (hasActiveVideo && peer.stream) {
       var vid = document.createElement('video');
-      vid.autoplay = true; vid.playsInline = true;
+      vid.autoplay = true; vid.playsInline = true; vid.muted = true;
       vid.srcObject = peer.stream;
-      if (isLocal) { vid.muted = true; vid.style.transform = 'scaleX(-1)'; }
+      if (isLocal) { vid.style.transform = 'scaleX(-1)'; }
       mainView.appendChild(vid);
+      vid.play().catch(function(e) { console.log('[GC] main video play error:', e); });
     } else {
       var av = document.createElement('img');
       av.className = 'gc-main-av';
