@@ -6525,12 +6525,16 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
 
   if (isInitiator) {
     var pc = peer.pc;
-    // Create offer that explicitly requests to receive audio and video
-    // This matches how 1-on-1 calls work (which succeed)
-    pc.createOffer({
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: true
-    }).then(function (offer) {
+    // Ensure we have enough video transceivers to receive camera + screen from peer
+    // Local addTrack creates sendrecv transceivers for our own tracks
+    // We need extra recvonly transceivers for any video we don't send but want to receive
+    var videoSenderCount = pc.getSenders().filter(function(s) { return s.track && s.track.kind === 'video'; }).length;
+    // We want at least 2 video m-lines (1 for camera exchange, 1 for screen receive)
+    var needed = 2 - videoSenderCount;
+    for (var i = 0; i < needed; i++) {
+      pc.addTransceiver('video', { direction: 'recvonly' });
+    }
+    pc.createOffer().then(function (offer) {
       return pc.setLocalDescription(offer);
     }).then(function () {
       if (S.globalWs && S.globalWs.readyState === 1) {
@@ -6541,7 +6545,7 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
           sdp: pc.localDescription,
         }));
       }
-      console.log('[GC] Offer sent to peer', peerId);
+      console.log('[GC] Offer sent to peer', peerId, 'transceivers:', pc.getTransceivers().length);
     }).catch(function (err) { console.error('Group offer create error:', err); });
   }
   return peer;
