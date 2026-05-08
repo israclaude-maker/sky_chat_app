@@ -6424,6 +6424,9 @@ function handleGroupCallAnswer(data) {
       peer.pendingIce.forEach(function (c) { peer.pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {}); });
       peer.pendingIce = [];
     }
+    // Re-render peer tile to pick up video tracks after answer is set
+    setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 500);
+    setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 1500);
   }).catch(function (err) { console.error('Group answer error:', err); });
 }
 
@@ -6537,6 +6540,13 @@ function createGroupPeerConnection(peerId) {
 
   pc.ontrack = function (event) {
     var incomingStream = event.streams[0];
+    // Handle case where track is not associated with any stream
+    if (!incomingStream) {
+      if (!peer.stream) peer.stream = new MediaStream();
+      peer.stream.addTrack(event.track);
+      renderGroupCallPeer(peerId, peer);
+      return;
+    }
     // If this is a second stream (screen share), store separately
     if (peer.stream && incomingStream && incomingStream.id !== peer.stream.id) {
       peer.screenStream = incomingStream;
@@ -6572,7 +6582,10 @@ function createGroupPeerConnection(peerId) {
   };
 
   pc.onconnectionstatechange = function () {
-    if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+    if (pc.connectionState === 'connected') {
+      // Force re-render once media is actually flowing
+      setTimeout(function() { renderGroupCallPeer(peerId, peer); }, 300);
+    } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
       console.log('Peer ' + peerId + ' connection ' + pc.connectionState);
     }
   };

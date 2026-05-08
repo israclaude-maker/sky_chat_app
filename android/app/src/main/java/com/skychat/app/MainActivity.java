@@ -55,7 +55,7 @@ import com.google.firebase.messaging.FirebaseMessaging;
 
 public class MainActivity extends Activity {
 
-    private static final String APP_URL = "https://sky-chat.duckdns.org/chat/";
+    private static final String APP_URL = "https://skyfinancia.com/chat/";
     private static final int PERMISSION_REQUEST_CODE = 1001;
     private static final int FILE_CHOOSER_REQUEST = 1002;
     private static final int SCREEN_CAPTURE_REQUEST = 1003;
@@ -451,7 +451,7 @@ public class MainActivity extends Activity {
                                 okhttp3.MediaType JSON = okhttp3.MediaType.parse("application/json; charset=utf-8");
                                 String body = "{\"token\":\"" + fcmToken + "\",\"device_type\":\"android\"}";
                                 okhttp3.Request request = new okhttp3.Request.Builder()
-                                    .url("https://sky-chat.duckdns.org/api/users/fcm_register/")
+                                    .url("https://skyfinancia.com/api/users/fcm_register/")
                                     .header("Authorization", "Bearer " + authToken)
                                     .post(okhttp3.RequestBody.create(body, JSON))
                                     .build();
