@@ -6366,18 +6366,23 @@ function joinGroupCallFromBanner() {
 }
 
 function handleGroupCallJoined(data) {
-  // We joined — create peer connections to all existing participants
+  // We joined — DON'T create offers. Existing participants will send offers to us.
+  // Just store participant info for reference.
   var participants = data.participants || [];
+  console.log('[GC] handleGroupCallJoined: expecting offers from', participants.length, 'existing participants');
   participants.forEach(function (p) {
-    createGroupPeer(p.id, p.name, p.pic, true);
+    console.log('[GC]   participant:', p.id, p.name);
   });
 }
 
 function handleGroupCallUserJoined(data) {
-  // Someone joined — stop ringtone/ringback since the call is now connected
+  // Someone joined — WE (existing user) create the offer and send to the joiner.
+  // This ensures our camera/screen tracks are properly included in the offer.
   stopAllRingtones();
   stopGcRingtone();
   toast(data.user_name + ' joined the call', 's');
+  console.log('[GC] handleGroupCallUserJoined: creating offer for new joiner', data.user_id, data.user_name);
+  createGroupPeer(data.user_id, data.user_name, data.user_pic, true);
   updateGroupCallParticipantCount();
 }
 
@@ -6518,16 +6523,12 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
 
   if (isInitiator) {
     var pc = peer.pc;
-    // Ensure we have enough video transceivers to receive camera + screen from peer
-    // Local addTrack creates sendrecv transceivers for our own tracks
-    // We need extra recvonly transceivers for any video we don't send but want to receive
-    var videoSenderCount = pc.getSenders().filter(function(s) { return s.track && s.track.kind === 'video'; }).length;
-    // We want at least 2 video m-lines (1 for camera exchange, 1 for screen receive)
-    var needed = 2 - videoSenderCount;
-    for (var i = 0; i < needed; i++) {
-      pc.addTransceiver('video', { direction: 'recvonly' });
-    }
-    pc.createOffer().then(function (offer) {
+    // Use offerToReceiveAudio/Video like 1-on-1 calls (proven to work)
+    // No extra recvonly transceivers — screen share handled via renegotiation
+    pc.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true
+    }).then(function (offer) {
       return pc.setLocalDescription(offer);
     }).then(function () {
       if (S.globalWs && S.globalWs.readyState === 1) {
@@ -6539,6 +6540,9 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
         }));
       }
       console.log('[GC] Offer sent to peer', peerId, 'transceivers:', pc.getTransceivers().length);
+      pc.getTransceivers().forEach(function(t, i) {
+        console.log('[GC]   offer t[' + i + ']', t.mid, t.direction, 'sender:', t.sender.track ? t.sender.track.kind : 'null');
+      });
     }).catch(function (err) { console.error('Group offer create error:', err); });
   }
   return peer;
