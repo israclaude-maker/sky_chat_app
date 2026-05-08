@@ -6394,36 +6394,24 @@ function handleGroupCallOffer(data) {
     var oldSThumb = document.getElementById('gc-thumb-' + fromId + '_screen');
     if (oldSThumb) oldSThumb.remove();
     delete GC.peers[fromId];
+    delete GC.screenSharers[fromId];
   }
 
-  // Create bare PC (no local tracks yet) — we add tracks AFTER setRemoteDescription
-  // This is the correct WebRTC answerer pattern: set remote first, then add tracks
-  var pc = new RTCPeerConnection(rtcConfig);
-  var peer = { pc: pc, stream: null, pendingIce: [] };
-  if (GC.pendingIceByUser && GC.pendingIceByUser[fromId]) {
-    peer.pendingIce = GC.pendingIceByUser[fromId];
-    delete GC.pendingIceByUser[fromId];
-  }
-  setupGroupPeerHandlers(pc, peer, fromId);
+  // Standard WebRTC pattern: add tracks FIRST, then setRemoteDescription, then createAnswer
+  // This matches 1-on-1 calls (doInitWebRTC) which work perfectly
+  var peer = createGroupPeerConnection(fromId);
   GC.peers[fromId] = peer;
   if (data.from_user_name) peer.name = data.from_user_name;
   if (data.from_user_pic) peer.pic = data.from_user_pic;
+  var pc = peer.pc;
 
-  console.log('[GC] handleGroupCallOffer from', fromId, '- setting remote desc');
+  console.log('[GC] handleGroupCallOffer from', fromId, '- senders:', pc.getSenders().length, 'setting remote desc');
   pc.setRemoteDescription(new RTCSessionDescription(data.sdp)).then(function () {
-    // NOW add local tracks — transceivers already exist from the offer,
-    // addTrack will reuse them with correct direction
-    if (GC.localStream) {
-      GC.localStream.getTracks().forEach(function (track) {
-        pc.addTrack(track, GC.localStream);
-      });
-    }
-    if (GC.isScreenSharing && GC.screenStream) {
-      GC.screenStream.getTracks().forEach(function (track) {
-        pc.addTrack(track, GC.screenStream);
-      });
-    }
-    console.log('[GC] handleGroupCallOffer: tracks added, creating answer. senders:', pc.getSenders().filter(function(s){return s.track}).length);
+    console.log('[GC] handleGroupCallOffer: remote desc set, transceivers:', pc.getTransceivers().length);
+    // Log each transceiver's state for debugging
+    pc.getTransceivers().forEach(function(t, i) {
+      console.log('[GC]   t[' + i + ']', t.mid, t.direction, 'sender:', t.sender.track ? t.sender.track.kind : 'null', 'receiver:', t.receiver.track ? t.receiver.track.kind : 'null');
+    });
     return pc.createAnswer();
   }).then(function (answer) {
     return pc.setLocalDescription(answer);
@@ -6450,22 +6438,27 @@ function handleGroupCallOffer(data) {
 function handleGroupCallAnswer(data) {
   var fromId = data.from_user_id;
   var peer = GC.peers[fromId];
-  if (!peer) return;
-  console.log('[GC] handleGroupCallAnswer: setting remote desc for peer', fromId);
+  if (!peer) { console.error('[GC] handleGroupCallAnswer: no peer for', fromId); return; }
+  console.log('[GC] handleGroupCallAnswer from', fromId, '- setting remote desc');
   peer.pc.setRemoteDescription(new RTCSessionDescription(data.sdp)).then(function () {
-    console.log('[GC] handleGroupCallAnswer: remote desc set, transceivers:', peer.pc.getTransceivers().length);
+    console.log('[GC] handleGroupCallAnswer: remote desc set for', fromId);
+    // Log each transceiver
+    peer.pc.getTransceivers().forEach(function(t, i) {
+      console.log('[GC]   t[' + i + ']', t.mid, t.direction, 'sender:', t.sender.track ? t.sender.track.kind : 'null', 'receiver:', t.receiver.track ? t.receiver.track.kind : 'null');
+    });
     if (peer.pendingIce) {
       peer.pendingIce.forEach(function (c) { peer.pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {}); });
       peer.pendingIce = [];
     }
-    // Re-render peer tile to pick up video tracks after answer is set
+    // Check if ontrack already gave us a stream
+    console.log('[GC] handleGroupCallAnswer: peer.stream=', !!peer.stream, 'videoTracks:', peer.stream ? peer.stream.getVideoTracks().length : 0);
     setTimeout(function() {
-      console.log('[GC] handleGroupCallAnswer render check:', fromId, 'stream:', !!peer.stream, 'videoTracks:', peer.stream ? peer.stream.getVideoTracks().length : 0);
+      console.log('[GC] render@500ms: peer.stream=', !!peer.stream, 'videoTracks:', peer.stream ? peer.stream.getVideoTracks().length : 0, 'connectionState:', peer.pc.connectionState);
       renderGroupCallPeer(fromId, peer);
     }, 500);
     setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 1500);
     setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 3000);
-  }).catch(function (err) { console.error('Group answer error:', err); });
+  }).catch(function (err) { console.error('[GC] Group answer error:', err); });
 }
 
 function handleGroupCallIce(data) {
@@ -6593,16 +6586,17 @@ function setupGroupPeerHandlers(pc, peer, peerId) {
   };
 
   pc.ontrack = function (event) {
-    console.log('[GC] ontrack fired for peer', peerId, 'track:', event.track.kind, 'readyState:', event.track.readyState, 'streams:', event.streams.length);
+    console.log('[GC] ontrack fired for peer', peerId, 'track:', event.track.kind, 'enabled:', event.track.enabled, 'readyState:', event.track.readyState, 'muted:', event.track.muted, 'streams:', event.streams.length);
     var incomingStream = event.streams[0];
     // Handle case where track is not associated with any stream
     if (!incomingStream) {
-      console.log('[GC] ontrack: no stream, creating manual stream for peer', peerId);
+      console.log('[GC] ontrack: NO STREAM for peer', peerId, '- creating manual stream');
       if (!peer.stream) peer.stream = new MediaStream();
       peer.stream.addTrack(event.track);
       renderGroupCallPeer(peerId, peer);
       return;
     }
+    console.log('[GC] ontrack: stream id:', incomingStream.id, 'tracks in stream:', incomingStream.getTracks().length);
     // If this is a second stream (screen share), store separately
     if (peer.stream && incomingStream && incomingStream.id !== peer.stream.id) {
       peer.screenStream = incomingStream;
@@ -6637,21 +6631,29 @@ function setupGroupPeerHandlers(pc, peer, peerId) {
     }
   };
 
+  pc.oniceconnectionstatechange = function () {
+    console.log('[GC] peer', peerId, 'iceConnectionState:', pc.iceConnectionState);
+    if (pc.iceConnectionState === 'failed') {
+      console.log('[GC] ICE failed for peer', peerId, '- restarting');
+      pc.restartIce();
+    }
+  };
+
   pc.onconnectionstatechange = function () {
-    console.log('[GC] peer', peerId, 'connectionState:', pc.connectionState);
+    console.log('[GC] peer', peerId, 'connectionState:', pc.connectionState, 'peer.stream:', !!peer.stream, 'videoTracks:', peer.stream ? peer.stream.getVideoTracks().length : 0);
     if (pc.connectionState === 'connected') {
       // Force re-render once media is actually flowing
       setTimeout(function() {
-        console.log('[GC] connected render for', peerId, 'stream:', !!peer.stream, 'videoTracks:', peer.stream ? peer.stream.getVideoTracks().length : 0);
+        console.log('[GC] connected re-render for', peerId, 'stream:', !!peer.stream, 'videoTracks:', peer.stream ? peer.stream.getVideoTracks().length : 0);
         renderGroupCallPeer(peerId, peer);
       }, 300);
       setTimeout(function() { renderGroupCallPeer(peerId, peer); }, 1000);
       setTimeout(function() { renderGroupCallPeer(peerId, peer); }, 2500);
     } else if (pc.connectionState === 'failed') {
-      console.log('Peer ' + peerId + ' connection failed, restarting ICE');
+      console.log('[GC] Peer ' + peerId + ' connection failed, restarting ICE');
       pc.restartIce();
     } else if (pc.connectionState === 'disconnected') {
-      console.log('Peer ' + peerId + ' connection disconnected');
+      console.log('[GC] Peer ' + peerId + ' connection disconnected');
     }
   };
 }
