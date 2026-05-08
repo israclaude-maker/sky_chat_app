@@ -6387,23 +6387,43 @@ function handleGroupCallOffer(data) {
   // (handles rejoin case where old peer might be stale/closed)
   var oldPeer = GC.peers[fromId];
   if (oldPeer) {
-    console.log('[GC] handleGroupCallOffer: replacing old peer for', fromId, 'state:', oldPeer.pc.connectionState);
+    console.log('[GC] handleGroupCallOffer: replacing old peer for', fromId);
     try { oldPeer.pc.close(); } catch(e) {}
-    // Remove old UI elements
     var oldThumb = document.getElementById('gc-thumb-' + fromId);
     if (oldThumb) oldThumb.remove();
     var oldSThumb = document.getElementById('gc-thumb-' + fromId + '_screen');
     if (oldSThumb) oldSThumb.remove();
     delete GC.peers[fromId];
   }
-  var peer = createGroupPeerConnection(fromId);
+
+  // Create bare PC (no local tracks yet) — we add tracks AFTER setRemoteDescription
+  // This is the correct WebRTC answerer pattern: set remote first, then add tracks
+  var pc = new RTCPeerConnection(rtcConfig);
+  var peer = { pc: pc, stream: null, pendingIce: [] };
+  if (GC.pendingIceByUser && GC.pendingIceByUser[fromId]) {
+    peer.pendingIce = GC.pendingIceByUser[fromId];
+    delete GC.pendingIceByUser[fromId];
+  }
+  setupGroupPeerHandlers(pc, peer, fromId);
   GC.peers[fromId] = peer;
   if (data.from_user_name) peer.name = data.from_user_name;
   if (data.from_user_pic) peer.pic = data.from_user_pic;
-  var pc = peer.pc;
-  console.log('[GC] handleGroupCallOffer: setting remote desc, local tracks:', pc.getSenders().length, 'transceivers:', pc.getTransceivers().length);
+
+  console.log('[GC] handleGroupCallOffer from', fromId, '- setting remote desc');
   pc.setRemoteDescription(new RTCSessionDescription(data.sdp)).then(function () {
-    console.log('[GC] handleGroupCallOffer: remote desc set, creating answer. transceivers:', pc.getTransceivers().length);
+    // NOW add local tracks — transceivers already exist from the offer,
+    // addTrack will reuse them with correct direction
+    if (GC.localStream) {
+      GC.localStream.getTracks().forEach(function (track) {
+        pc.addTrack(track, GC.localStream);
+      });
+    }
+    if (GC.isScreenSharing && GC.screenStream) {
+      GC.screenStream.getTracks().forEach(function (track) {
+        pc.addTrack(track, GC.screenStream);
+      });
+    }
+    console.log('[GC] handleGroupCallOffer: tracks added, creating answer. senders:', pc.getSenders().filter(function(s){return s.track}).length);
     return pc.createAnswer();
   }).then(function (answer) {
     return pc.setLocalDescription(answer);
@@ -6421,10 +6441,10 @@ function handleGroupCallOffer(data) {
       peer.pendingIce.forEach(function (c) { pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {}); });
       peer.pendingIce = [];
     }
-    // Re-render peer tile to pick up new video tracks
+    console.log('[GC] handleGroupCallOffer: answer sent to', fromId);
     setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 500);
-    setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 1500);
-  }).catch(function (err) { console.error('Group offer handle error:', err); });
+    setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 2000);
+  }).catch(function (err) { console.error('[GC] Group offer handle error:', err); });
 }
 
 function handleGroupCallAnswer(data) {
@@ -6505,13 +6525,12 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
 
   if (isInitiator) {
     var pc = peer.pc;
-    // Ensure offer includes video m-lines so we can RECEIVE camera + screen from peers
-    // even if we're not sending video ourselves (e.g. voice call or camera off)
-    var existingVideoSenders = pc.getSenders().filter(function(s) { return s.track && s.track.kind === 'video'; }).length;
-    for (var i = existingVideoSenders; i < 2; i++) {
-      pc.addTransceiver('video', { direction: 'recvonly' });
-    }
-    pc.createOffer().then(function (offer) {
+    // Create offer that explicitly requests to receive audio and video
+    // This matches how 1-on-1 calls work (which succeed)
+    pc.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true
+    }).then(function (offer) {
       return pc.setLocalDescription(offer);
     }).then(function () {
       if (S.globalWs && S.globalWs.readyState === 1) {
@@ -6522,6 +6541,7 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
           sdp: pc.localDescription,
         }));
       }
+      console.log('[GC] Offer sent to peer', peerId);
     }).catch(function (err) { console.error('Group offer create error:', err); });
   }
   return peer;
