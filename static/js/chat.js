@@ -4200,14 +4200,14 @@ function loadTURNServers(cb) {
 
 // TURN credentials load - app shuru hote hi
 rtcConfig.iceServers = [
-  { urls: "stun:187.77.158.226:3478" },
+  { urls: "stun:76.13.219.77:3478" },
   {
-    urls: "turn:187.77.158.226:3478",
+    urls: "turn:76.13.219.77:3478",
     username: "skyuser",
     credential: "skypass123"
   },
   {
-    urls: "turn:187.77.158.226:3478?transport=tcp",
+    urls: "turn:76.13.219.77:3478?transport=tcp",
     username: "skyuser",
     credential: "skypass123"
   }
