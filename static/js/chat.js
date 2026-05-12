@@ -32,10 +32,18 @@ function showNotifPopup(msg) {
     </div>`;
   el.onclick = function () { el.remove(); };
   stack.appendChild(el);
+  
+  // Auto hide
   setTimeout(function () {
     el.classList.add('hiding');
     setTimeout(function () { el.remove(); }, 350);
-  }, 5000);
+  }, 4000);
+  
+  // Sound play karo
+  if (typeof msgSound !== 'undefined') {
+    msgSound.currentTime = 0;
+    msgSound.play().catch(function(){});
+  }
 }
 
 // Configuration
@@ -2544,7 +2552,8 @@ function handleOnlineStatus(data) {
 // ═══════════════════════════════════════════════════════════════
 function handleNewMessageNotify(data) {
   // Reload sidebar to show new message / reorder
-  loadConvos();
+  loadConvs();   // ← "loadConvos()" ki jagah seedha yeh
+  loadGroups();
 
   // If we're NOT in the sender's chat, show notification
   var isInSenderChat = S.activeUser && S.activeUser.id === data.sender_id && !S.isGroup;
@@ -7657,17 +7666,16 @@ function updateGcGridLayout(count) {
 // NOTIFICATIONS
 // ═══════════════════════════════════════════════════════════════
 function showNotification(title, body, avatar, onClick, isCall) {
+  // Android native heads-up notification
+  if (window.AndroidBridge && !isCall) {
+    try {
+      if (typeof AndroidBridge.showMessageNotification === 'function') {
+        AndroidBridge.showMessageNotification(title, body, avatar || '');
+      }
+    } catch(e) { console.warn('AndroidBridge msg notif error:', e); }
+  }
   // Show popup notification with sound
   showPopupNotification(title, body, avatar, onClick, isCall);
-
-  // Desktop app: use native OS notifications via DesktopBridge
-  if (window.DesktopBridge) {
-    if (!isCall) {
-      DesktopBridge.showMessageNotification(title, body, avatar || '');
-    }
-    // Call notifications are handled separately via showCallNotification
-    return;
-  }
 
   // Also try browser notification
   if ('Notification' in window && Notification.permission === 'granted') {
