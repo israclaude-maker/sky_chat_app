@@ -5069,11 +5069,11 @@ function showOngoingCall() {
         ctrl.setAttribute('style',
           'position:fixed!important;bottom:0!important;left:0!important;' +
           'right:0!important;transform:none!important;width:100%!important;' +
-          'display:flex!important;overflow-x:auto!important;' +
-          'justify-content:flex-start!important;gap:10px!important;' +
-          'padding:14px 8px 24px 8px!important;border-radius:20px 20px 0 0!important;' +
-          'background:rgba(0,0,0,0.7)!important;z-index:15!important;' +
-          'scrollbar-width:none!important;-ms-overflow-style:none!important;'
+          'display:flex!important;flex-wrap:wrap!important;' +     // wrap add kiya
+          'justify-content:center!important;gap:12px!important;' +
+          'padding:14px 16px 28px!important;border-radius:20px 20px 0 0!important;' +
+          'background:rgba(0,0,0,0.85)!important;z-index:15!important;' +
+          'overflow:visible!important;'
         );
         // Scrollbar hide (Chrome/Android)
         var style = document.createElement('style');
