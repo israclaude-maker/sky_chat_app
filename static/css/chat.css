@@ -1000,6 +1000,7 @@ body {
   z-index: 10000;
   align-items: center;
   justify-content: center;
+  overflow: visible !important;
 }
 .call-overlay.active { display: flex; }
 
@@ -1157,6 +1158,7 @@ body {
   display: flex;
   flex-direction: column;
   background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+  overflow: visible !important;
 }
 
 #remote-video {

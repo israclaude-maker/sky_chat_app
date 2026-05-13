@@ -5068,18 +5068,19 @@ function showOngoingCall() {
       if (ctrl) {
         ctrl.setAttribute('style',
           'position:fixed!important;bottom:0!important;left:0!important;' +
-          'right:0!important;transform:none!important;width:100%!important;' +
-          'display:flex!important;flex-wrap:wrap!important;' +     // wrap add kiya
-          'justify-content:center!important;gap:12px!important;' +
-          'padding:14px 16px 28px!important;border-radius:20px 20px 0 0!important;' +
-          'background:rgba(0,0,0,0.85)!important;z-index:15!important;' +
-          'overflow:visible!important;'
+          'right:0!important;transform:none!important;' +
+          'width:100vw!important;max-width:100vw!important;' +
+          'display:flex!important;flex-wrap:nowrap!important;' +
+          'justify-content:space-evenly!important;align-items:center!important;' +
+          'gap:0!important;' +
+          'padding:12px 8px 28px 8px!important;border-radius:20px 20px 0 0!important;' +
+          'background:rgba(0,0,0,0.88)!important;z-index:99999!important;' +
+          'overflow:visible!important;box-sizing:border-box!important;'
         );
-        // Scrollbar hide (Chrome/Android)
         var style = document.createElement('style');
-        style.textContent = '#ongoing-call .call-controls::-webkit-scrollbar{display:none!important}' +
-          '#ongoing-call .call-controls .ctrl-btn{flex-shrink:0!important;width:48px!important;height:48px!important}' +
-          '#ongoing-call .call-controls .ctrl-btn.end{flex-shrink:0!important;width:56px!important;height:56px!important}';
+        style.textContent = 
+          '#ongoing-call .call-controls .ctrl-btn{width:44px!important;height:44px!important;font-size:16px!important;flex-shrink:1!important;flex-grow:0!important;min-width:0!important;}' +
+          '#ongoing-call .call-controls .ctrl-btn.end{width:50px!important;height:50px!important;font-size:18px!important;}';
         document.head.appendChild(style);
       }
     }, 150);
