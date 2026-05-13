@@ -141,6 +141,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.railway.app",
     "https://web-production-cef22.up.railway.app",
     "https://sky-chat.duckdns.org",
+    "https://skyfinancia.com",        # ← yeh add karo
+    "https://www.skyfinancia.com", 
 ]
 # File Upload Settings
 DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
