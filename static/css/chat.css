@@ -1266,10 +1266,10 @@ body {
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: -7px;
+  gap: 4px;
   z-index: 10;
   background: rgba(0,0,0,0.4);
-  padding: 16px 32px;
+  padding: 16px 8px;
   border-radius: 40px;
   backdrop-filter: blur(10px);
 }
@@ -3048,7 +3048,7 @@ body {
     flex-wrap: nowrap !important;
     justify-content: space-evenly !important;
     align-items: center !important;
-    padding: 12px 8px 40px 8px !important;
+    padding: 12px 4px 40px 4px !important;
     background: rgba(0,0,0,0.9) !important;
     z-index: 999999 !important;
     gap: 0 !important;
