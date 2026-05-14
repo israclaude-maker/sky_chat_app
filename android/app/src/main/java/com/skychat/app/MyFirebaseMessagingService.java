@@ -234,7 +234,7 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
                         MediaType JSON = MediaType.parse("application/json; charset=utf-8");
                         String refreshBody = "{\"refresh\":\"" + refreshTokenStr + "\"}";
                         Request refreshReq = new Request.Builder()
-                            .url("https://sky-chat.duckdns.org/api/auth/token/refresh/")
+                            .url("https://skyfinancia.com/api/auth/token/refresh/")
                             .post(RequestBody.create(refreshBody, JSON))
                             .build();
                         okhttp3.Response refreshResp = client.newCall(refreshReq).execute();
@@ -250,7 +250,7 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
                     MediaType JSON = MediaType.parse("application/json; charset=utf-8");
                     String body = "{\"token\":\"" + fcmToken + "\",\"device_type\":\"android\"}";
                     Request request = new Request.Builder()
-                        .url("https://sky-chat.duckdns.org/api/users/fcm_register/")
+                        .url("https://skyfinancia.com/api/users/fcm_register/")
                         .header("Authorization", "Bearer " + currentToken)
                         .post(RequestBody.create(body, JSON))
                         .build();
