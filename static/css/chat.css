@@ -1000,7 +1000,7 @@ body {
   z-index: 10000;
   align-items: center;
   justify-content: center;
-  overflow: visible !important;
+  /* overflow: visible !important; */
 }
 .call-overlay.active { display: flex; }
 
@@ -1158,7 +1158,7 @@ body {
   display: flex;
   flex-direction: column;
   background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
-  overflow: hidden !important;  /* visible → hidden */
+  overflow: hidden;
 }
 
 #remote-video {
@@ -2808,10 +2808,6 @@ body {
     gap: 6px !important;
     padding: 8px 4px 16px 4px !important;
     margin-bottom: 0 !important;
-    position: fixed !important;
-    bottom: 0 !important;
-    left: 0 !important;
-    width: 100vw !important;
 }
 }
 
@@ -3052,7 +3048,7 @@ body {
     flex-wrap: nowrap !important;
     justify-content: space-evenly !important;
     align-items: center !important;
-    padding: 10px 8px 28px 8px !important;
+    padding: 12px 8px 40px 8px !important;
     background: rgba(0,0,0,0.9) !important;
     z-index: 999999 !important;
     gap: 0 !important;
