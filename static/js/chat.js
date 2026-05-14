@@ -198,7 +198,7 @@ function dname(u) {
 function seed(n) {
   // Returns a data URI SVG of a colored circle with initials
   var name = (n || 'U').trim() || 'U';
-  var parts = name.split(/[\s@]+/).filter(function (p) { return p.length > 0; });
+  var parts = name.split(/[\s@]+/).filter(function(p) { return p.length > 0; });
   var first = parts[0] || 'U';
   var second = parts.length > 1 ? parts[1] : '';
   var initials = (first[0] + (second ? second[0] : '')).toUpperCase();
@@ -374,7 +374,7 @@ function init() {
       loadConvs();
       loadGroups();
       connectGlobalWS();
-      loadTURNServers();
+      loadTURNServers(); 
       initPasteHandler();
       initCallButtons();
       // Fetch active group calls so join banners show on load
@@ -689,15 +689,15 @@ function renderConvList(items) {
       node.dataset.gid = gid;
       node.innerHTML = '<div class="av-wrap">' +
         '<img class="av-img av-52" src="' + esc(g.group_picture || seed(g.name)) + '">' +
-        '</div>' +
-        '<div class="conv-body">' +
+      '</div>' +
+      '<div class="conv-body">' +
         '<div class="conv-name">' + esc(g.name) + '</div>' +
         '<div class="conv-prev">' + esc(last) + '</div>' +
-        '</div>' +
-        '<div class="conv-meta">' +
+      '</div>' +
+      '<div class="conv-meta">' +
         '<div class="' + timeClass + '">' + time + '</div>' +
         badgeHtml +
-        '</div>';
+      '</div>';
       node.addEventListener('click', function () { openGroup(parseInt(this.dataset.gid)); });
     } else {
       var u = item.user;
@@ -710,15 +710,15 @@ function renderConvList(items) {
       node.innerHTML = '<div class="av-wrap">' +
         '<img class="av-img av-52" src="' + esc(getAvatar(u)) + '">' +
         '<div class="sdot ' + (online ? 'on' : 'off') + '"></div>' +
-        '</div>' +
-        '<div class="conv-body">' +
+      '</div>' +
+      '<div class="conv-body">' +
         '<div class="conv-name">' + esc(name) + '</div>' +
         '<div class="conv-prev">' + esc(last) + '</div>' +
-        '</div>' +
-        '<div class="conv-meta">' +
+      '</div>' +
+      '<div class="conv-meta">' +
         '<div class="' + timeClass + '">' + time + '</div>' +
         badgeHtml +
-        '</div>';
+      '</div>';
       node.addEventListener('click', function () { openChat(parseInt(this.dataset.uid)); });
     }
     frag.appendChild(node);
@@ -751,15 +751,15 @@ function renderGroupList(groups) {
     node.dataset.gid = gid;
     node.innerHTML = '<div class="av-wrap">' +
       '<img class="av-img av-52" src="' + esc(g.group_picture || seed(g.name)) + '">' +
-      '</div>' +
-      '<div class="conv-body">' +
+    '</div>' +
+    '<div class="conv-body">' +
       '<div class="conv-name">' + esc(g.name) + '</div>' +
       '<div class="conv-prev">' + esc(last) + '</div>' +
-      '</div>' +
-      '<div class="conv-meta">' +
+    '</div>' +
+    '<div class="conv-meta">' +
       '<div class="conv-time' + (g.unread_count > 0 ? ' unread' : '') + '">' + time + '</div>' +
       (g.unread_count > 0 ? '<span class="unread-badge">' + g.unread_count + '</span>' : '') +
-      '</div>';
+    '</div>';
     node.addEventListener('click', function () { openGroup(parseInt(this.dataset.gid)); });
     frag.appendChild(node);
   });
@@ -988,14 +988,14 @@ function showGroupView(group) {
   var memberCount = group.members ? group.members.length : 0;
   $('tb-sub').textContent = memberCount + ' members';
   $('tb-sub').className = 'tb-sub';
-
+  
   // Make topbar clickable for group info
   var tbInfo = document.querySelector('.tb-info');
   if (tbInfo) {
     tbInfo.style.cursor = 'pointer';
     tbInfo.onclick = function () { openGroupInfo(group.id); };
   }
-
+  
   closeInfoPanel();
   $('msg-area').innerHTML = '';
   updateSendBtn();
@@ -1235,7 +1235,7 @@ function renderForwardList(users, groups) {
         '<div class="fwd-check"></div>' +
         '<div class="fwd-av-wrap"><img class="fwd-av" src="' + esc(av) + '"><div class="fwd-group-badge"><i class="fa-solid fa-users"></i></div></div>' +
         '<div class="fwd-info"><div class="fwd-name">' + esc(g.name) + '</div><div class="fwd-sub">' + memberCount + ' members</div></div>' +
-        '</div>';
+      '</div>';
     });
   }
 
@@ -1248,7 +1248,7 @@ function renderForwardList(users, groups) {
         '<div class="fwd-check"></div>' +
         '<div class="fwd-av-wrap"><img class="fwd-av" src="' + esc(av) + '"></div>' +
         '<div class="fwd-info"><div class="fwd-name">' + esc(name) + '</div><div class="fwd-sub">@' + esc(u.username) + '</div></div>' +
-        '</div>';
+      '</div>';
     });
   }
 
@@ -1310,26 +1310,26 @@ function copyMsg(text) {
 function showMsgInfo(msgId, text, timestamp) {
   $('mi-text').textContent = text;
   $('mi-sent').textContent = fmtFullTime(timestamp);
-
+  
   // Reset
   var readByContainer = $('mi-read-by');
   var deliveredContainer = $('mi-delivered-to');
   var simpleInfo = $('mi-simple-info');
-
+  
   if (S.isGroup && S.activeGroup) {
     // Group message - show read-by list
     if (simpleInfo) simpleInfo.style.display = 'none';
     if (readByContainer) { readByContainer.style.display = 'block'; readByContainer.innerHTML = '<div style="padding:12px;text-align:center;color:var(--sub);"><i class="fa-solid fa-spinner fa-spin"></i></div>'; }
     if (deliveredContainer) { deliveredContainer.style.display = 'block'; deliveredContainer.innerHTML = ''; }
-
+    
     openM('mi-modal');
-
+    
     api('/groups/messages/' + msgId + '/info/')
       .then(function (data) {
         if (!data) return;
-
+        
         $('mi-sent').textContent = fmtFullTime(data.sent_at);
-
+        
         // Read by list
         var readHtml = '<div class="mi-section-title"><span class="msg-ticks read"><i class="fa-solid fa-check"></i><i class="fa-solid fa-check"></i></span> Read by</div>';
         if (data.read_by && data.read_by.length) {
@@ -1343,7 +1343,7 @@ function showMsgInfo(msgId, text, timestamp) {
           readHtml += '<div style="padding:8px 0;color:var(--sub);font-size:13px;">No one yet</div>';
         }
         if (readByContainer) readByContainer.innerHTML = readHtml;
-
+        
         // Delivered to list
         var delHtml = '<div class="mi-section-title"><span class="msg-ticks"><i class="fa-solid fa-check"></i><i class="fa-solid fa-check"></i></span> Delivered to</div>';
         if (data.delivered_to && data.delivered_to.length) {
@@ -1363,9 +1363,9 @@ function showMsgInfo(msgId, text, timestamp) {
     if (deliveredContainer) deliveredContainer.style.display = 'none';
     $('mi-delivered').textContent = '-';
     $('mi-seen').textContent = '-';
-
+    
     openM('mi-modal');
-
+    
     api('/messages/' + msgId + '/info/')
       .then(function (data) {
         if (data && data.sent_at) {
@@ -1662,16 +1662,16 @@ function markMessageRead(msgId) {
     // Group read receipt - batch and send via WS
     if (!S._pendingGroupReads) S._pendingGroupReads = [];
     S._pendingGroupReads.push(msgId);
-
+    
     clearTimeout(S._groupReadTimer);
     S._groupReadTimer = setTimeout(function () {
       var ids = S._pendingGroupReads;
       S._pendingGroupReads = [];
-
+      
       // Send via API
       api('/groups/' + S.activeGroup.id + '/mark_read/', { method: 'POST' })
-        .catch(function () { });
-
+        .catch(function () {});
+      
       // Send via WS for real-time notification
       if (S.ws && S.ws.readyState === WebSocket.OPEN) {
         S.ws.send(JSON.stringify({
@@ -1787,17 +1787,17 @@ function showFilePreview() {
   var container = $('file-preview-list');
   container.innerHTML = '';
 
-  FileUploadState.files.forEach(function (file, idx) {
+  FileUploadState.files.forEach(function(file, idx) {
     var ext = file.name.toLowerCase().split('.').pop();
-    var isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(ext) !== -1;
-    var isVideo = ['mp4', 'webm', 'mov', 'avi'].indexOf(ext) !== -1;
+    var isImage = ['jpg','jpeg','png','gif','webp'].indexOf(ext) !== -1;
+    var isVideo = ['mp4','webm','mov','avi'].indexOf(ext) !== -1;
 
     var item = document.createElement('div');
     item.className = 'file-preview-item';
 
     if (isImage) {
       var reader = new FileReader();
-      reader.onload = function (e) {
+      reader.onload = function(e) {
         item.innerHTML = '<div class="file-preview-thumb"><img src="' + e.target.result + '" alt=""></div>' +
           '<div class="file-preview-info"><div class="file-preview-name">' + esc(file.name) + '</div>' +
           '<div class="file-preview-size">' + formatFileSize(file.size) + '</div></div>' +
@@ -1841,7 +1841,7 @@ function sendPreviewFiles() {
   var caption = $('file-preview-caption') ? $('file-preview-caption').value.trim() : '';
   closeFilePreview();
 
-  files.forEach(function (file) {
+  files.forEach(function(file) {
     uploadFile(file, caption);
   });
 }
@@ -2186,9 +2186,9 @@ function downloadFile(url, filename) {
   }
 
   // Browser: use fetch+blob for reliable download
-  fetch(url).then(function (resp) {
+  fetch(url).then(function(resp) {
     return resp.blob();
-  }).then(function (blob) {
+  }).then(function(blob) {
     var blobUrl = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = blobUrl;
@@ -2196,8 +2196,8 @@ function downloadFile(url, filename) {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 1000);
-  }).catch(function () {
+    setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 1000);
+  }).catch(function() {
     // Fallback: open in new tab
     window.open(url, '_blank');
   });
@@ -2965,8 +2965,8 @@ function openGroupInfo(groupId) {
         html += '<div class="gi-member">' +
           '<img class="gi-member-av" src="' + esc(avUrl) + '">' +
           '<div class="gi-member-info">' +
-          '<div class="gi-member-name">' + esc(isMe ? 'You' : name) + ' ' + badge + '</div>' +
-          '<div class="gi-member-status ' + (m.is_online ? 'online' : '') + '">' + statusText + '</div>' +
+            '<div class="gi-member-name">' + esc(isMe ? 'You' : name) + ' ' + badge + '</div>' +
+            '<div class="gi-member-status ' + (m.is_online ? 'online' : '') + '">' + statusText + '</div>' +
           '</div>' + actions + '</div>';
       });
       $('ip-members').innerHTML = html;
@@ -3038,20 +3038,20 @@ function addGroupMember(groupId) {
   // Open add member modal
   $('gam-list').innerHTML = '<div style="padding:16px;text-align:center;color:var(--sub);"><i class="fa-solid fa-spinner fa-spin"></i></div>';
   openM('gam-modal');
-
+  
   api('/all_users/')
     .then(function (users) {
       if (!users) return;
-
+      
       // Filter out existing members
       var existingIds = S.activeGroup.members.map(function (m) { return m.id; });
       var available = users.filter(function (u) { return existingIds.indexOf(u.id) === -1; });
-
+      
       if (!available.length) {
         $('gam-list').innerHTML = '<div style="padding:16px;text-align:center;color:var(--sub);">No users to add</div>';
         return;
       }
-
+      
       var html = '';
       available.forEach(function (u) {
         var name = dname(u);
@@ -3059,7 +3059,7 @@ function addGroupMember(groupId) {
         html += '<div class="user-item" onclick="doAddGroupMember(' + groupId + ',' + u.id + ',\'' + esc(name).replace(/'/g, "\\'") + '\')">' +
           '<img class="user-av" src="' + esc(av) + '">' +
           '<div class="user-name">' + esc(name) + '</div>' +
-          '</div>';
+        '</div>';
       });
       $('gam-list').innerHTML = html;
     });
@@ -3075,7 +3075,7 @@ function doAddGroupMember(groupId, userId, memberName) {
       closeM('gam-modal');
       loadGroups();
       openGroupInfo(groupId);
-
+      
       // Send system message via WS
       if (S.ws && S.ws.readyState === WebSocket.OPEN) {
         var adder = S.user.first_name || S.user.username;
@@ -3096,7 +3096,7 @@ function doAddGroupMember(groupId, userId, memberName) {
 
 function removeGroupMember(groupId, userId, name) {
   if (!confirm('Remove ' + name + ' from the group?')) return;
-
+  
   api('/groups/' + groupId + '/remove_member/', {
     method: 'POST',
     body: JSON.stringify({ user_id: userId })
@@ -3105,7 +3105,7 @@ function removeGroupMember(groupId, userId, name) {
       toast('Member removed', 's');
       loadGroups();
       openGroupInfo(groupId);
-
+      
       // Update local group data
       if (S.activeGroup) {
         S.activeGroup.members = data.members;
@@ -3147,7 +3147,7 @@ function removeGroupAdmin(groupId, userId) {
 
 function leaveGroup(groupId) {
   if (!confirm('Leave this group?')) return;
-
+  
   api('/groups/' + groupId + '/leave/', {
     method: 'POST'
   }).then(function (data) {
@@ -3168,10 +3168,10 @@ function leaveGroup(groupId) {
 function deleteGroup(groupId) {
   if (!confirm('Delete this group? All messages will be lost. This cannot be undone.')) return;
   if (!confirm('Are you sure? This will permanently delete the group for everyone.')) return;
-
+  
   var btn = $('ip-delete-group-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Deleting...'; }
-
+  
   api('/groups/' + groupId + '/delete_group/', {
     method: 'POST'
   }).then(function (data) {
@@ -3196,7 +3196,7 @@ function deleteGroup(groupId) {
 
 // String to color for group sender names
 function strToColor(str) {
-  var colors = ['#e91e63', '#9c27b0', '#673ab7', '#3f51b5', '#2196f3', '#00bcd4', '#009688', '#4caf50', '#ff9800', '#ff5722', '#795548', '#607d8b'];
+  var colors = ['#e91e63','#9c27b0','#673ab7','#3f51b5','#2196f3','#00bcd4','#009688','#4caf50','#ff9800','#ff5722','#795548','#607d8b'];
   var hash = 0;
   for (var i = 0; i < str.length; i++) {
     hash = str.charCodeAt(i) + ((hash << 5) - hash);
@@ -3256,61 +3256,61 @@ function renderCallHistory(calls) {
 }
 
 function renderDmCallItem(call) {
-  var user = call.other_user;
-  if (!user) return '';
+    var user = call.other_user;
+    if (!user) return '';
 
-  var name = '';
-  if (user.first_name && user.first_name.trim()) {
-    name = user.first_name.trim();
-    if (user.last_name && user.last_name.trim()) {
-      name += ' ' + user.last_name.trim();
+    var name = '';
+    if (user.first_name && user.first_name.trim()) {
+      name = user.first_name.trim();
+      if (user.last_name && user.last_name.trim()) {
+        name += ' ' + user.last_name.trim();
+      }
+    } else if (user.username) {
+      name = user.username;
+    } else {
+      name = 'Unknown';
     }
-  } else if (user.username) {
-    name = user.username;
-  } else {
-    name = 'Unknown';
-  }
 
-  var av = user.profile_picture || null;
-  var initial = (name[0] || 'U').toUpperCase();
+    var av = user.profile_picture || null;
+    var initial = (name[0] || 'U').toUpperCase();
 
-  var isOutgoing = !!call.is_outgoing;
-  var status = call.status || '';
-  var isVideo = call.call_type === 'video';
+    var isOutgoing = !!call.is_outgoing;
+    var status = call.status || '';
+    var isVideo = call.call_type === 'video';
 
-  var isCompleted = status === 'completed' || status === 'accepted';
-  var isMissed = !isOutgoing && (status === 'missed' || status === 'rejected' || status === 'pending');
-  var isCancelled = isOutgoing && (status === 'cancelled' || status === 'missed' || status === 'pending');
+    var isCompleted = status === 'completed' || status === 'accepted';
+    var isMissed = !isOutgoing && (status === 'missed' || status === 'rejected' || status === 'pending');
+    var isCancelled = isOutgoing && (status === 'cancelled' || status === 'missed' || status === 'pending');
 
-  var arrowIcon, arrowColor, statusLabel;
+    var arrowIcon, arrowColor, statusLabel;
 
-  if (isOutgoing) {
-    arrowIcon = 'fa-arrow-up-right';
-    arrowColor = isCancelled ? '#f15c6d' : '#25d366';
-    statusLabel = isVideo
-      ? (isCancelled ? 'Cancelled video call' : 'Outgoing video call')
-      : (isCancelled ? 'Cancelled voice call' : 'Outgoing voice call');
-  } else if (isMissed) {
-    arrowIcon = 'fa-arrow-down-left';
-    arrowColor = '#f15c6d';
-    statusLabel = isVideo ? 'Missed video call' : 'Missed voice call';
-  } else {
-    arrowIcon = 'fa-arrow-down-left';
-    arrowColor = '#25d366';
-    statusLabel = isVideo ? 'Incoming video call' : 'Incoming voice call';
-  }
+    if (isOutgoing) {
+      arrowIcon = 'fa-arrow-up-right';
+      arrowColor = isCancelled ? '#f15c6d' : '#25d366';
+      statusLabel = isVideo
+        ? (isCancelled ? 'Cancelled video call' : 'Outgoing video call')
+        : (isCancelled ? 'Cancelled voice call' : 'Outgoing voice call');
+    } else if (isMissed) {
+      arrowIcon = 'fa-arrow-down-left';
+      arrowColor = '#f15c6d';
+      statusLabel = isVideo ? 'Missed video call' : 'Missed voice call';
+    } else {
+      arrowIcon = 'fa-arrow-down-left';
+      arrowColor = '#25d366';
+      statusLabel = isVideo ? 'Incoming video call' : 'Incoming voice call';
+    }
 
-  var timeStr = callTimeStr(call.created_at);
-  var durationStr = callDurationStr(call.duration);
-  var callIcon = isVideo ? 'fa-video' : 'fa-phone';
+    var timeStr = callTimeStr(call.created_at);
+    var durationStr = callDurationStr(call.duration);
+    var callIcon = isVideo ? 'fa-video' : 'fa-phone';
 
-  return `
+    return `
       <div class="call-item" onclick="callUser(${user.id}, '${call.call_type}')">
         <div class="call-av-wrap">
           ${av
-      ? `<img class="call-av" src="${esc(av)}" alt="${esc(name)}">`
-      : `<div class="call-av-init">${initial}</div>`
-    }
+        ? `<img class="call-av" src="${esc(av)}" alt="${esc(name)}">`
+        : `<div class="call-av-init">${initial}</div>`
+      }
         </div>
         <div class="call-info">
           <div class="call-user-name ${isMissed ? 'missed' : ''}">${esc(name)}</div>
@@ -3334,52 +3334,52 @@ function renderDmCallItem(call) {
 }
 
 function renderGroupCallItem(call) {
-  var g = call.group;
-  if (!g) return '';
-  var gName = g.name || 'Group';
-  var gPic = g.group_picture || null;
-  var initial = (gName[0] || 'G').toUpperCase();
-  var isVideo = call.call_type === 'video';
-  var callIcon = isVideo ? 'fa-video' : 'fa-phone';
-  var isActive = call.status === 'active';
+    var g = call.group;
+    if (!g) return '';
+    var gName = g.name || 'Group';
+    var gPic = g.group_picture || null;
+    var initial = (gName[0] || 'G').toUpperCase();
+    var isVideo = call.call_type === 'video';
+    var callIcon = isVideo ? 'fa-video' : 'fa-phone';
+    var isActive = call.status === 'active';
 
-  // Participants list (excluding self)
-  var parts = (call.participants || []);
-  var partNames = parts.map(function (p) { return p.name; });
-  var partStr = '';
-  if (partNames.length <= 3) {
-    partStr = partNames.join(', ');
-  } else {
-    partStr = partNames.slice(0, 2).join(', ') + ' +' + (partNames.length - 2);
-  }
-
-  // Participant avatars (max 4)
-  var avatarHtml = '';
-  var showParts = parts.slice(0, 4);
-  for (var i = 0; i < showParts.length; i++) {
-    var p = showParts[i];
-    if (p.profile_picture) {
-      avatarHtml += '<img class="gc-hist-av" src="' + esc(p.profile_picture) + '" alt="" style="z-index:' + (10 - i) + ';">';
+    // Participants list (excluding self)
+    var parts = (call.participants || []);
+    var partNames = parts.map(function (p) { return p.name; });
+    var partStr = '';
+    if (partNames.length <= 3) {
+      partStr = partNames.join(', ');
     } else {
-      avatarHtml += '<div class="gc-hist-av gc-hist-av-init" style="z-index:' + (10 - i) + ';">' + (p.name[0] || 'U').toUpperCase() + '</div>';
+      partStr = partNames.slice(0, 2).join(', ') + ' +' + (partNames.length - 2);
     }
-  }
-  if (parts.length > 4) {
-    avatarHtml += '<div class="gc-hist-av gc-hist-av-init gc-hist-av-more" style="z-index:1;">+' + (parts.length - 4) + '</div>';
-  }
 
-  var statusLabel = isVideo ? 'Group video call' : 'Group voice call';
-  if (isActive) statusLabel += ' · Ongoing';
-  var timeStr = callTimeStr(call.created_at);
-  var durationStr = callDurationStr(call.duration);
+    // Participant avatars (max 4)
+    var avatarHtml = '';
+    var showParts = parts.slice(0, 4);
+    for (var i = 0; i < showParts.length; i++) {
+      var p = showParts[i];
+      if (p.profile_picture) {
+        avatarHtml += '<img class="gc-hist-av" src="' + esc(p.profile_picture) + '" alt="" style="z-index:' + (10 - i) + ';">';
+      } else {
+        avatarHtml += '<div class="gc-hist-av gc-hist-av-init" style="z-index:' + (10 - i) + ';">' + (p.name[0] || 'U').toUpperCase() + '</div>';
+      }
+    }
+    if (parts.length > 4) {
+      avatarHtml += '<div class="gc-hist-av gc-hist-av-init gc-hist-av-more" style="z-index:1;">+' + (parts.length - 4) + '</div>';
+    }
 
-  return `
+    var statusLabel = isVideo ? 'Group video call' : 'Group voice call';
+    if (isActive) statusLabel += ' · Ongoing';
+    var timeStr = callTimeStr(call.created_at);
+    var durationStr = callDurationStr(call.duration);
+
+    return `
       <div class="call-item gc-call-item" onclick="openGroup(${g.id})">
         <div class="call-av-wrap">
           ${gPic
-      ? '<img class="call-av" src="' + esc(gPic) + '" alt="' + esc(gName) + '">'
-      : '<div class="call-av-init">' + initial + '</div>'
-    }
+        ? '<img class="call-av" src="' + esc(gPic) + '" alt="' + esc(gName) + '">'
+        : '<div class="call-av-init">' + initial + '</div>'
+      }
           <div class="gc-call-badge"><i class="fa-solid fa-users" style="font-size:8px;"></i></div>
         </div>
         <div class="call-info">
@@ -3405,28 +3405,28 @@ function renderGroupCallItem(call) {
 }
 
 function callTimeStr(dateStr) {
-  var callDate = new Date(dateStr);
-  var now = new Date();
-  var yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (callDate.toDateString() === now.toDateString()) {
-    return callDate.toLocaleTimeString('en-PK', {
-      hour: '2-digit', minute: '2-digit', hour12: true, timeZone: PKT
-    });
-  } else if (callDate.toDateString() === yesterday.toDateString()) {
-    return 'Yesterday';
-  } else {
-    return callDate.toLocaleDateString('en-PK', {
-      day: 'numeric', month: 'short', timeZone: PKT
-    });
-  }
+    var callDate = new Date(dateStr);
+    var now = new Date();
+    var yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (callDate.toDateString() === now.toDateString()) {
+      return callDate.toLocaleTimeString('en-PK', {
+        hour: '2-digit', minute: '2-digit', hour12: true, timeZone: PKT
+      });
+    } else if (callDate.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday';
+    } else {
+      return callDate.toLocaleDateString('en-PK', {
+        day: 'numeric', month: 'short', timeZone: PKT
+      });
+    }
 }
 
 function callDurationStr(dur) {
-  if (!dur || dur <= 0) return '';
-  var dm = Math.floor(dur / 60);
-  var ds = dur % 60;
-  return ' (' + dm + ':' + (ds < 10 ? '0' : '') + ds + ')';
+    if (!dur || dur <= 0) return '';
+    var dm = Math.floor(dur / 60);
+    var ds = dur % 60;
+    return ' (' + dm + ':' + (ds < 10 ? '0' : '') + ds + ')';
 }
 
 // Call user from history
@@ -3798,12 +3798,12 @@ var CamFx = {
 
 // Gradient backgrounds as canvas-drawable definitions
 var CamFxBgs = {
-  'bg-beach': function (ctx, w, h) { var g = ctx.createLinearGradient(0, 0, w, h); g.addColorStop(0, '#87CEEB'); g.addColorStop(0.5, '#FFD700'); g.addColorStop(1, '#4682B4'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); },
-  'bg-mountain': function (ctx, w, h) { var g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#87CEEB'); g.addColorStop(0.5, '#6B8E23'); g.addColorStop(1, '#228B22'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); },
-  'bg-city': function (ctx, w, h) { var g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#2c3e50'); g.addColorStop(0.5, '#3498db'); g.addColorStop(1, '#1a1a2e'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); },
-  'bg-space': function (ctx, w, h) { var g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) / 2); g.addColorStop(0, '#1a1a3e'); g.addColorStop(1, '#0a0a1a'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); },
-  'bg-sunset': function (ctx, w, h) { var g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#ff7e5f'); g.addColorStop(0.5, '#feb47b'); g.addColorStop(1, '#ff6b6b'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); },
-  'bg-forest': function (ctx, w, h) { var g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#0f4c2e'); g.addColorStop(0.5, '#1b6b3a'); g.addColorStop(1, '#2d8f4e'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); },
+  'bg-beach':   function(ctx,w,h){var g=ctx.createLinearGradient(0,0,w,h);g.addColorStop(0,'#87CEEB');g.addColorStop(0.5,'#FFD700');g.addColorStop(1,'#4682B4');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);},
+  'bg-mountain':function(ctx,w,h){var g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'#87CEEB');g.addColorStop(0.5,'#6B8E23');g.addColorStop(1,'#228B22');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);},
+  'bg-city':    function(ctx,w,h){var g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'#2c3e50');g.addColorStop(0.5,'#3498db');g.addColorStop(1,'#1a1a2e');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);},
+  'bg-space':   function(ctx,w,h){var g=ctx.createRadialGradient(w/2,h/2,0,w/2,h/2,Math.max(w,h)/2);g.addColorStop(0,'#1a1a3e');g.addColorStop(1,'#0a0a1a');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);},
+  'bg-sunset':  function(ctx,w,h){var g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'#ff7e5f');g.addColorStop(0.5,'#feb47b');g.addColorStop(1,'#ff6b6b');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);},
+  'bg-forest':  function(ctx,w,h){var g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,'#0f4c2e');g.addColorStop(0.5,'#1b6b3a');g.addColorStop(1,'#2d8f4e');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);},
 };
 
 function initCamFxSegmenter(cb) {
@@ -3816,19 +3816,19 @@ function initCamFxSegmenter(cb) {
   CamFx.loading = true;
   toast('Loading camera effects...', 's');
   var seg = new SelfieSegmentation({
-    locateFile: function (file) {
+    locateFile: function(file) {
       return 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/' + file;
     }
   });
   seg.setOptions({ modelSelection: 1, selfieMode: false });
   seg.onResults(onCamFxResults);
-  seg.initialize().then(function () {
+  seg.initialize().then(function() {
     CamFx.segmenter = seg;
     CamFx.loading = false;
     CamFx.initialized = true;
     toast('Camera effects ready!', 's');
     if (cb) cb();
-  }).catch(function (e) {
+  }).catch(function(e) {
     console.error('CamFx init error:', e);
     CamFx.loading = false;
     toast('Failed to load camera effects', 'e');
@@ -3892,7 +3892,7 @@ function startCamFxProcessing() {
   // Create raw stream from the original camera track + audio
   var rawStream = new MediaStream([videoTrack]);
   CamFx.rawVideo.srcObject = rawStream;
-  CamFx.rawVideo.play().catch(function () { });
+  CamFx.rawVideo.play().catch(function(){});
 
   // Create canvas
   if (!CamFx.canvas) {
@@ -3920,7 +3920,7 @@ function startCamFxProcessing() {
   // Replace in peer connections
   if (CamFx.context === 'gc') {
     // Group call — replace in all peer connections
-    Object.keys(GC.peers).forEach(function (pid) {
+    Object.keys(GC.peers).forEach(function(pid) {
       var pc = GC.peers[pid].pc;
       if (!pc) return;
       var senders = pc.getSenders();
@@ -3961,9 +3961,9 @@ function camFxLoop() {
   if (CamFx._sending) return;
   if (CamFx.rawVideo.readyState >= 2) {
     CamFx._sending = true;
-    CamFx.segmenter.send({ image: CamFx.rawVideo }).then(function () {
+    CamFx.segmenter.send({ image: CamFx.rawVideo }).then(function() {
       CamFx._sending = false;
-    }).catch(function () {
+    }).catch(function() {
       CamFx._sending = false;
     });
   }
@@ -3982,7 +3982,7 @@ function stopCamFxProcessing() {
 
     if (CamFx.context === 'gc' && GC.localStream) {
       // Replace canvas track back with original in peer connections
-      Object.keys(GC.peers).forEach(function (pid) {
+      Object.keys(GC.peers).forEach(function(pid) {
         var pc = GC.peers[pid].pc;
         if (!pc) return;
         var senders = pc.getSenders();
@@ -4016,7 +4016,7 @@ function stopCamFxProcessing() {
   }
 
   if (CamFx.canvasStream) {
-    CamFx.canvasStream.getTracks().forEach(function (t) { t.stop(); });
+    CamFx.canvasStream.getTracks().forEach(function(t) { t.stop(); });
     CamFx.canvasStream = null;
   }
   if (CamFx.rawVideo) {
@@ -4053,7 +4053,7 @@ function toggleCamFxPicker(ctx) {
 
   // Highlight current selection
   var opts = overlay.querySelectorAll('.cam-fx-option, .cam-fx-bg');
-  opts.forEach(function (el) { el.classList.remove('active'); });
+  opts.forEach(function(el) { el.classList.remove('active'); });
   var sel = overlay.querySelector('[data-fx="' + CamFx.pendingMode + '"]');
   if (sel) sel.classList.add('active');
   if (CamFx.pendingMode === 'none') {
@@ -4090,7 +4090,7 @@ function selectCamFx(mode) {
   CamFx.pendingMode = mode;
   var overlay = $('cam-fx-overlay');
   var opts = overlay.querySelectorAll('.cam-fx-option, .cam-fx-bg');
-  opts.forEach(function (el) { el.classList.remove('active'); });
+  opts.forEach(function(el) { el.classList.remove('active'); });
   var sel = overlay.querySelector('[data-fx="' + mode + '"]');
   if (sel) sel.classList.add('active');
 }
@@ -4099,9 +4099,9 @@ function handleCamFxBgUpload(event) {
   var file = event.target.files[0];
   if (!file) return;
   var reader = new FileReader();
-  reader.onload = function (e) {
+  reader.onload = function(e) {
     var img = new Image();
-    img.onload = function () {
+    img.onload = function() {
       CamFx.customBgImage = img;
       // Update the upload button to show thumbnail
       var btn = document.querySelector('[data-fx="bg-custom"]');
@@ -4147,7 +4147,7 @@ function applyCamFx() {
 
   // Initialize segmenter if needed
   if (!CamFx.segmenter) {
-    initCamFxSegmenter(function () {
+    initCamFxSegmenter(function() {
       if (CamFx.segmenter) {
         doApplyCamFx(mode);
       }
@@ -4254,19 +4254,19 @@ async function checkMediaPermissions(type) {
 
 function startCall(type) {
   console.log('startCall called with type:', type, 'activeUser:', S.activeUser, 'activeGroup:', S.activeGroup, 'isInCall:', CallState.isInCall);
-
+  
   // Group call
   if (S.activeGroup && S.isGroup) {
     startGroupCall(type);
     return;
   }
-
+  
   if (!S.activeUser || CallState.isInCall) {
     if (!S.activeUser) toast('Select a chat first', 'e');
     return;
   }
 
-  if (!turnReady) {
+    if (!turnReady) {
     toast('Connecting... please wait', 'i');
     loadTURNServers(function () {
       startCall(type); // retry
@@ -4464,8 +4464,8 @@ function doInitWebRTC(isInitiator, callback) {
       var existingRemoteVideo = $('remote-video');
       var hasExistingCamera = existingRemoteVideo && existingRemoteVideo.srcObject &&
         existingRemoteVideo.srcObject.getVideoTracks().length > 0 &&
-        existingRemoteVideo.srcObject.getVideoTracks().some(function (t) { return t.readyState !== 'ended'; });
-
+        existingRemoteVideo.srcObject.getVideoTracks().some(function(t) { return t.readyState !== 'ended'; });
+ 
       if (hasExistingCamera) {
         // Second video track = screen share
         console.log('Routing second video track to remote-screen-video');
@@ -4572,7 +4572,7 @@ function handleIncomingCall(data) {
 
   // Re-enable incoming call buttons in case they were disabled from a previous call
   var incomingBtns = document.querySelectorAll('#incoming-call .call-btn');
-  incomingBtns.forEach(function (b) { b.style.pointerEvents = ''; b.style.opacity = ''; });
+  incomingBtns.forEach(function(b) { b.style.pointerEvents = ''; b.style.opacity = ''; });
 
   // Show incoming call UI
   $('incoming-av').src = CallState.remoteProfilePic;
@@ -4633,7 +4633,7 @@ function acceptCall() {
   if (inType) inType.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting...';
   // Disable buttons to prevent double-tap
   var btns = document.querySelectorAll('#incoming-call .call-btn');
-  btns.forEach(function (b) { b.style.pointerEvents = 'none'; b.style.opacity = '0.5'; });
+  btns.forEach(function(b) { b.style.pointerEvents = 'none'; b.style.opacity = '0.5'; });
 
   // If this is a group call invite, join group call instead
   if (CallState.pendingGroupCallId) {
@@ -4913,11 +4913,11 @@ function handleScreenAnswer(data) {
 }
 
 function handleScreenToggle(data) {
-  var remoteVideo = $('remote-video');
+  var remoteVideo       = $('remote-video');
   var remoteScreenVideo = $('remote-screen-video');
-  var localVid = $('local-video');
-  var ongoingAv = $('ongoing-av');
-
+  var localVid          = $('local-video');
+  var ongoingAv         = $('ongoing-av');
+ 
   if (data.sharing) {
     // ── Remote started sharing screen ───────────────────────
     // Screen share video is shown as the main view
@@ -4925,36 +4925,36 @@ function handleScreenToggle(data) {
       remoteScreenVideo.style.display = 'block';
       if (CallState.remoteScreenStream) {
         remoteScreenVideo.srcObject = CallState.remoteScreenStream;
-        remoteScreenVideo.play().catch(function (e) { });
+        remoteScreenVideo.play().catch(function(e){});
       }
     }
-
+ 
     // Remote camera becomes small PIP (bottom-left)
     var hasRemoteCam = remoteVideo && CallState.remoteStream &&
       CallState.remoteStream.getVideoTracks().length > 0 &&
-      CallState.remoteStream.getVideoTracks().some(function (t) { return t.readyState === 'live'; });
+      CallState.remoteStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
     if (hasRemoteCam) {
       remoteVideo.classList.add('screen-pip');
       remoteVideo.style.display = 'block';
     } else if (remoteVideo) {
       remoteVideo.style.display = 'none';
     }
-
+ 
     // Local camera PIP (bottom-right)
     var hasLocalCam = localVid &&
       CallState.localStream &&
       CallState.localStream.getVideoTracks().length > 0 &&
-      CallState.localStream.getVideoTracks().some(function (t) { return t.readyState === 'live'; });
+      CallState.localStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
     if (hasLocalCam) {
       localVid.srcObject = CallState.localStream;
       localVid.style.cssText =
         'display:block;width:100px;height:140px;position:absolute;bottom:80px;right:16px;' +
         'border-radius:10px;z-index:10;object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);';
     }
-
+ 
     // Hide avatar overlay during screen share
     if (ongoingAv) ongoingAv.style.display = 'none';
-
+ 
     // Show a small "Screen share" label
     var lbl = document.getElementById('remote-screen-label');
     if (!lbl) {
@@ -4971,7 +4971,7 @@ function handleScreenToggle(data) {
       if (callOverlay) callOverlay.appendChild(lbl);
     }
     lbl.style.display = 'flex';
-
+ 
   } else {
     // ── Remote stopped sharing ──────────────────────────────
     // Hide screen share video
@@ -4980,26 +4980,26 @@ function handleScreenToggle(data) {
       remoteScreenVideo.srcObject = null;
     }
     CallState.remoteScreenStream = null;
-
+ 
     // Restore remote camera to full view
     if (remoteVideo) {
       remoteVideo.classList.remove('screen-pip');
       remoteVideo.style.cssText = '';
       var hasRemoteCam = CallState.remoteStream &&
         CallState.remoteStream.getVideoTracks().length > 0 &&
-        CallState.remoteStream.getVideoTracks().some(function (t) { return t.readyState === 'live'; });
+        CallState.remoteStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
       if (hasRemoteCam) {
         remoteVideo.style.display = 'block';
       } else {
         remoteVideo.style.display = 'none';
       }
     }
-
+ 
     // Restore local video to normal PIP
     var hadLocalCam = localVid &&
       CallState.localStream &&
       CallState.localStream.getVideoTracks().length > 0 &&
-      CallState.localStream.getVideoTracks().some(function (t) { return t.readyState === 'live'; });
+      CallState.localStream.getVideoTracks().some(function(t){ return t.readyState === 'live'; });
     if (hadLocalCam) {
       localVid.style.cssText = '';
       localVid.style.display = 'block';
@@ -5007,12 +5007,12 @@ function handleScreenToggle(data) {
     } else if (localVid) {
       localVid.style.display = 'none';
     }
-
+ 
     // Restore avatar only if no active camera
     if (ongoingAv && !hadLocalCam) {
       ongoingAv.style.display = 'block';
     }
-
+ 
     // Remove screen label
     var lbl = document.getElementById('remote-screen-label');
     if (lbl) lbl.style.display = 'none';
@@ -5027,13 +5027,13 @@ function showOngoingCall() {
       $('pip-voice-wrap').classList.remove('active');
       $('pip-remote-video').srcObject = CallState.remoteStream;
     }
-    CallState.callStartTime = Date.now();
-    CallState.timerInterval = setInterval(updateCallTimer, 1000);
+    CallState.callStartTime    = Date.now();
+    CallState.timerInterval    = setInterval(updateCallTimer, 1000);
     return;
   }
-
+ 
   hideAllCallOverlays();
-
+ 
   // ── Reset any leftover screen-share styles ──────────────────
   var remoteVideo = $('remote-video');
   if (remoteVideo) {
@@ -5049,57 +5049,33 @@ function showOngoingCall() {
   if (ind) ind.remove();
   var lbl = document.getElementById('remote-screen-label');
   if (lbl) lbl.remove();
-
+ 
   // ── Set avatar & name ───────────────────────────────────────
   var ongoingAv = $('ongoing-av');
   if (ongoingAv) {
-    ongoingAv.src = CallState.remoteProfilePic || seed('User');
+    ongoingAv.src          = CallState.remoteProfilePic || seed('User');
     ongoingAv.style.display = CallState.callType === 'video' ? 'none' : 'block';
   }
   var ongoingName = $('ongoing-name');
   if (ongoingName) ongoingName.textContent = CallState.remoteUserName;
-
+ 
   showCallOverlay('ongoing-call');
-
-  // Mobile call controls fix
-  if (window.innerWidth <= 768) {
-    setTimeout(function () {
-      var ctrl = document.querySelector('#ongoing-call .call-controls');
-      if (ctrl) {
-        ctrl.setAttribute('style',
-          'position:fixed!important;bottom:0!important;left:0!important;' +
-          'right:0!important;width:100vw!important;' +
-          'display:flex!important;flex-wrap:wrap!important;' +
-          'justify-content:center!important;align-items:center!important;' +
-          'gap:10px!important;padding:10px 8px 28px 8px!important;' +
-          'border-radius:20px 20px 0 0!important;' +
-          'background:rgba(0,0,0,0.9)!important;z-index:99999!important;' +
-          'box-sizing:border-box!important;'
-        );
-        var style = document.createElement('style');
-        style.textContent =
-          '#ongoing-call .call-controls .ctrl-btn{width:44px!important;height:44px!important;font-size:16px!important;flex-shrink:1!important;flex-grow:0!important;min-width:0!important;}' +
-          '#ongoing-call .call-controls .ctrl-btn.end{width:50px!important;height:50px!important;font-size:18px!important;}';
-        document.head.appendChild(style);
-      }
-    }, 150);
-  }
-
+ 
   CallState.callStartTime = Date.now();
   CallState.timerInterval = setInterval(updateCallTimer, 1000);
   updateCallTimer();
-
+ 
   if (CallState.callType === 'video') {
     if (localVid) {
       localVid.style.display = 'block';
-      localVid.srcObject = CallState.localStream;
+      localVid.srcObject     = CallState.localStream;
     }
     if (remoteVideo) {
       remoteVideo.style.display = 'block';
       if (CallState.remoteStream) remoteVideo.srcObject = CallState.remoteStream;
     }
   } else {
-    if (localVid) localVid.style.display = 'none';
+    if (localVid)    localVid.style.display    = 'none';
     if (remoteVideo) remoteVideo.style.display = 'none';
   }
 }
@@ -5136,12 +5112,12 @@ function updateCamButton() {
 function updateVideoDisplay() {
   var lv = $('local-video');
   if (!lv) return;
-
+ 
   if (CallState.isCamOff) {
     lv.style.display = 'none';
-    lv.srcObject = null;
+    lv.srcObject     = null;
   } else if (CallState.localStream && CallState.localStream.getVideoTracks().length > 0) {
-    lv.srcObject = CallState.localStream;
+    lv.srcObject     = CallState.localStream;
     lv.style.display = 'block';
   } else {
     lv.style.display = 'none';
@@ -5172,14 +5148,14 @@ function toggleScreenShare() {
 
 function startScreenShare() {
   if (!CallState.pc || !CallState.isInCall) return;
-
+ 
   navigator.mediaDevices
     .getDisplayMedia({ video: true, audio: false, monitorTypeSurfaces: 'include' })
     .then(function (screenStream) {
-      CallState.screenStream = screenStream;
+      CallState.screenStream   = screenStream;
       CallState.isScreenSharing = true;
       var screenTrack = screenStream.getVideoTracks()[0];
-
+ 
       // Add screen track as new sender + renegotiate
       CallState.screenSender = CallState.pc.addTrack(screenTrack, screenStream);
       CallState.pc.createOffer()
@@ -5200,11 +5176,11 @@ function startScreenShare() {
           }
         })
         .catch(function (err) { console.error('Screen renegotiate error:', err); });
-
+ 
       // ── local video: keep camera visible as small PIP ────────
-      var localVid = $('local-video');
+      var localVid  = $('local-video');
       if (localVid && CallState.localStream && !CallState.isCamOff) {
-        var hasCam = CallState.localStream.getVideoTracks().some(function (t) { return t.readyState === 'live'; });
+        var hasCam = CallState.localStream.getVideoTracks().some(function(t) { return t.readyState === 'live'; });
         if (hasCam) {
           localVid.srcObject = CallState.localStream;
           localVid.style.cssText =
@@ -5212,14 +5188,14 @@ function startScreenShare() {
             'border-radius:10px;z-index:12;object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);';
         }
       }
-
+ 
       // ── Show "Sharing screen" indicator overlay on screen ────
       var old = document.getElementById('local-screen-indicator');
       if (old) old.remove();
       var callScreen = $('ongoing-call');
       if (callScreen) {
         var ind = document.createElement('div');
-        ind.id = 'local-screen-indicator';
+        ind.id  = 'local-screen-indicator';
         ind.style.cssText =
           'position:absolute;bottom:80px;left:16px;display:flex;align-items:center;gap:6px;' +
           'background:rgba(0,0,0,0.6);color:#fff;font-size:12px;padding:6px 14px;' +
@@ -5229,7 +5205,7 @@ function startScreenShare() {
           '<span>Sharing screen</span>';
         callScreen.appendChild(ind);
       }
-
+ 
       updateScreenBtn(true);
       screenTrack.onended = function () { stopScreenShare(); };
     })
@@ -5239,22 +5215,22 @@ function startScreenShare() {
 function stopScreenShare() {
   if (!CallState.isScreenSharing) return;
   CallState.isScreenSharing = false;
-
+ 
   if (CallState.screenStream) {
     CallState.screenStream.getTracks().forEach(function (t) { t.stop(); });
     CallState.screenStream = null;
   }
-
+ 
   // Remove screen indicator
   var ind = document.getElementById('local-screen-indicator');
   if (ind) ind.remove();
-
+ 
   // Restore local video element
   var localVid = $('local-video');
-
+ 
   if (CallState.screenSender && CallState.pc) {
     // Remove screen sender + renegotiate
-    try { CallState.pc.removeTrack(CallState.screenSender); } catch (e) { }
+    try { CallState.pc.removeTrack(CallState.screenSender); } catch (e) {}
     CallState.screenSender = null;
     CallState.pc.createOffer()
       .then(function (offer) { return CallState.pc.setLocalDescription(offer); })
@@ -5275,10 +5251,10 @@ function stopScreenShare() {
       })
       .catch(function (err) { console.error('Screen stop error:', err); });
   }
-
+ 
   // Restore local video if camera is on
   if (localVid && CallState.localStream && !CallState.isCamOff) {
-    var hasCam = CallState.localStream.getVideoTracks().some(function (t) { return t.readyState === 'live'; });
+    var hasCam = CallState.localStream.getVideoTracks().some(function(t) { return t.readyState === 'live'; });
     if (hasCam) {
       localVid.srcObject = CallState.localStream;
       localVid.style.cssText = '';  // reset to default CSS position
@@ -5291,7 +5267,7 @@ function stopScreenShare() {
     localVid.style.cssText = '';
     localVid.style.display = 'none';
   }
-
+ 
   CallState.originalVideoTrack = null;
   updateScreenBtn(false);
 }
@@ -5315,7 +5291,7 @@ function hideAllCallOverlays() {
   });
   // Re-enable incoming call buttons (acceptCall disables them to prevent double-tap)
   var incomingBtns = document.querySelectorAll('#incoming-call .call-btn');
-  incomingBtns.forEach(function (b) { b.style.pointerEvents = ''; b.style.opacity = ''; });
+  incomingBtns.forEach(function(b) { b.style.pointerEvents = ''; b.style.opacity = ''; });
   // Hide outgoing local video preview
   var localWrap = $('outgoing-local-wrap');
   if (localWrap) localWrap.classList.remove('active');
@@ -5342,12 +5318,12 @@ function stopAllRingtones() {
       el.volume = 0;
       el.pause();
       el.currentTime = 0;
-      setTimeout(function () {
+      setTimeout(function() {
         el.pause();
         el.currentTime = 0;
         el.muted = true;
       }, 100);
-      setTimeout(function () {
+      setTimeout(function() {
         el.pause();
         el.muted = false;
         el.volume = 1;
@@ -5369,32 +5345,32 @@ function initCallButtons() {
   function addTouchHandler(el, fn) {
     if (!el) return;
     var handled = false;
-    el.addEventListener('touchstart', function (e) {
+    el.addEventListener('touchstart', function(e) {
       e.stopPropagation();
     }, { passive: true });
-    el.addEventListener('touchend', function (e) {
+    el.addEventListener('touchend', function(e) {
       e.preventDefault();
       e.stopPropagation();
       if (handled) return;
       handled = true;
       fn();
-      setTimeout(function () { handled = false; }, 1000);
+      setTimeout(function() { handled = false; }, 1000);
     }, { passive: false });
-    el.addEventListener('click', function (e) {
+    el.addEventListener('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
       if (handled) return;
       handled = true;
       fn();
-      setTimeout(function () { handled = false; }, 1000);
+      setTimeout(function() { handled = false; }, 1000);
     });
   }
 
-  addTouchHandler(acceptBtn, function () {
+  addTouchHandler(acceptBtn, function() {
     console.log('Accept button pressed');
     acceptCall();
   });
-  addTouchHandler(rejectBtn, function () {
+  addTouchHandler(rejectBtn, function() {
     console.log('Reject button pressed');
     rejectCall();
   });
@@ -5404,10 +5380,10 @@ function cleanupCall() {
   cleanupCamFx();
   if (CallState.ringTimeout) { clearTimeout(CallState.ringTimeout); CallState.ringTimeout = null; }
   if (CallState.screenStream) { CallState.screenStream.getTracks().forEach(function (t) { t.stop(); }); }
-  if (CallState.pc) { CallState.pc.close(); }
-  if (CallState.localStream) { CallState.localStream.getTracks().forEach(function (t) { t.stop(); }); }
-  if (CallState.timerInterval) { clearInterval(CallState.timerInterval); }
-
+  if (CallState.pc)           { CallState.pc.close(); }
+  if (CallState.localStream)  { CallState.localStream.getTracks().forEach(function (t) { t.stop(); }); }
+  if (CallState.timerInterval){ clearInterval(CallState.timerInterval); }
+ 
   // Clean up screen-share DOM leftovers
   var ind = document.getElementById('local-screen-indicator');
   if (ind) ind.remove();
@@ -5419,7 +5395,7 @@ function cleanupCall() {
   if (rsv) { rsv.style.display = 'none'; rsv.srcObject = null; }
   var lv = $('local-video');
   if (lv) { lv.style.cssText = ''; lv.srcObject = null; }
-
+ 
   resetCallState();
 }
 
@@ -5628,14 +5604,14 @@ function pipToggleCam() {
 
 function gcToggleCam() {
   if (!GC.active || !GC.localStream) return;
-
+ 
   if (GC.isScreenSharing) {
     toast('Stop screen sharing before toggling camera', 'e');
     return;
   }
-
+ 
   var videoTracks = GC.localStream.getVideoTracks();
-
+ 
   if (videoTracks.length > 0 && !GC.isCamOff) {
     GC.isCamOff = true;
     videoTracks.forEach(function (t) {
@@ -5671,7 +5647,7 @@ function gcToggleCam() {
     syncGcButtonStates();
     buildLocalThumb();
     if (gcFocusedId === 'local') focusGcParticipant('local');
-
+ 
   } else {
     navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
@@ -5679,7 +5655,7 @@ function gcToggleCam() {
       var videoTrack = camStream.getVideoTracks()[0];
       GC.localStream.addTrack(videoTrack);
       GC.isCamOff = false;
-
+ 
       Object.keys(GC.peers).forEach(function (pid) {
         var peer = GC.peers[pid];
         if (!peer || !peer.pc) return;
@@ -5727,7 +5703,7 @@ function openAddUserToCall() {
   api('/all_users/').then(function (users) {
     S.allUsers = users || [];
     renderAddUserList(S.allUsers);
-  }).catch(function () {
+  }).catch(function() {
     renderAddUserList(S.allUsers || []);
   });
   $('add-user-call-input').focus();
@@ -5768,11 +5744,11 @@ function renderAddUserList(users) {
     html += '<div class="add-user-call-item" onclick="inviteUserToCall(' + u.id + ')">' +
       '<img src="' + pic + '" alt="">' +
       '<div class="add-user-call-info">' +
-      '<div class="add-user-call-name">' + dname(u) + '</div>' +
-      '<div class="add-user-call-username">@' + u.username + '</div>' +
+        '<div class="add-user-call-name">' + dname(u) + '</div>' +
+        '<div class="add-user-call-username">@' + u.username + '</div>' +
       '</div>' +
       '<i class="fa-solid fa-phone add-user-call-icon"></i>' +
-      '</div>';
+    '</div>';
   });
   list.innerHTML = html;
 }
@@ -6136,7 +6112,7 @@ function dismissGroupCallPopup(groupId) {
   }
   // Close browser notification if any
   var info = GC.activeGroupCalls[groupId];
-  if (info && info._notif) { try { info._notif.close(); } catch (e) { } }
+  if (info && info._notif) { try { info._notif.close(); } catch(e){} }
   stopGcRingtone();
 }
 
@@ -6161,7 +6137,7 @@ function playGcRingtone() {
     ringtone.currentTime = 0;
     var p = ringtone.play();
     if (p && p.then) {
-      p.then(function () {
+      p.then(function() {
         console.log('[GC-DEBUG] Ringtone playing OK');
       }).catch(function (e) {
         console.warn('[GC-DEBUG] Ringtone play FAILED:', e);
@@ -6169,7 +6145,7 @@ function playGcRingtone() {
         if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 500]);
         // Retry on next user interaction
         function retryOnInteract() {
-          ringtone.play().catch(function () { });
+          ringtone.play().catch(function () {});
           document.removeEventListener('click', retryOnInteract, true);
           document.removeEventListener('touchstart', retryOnInteract, true);
         }
@@ -6217,16 +6193,16 @@ function showGroupCallPopup(data) {
   notif.className = 'gc-call-popup';
   notif.innerHTML =
     '<div class="gc-popup-top">' +
-    '<img class="gc-popup-av" src="' + esc(pic) + '" alt="">' +
-    '<div class="gc-popup-info">' +
-    '<div class="gc-popup-group">' + esc(data.group_name) + '</div>' +
-    '<div class="gc-popup-caller"><i class="fa-solid ' + callIcon + '"></i> ' + esc(data.caller_name) + ' started a ' + callLabel + ' call</div>' +
-    '</div>' +
-    '<button class="gc-popup-close"><i class="fa-solid fa-xmark"></i></button>' +
+      '<img class="gc-popup-av" src="' + esc(pic) + '" alt="">' +
+      '<div class="gc-popup-info">' +
+        '<div class="gc-popup-group">' + esc(data.group_name) + '</div>' +
+        '<div class="gc-popup-caller"><i class="fa-solid ' + callIcon + '"></i> ' + esc(data.caller_name) + ' started a ' + callLabel + ' call</div>' +
+      '</div>' +
+      '<button class="gc-popup-close"><i class="fa-solid fa-xmark"></i></button>' +
     '</div>' +
     '<div class="gc-popup-actions">' +
-    '<button class="gc-popup-btn gc-popup-dismiss">Dismiss</button>' +
-    '<button class="gc-popup-btn gc-popup-join">Join</button>' +
+      '<button class="gc-popup-btn gc-popup-dismiss">Dismiss</button>' +
+      '<button class="gc-popup-btn gc-popup-join">Join</button>' +
     '</div>';
 
   container.appendChild(notif);
@@ -6264,7 +6240,7 @@ function showGroupCallPopup(data) {
 function handleGroupCallEnded(data) {
   // Close browser notification if any
   var info = GC.activeGroupCalls[data.group_id];
-  if (info && info._notif) { try { info._notif.close(); } catch (e) { } }
+  if (info && info._notif) { try { info._notif.close(); } catch(e){} }
   delete GC.activeGroupCalls[data.group_id];
   updateGroupCallBanner();
   // Remove popup notification and stop ringtone
@@ -6315,12 +6291,12 @@ function fetchActiveGroupCalls() {
     headers: {
       'Authorization': 'Bearer ' + S.token,
     }
-  }).then(function (r) {
+  }).then(function(r) {
     if (!r.ok) throw new Error('API error');
     return r.json();
-  }).then(function (calls) {
+  }).then(function(calls) {
     if (!calls || !calls.length) return;
-    calls.forEach(function (gc) {
+    calls.forEach(function(gc) {
       // Skip if we're already in this call
       if (GC.active && GC.groupCallId === gc.group_call_id) return;
       // Only add if not already tracked
@@ -6335,7 +6311,7 @@ function fetchActiveGroupCalls() {
       }
     });
     updateGroupCallBanner();
-  }).catch(function (e) {
+  }).catch(function(e) {
     console.log('Could not fetch active group calls:', e);
   });
 }
@@ -6347,7 +6323,7 @@ function joinGroupCallFromBanner() {
   // If the banner group is different from current view, navigate there first
   if (targetGroupId && (!S.isGroup || !S.activeGroup || S.activeGroup.id != targetGroupId)) {
     openGroup(parseInt(targetGroupId));
-    setTimeout(function () { joinGroupCallFromBanner(); }, 500);
+    setTimeout(function() { joinGroupCallFromBanner(); }, 500);
     return;
   }
 
@@ -6417,7 +6393,7 @@ function handleGroupCallOffer(data) {
   var oldPeer = GC.peers[fromId];
   if (oldPeer) {
     console.log('[GC] handleGroupCallOffer: replacing old peer for', fromId);
-    try { oldPeer.pc.close(); } catch (e) { }
+    try { oldPeer.pc.close(); } catch(e) {}
     var oldThumb = document.getElementById('gc-thumb-' + fromId);
     if (oldThumb) oldThumb.remove();
     var oldSThumb = document.getElementById('gc-thumb-' + fromId + '_screen');
@@ -6438,7 +6414,7 @@ function handleGroupCallOffer(data) {
   pc.setRemoteDescription(new RTCSessionDescription(data.sdp)).then(function () {
     console.log('[GC] handleGroupCallOffer: remote desc set, transceivers:', pc.getTransceivers().length);
     // Log each transceiver's state for debugging
-    pc.getTransceivers().forEach(function (t, i) {
+    pc.getTransceivers().forEach(function(t, i) {
       console.log('[GC]   t[' + i + ']', t.mid, t.direction, 'sender:', t.sender.track ? t.sender.track.kind : 'null', 'receiver:', t.receiver.track ? t.receiver.track.kind : 'null');
     });
     return pc.createAnswer();
@@ -6455,12 +6431,12 @@ function handleGroupCallOffer(data) {
     }
     // Flush pending ICE
     if (peer.pendingIce) {
-      peer.pendingIce.forEach(function (c) { pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () { }); });
+      peer.pendingIce.forEach(function (c) { pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {}); });
       peer.pendingIce = [];
     }
     console.log('[GC] handleGroupCallOffer: answer sent to', fromId);
-    setTimeout(function () { renderGroupCallPeer(fromId, peer); }, 500);
-    setTimeout(function () { renderGroupCallPeer(fromId, peer); }, 2000);
+    setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 500);
+    setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 2000);
   }).catch(function (err) { console.error('[GC] Group offer handle error:', err); });
 }
 
@@ -6472,21 +6448,21 @@ function handleGroupCallAnswer(data) {
   peer.pc.setRemoteDescription(new RTCSessionDescription(data.sdp)).then(function () {
     console.log('[GC] handleGroupCallAnswer: remote desc set for', fromId);
     // Log each transceiver
-    peer.pc.getTransceivers().forEach(function (t, i) {
+    peer.pc.getTransceivers().forEach(function(t, i) {
       console.log('[GC]   t[' + i + ']', t.mid, t.direction, 'sender:', t.sender.track ? t.sender.track.kind : 'null', 'receiver:', t.receiver.track ? t.receiver.track.kind : 'null');
     });
     if (peer.pendingIce) {
-      peer.pendingIce.forEach(function (c) { peer.pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () { }); });
+      peer.pendingIce.forEach(function (c) { peer.pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {}); });
       peer.pendingIce = [];
     }
     // Check if ontrack already gave us a stream
     console.log('[GC] handleGroupCallAnswer: peer.stream=', !!peer.stream, 'videoTracks:', peer.stream ? peer.stream.getVideoTracks().length : 0);
-    setTimeout(function () {
+    setTimeout(function() {
       console.log('[GC] render@500ms: peer.stream=', !!peer.stream, 'videoTracks:', peer.stream ? peer.stream.getVideoTracks().length : 0, 'connectionState:', peer.pc.connectionState);
       renderGroupCallPeer(fromId, peer);
     }, 500);
-    setTimeout(function () { renderGroupCallPeer(fromId, peer); }, 1500);
-    setTimeout(function () { renderGroupCallPeer(fromId, peer); }, 3000);
+    setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 1500);
+    setTimeout(function() { renderGroupCallPeer(fromId, peer); }, 3000);
   }).catch(function (err) { console.error('[GC] Group answer error:', err); });
 }
 
@@ -6501,7 +6477,7 @@ function handleGroupCallIce(data) {
     return;
   }
   if (peer.pc.remoteDescription) {
-    peer.pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(function () { });
+    peer.pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(function () {});
   } else {
     if (!peer.pendingIce) peer.pendingIce = [];
     peer.pendingIce.push(data.candidate);
@@ -6537,7 +6513,7 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
   var oldPeer = GC.peers[peerId];
   if (oldPeer) {
     console.log('[GC] createGroupPeer: replacing old peer for', peerId);
-    try { oldPeer.pc.close(); } catch (e) { }
+    try { oldPeer.pc.close(); } catch(e) {}
     delete GC.peers[peerId];
   }
   var peer = createGroupPeerConnection(peerId);
@@ -6564,7 +6540,7 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
         }));
       }
       console.log('[GC] Offer sent to peer', peerId, 'transceivers:', pc.getTransceivers().length);
-      pc.getTransceivers().forEach(function (t, i) {
+      pc.getTransceivers().forEach(function(t, i) {
         console.log('[GC]   offer t[' + i + ']', t.mid, t.direction, 'sender:', t.sender.track ? t.sender.track.kind : 'null');
       });
     }).catch(function (err) { console.error('Group offer create error:', err); });
@@ -6671,12 +6647,12 @@ function setupGroupPeerHandlers(pc, peer, peerId) {
     console.log('[GC] peer', peerId, 'connectionState:', pc.connectionState, 'peer.stream:', !!peer.stream, 'videoTracks:', peer.stream ? peer.stream.getVideoTracks().length : 0);
     if (pc.connectionState === 'connected') {
       // Force re-render once media is actually flowing
-      setTimeout(function () {
+      setTimeout(function() {
         console.log('[GC] connected re-render for', peerId, 'stream:', !!peer.stream, 'videoTracks:', peer.stream ? peer.stream.getVideoTracks().length : 0);
         renderGroupCallPeer(peerId, peer);
       }, 300);
-      setTimeout(function () { renderGroupCallPeer(peerId, peer); }, 1000);
-      setTimeout(function () { renderGroupCallPeer(peerId, peer); }, 2500);
+      setTimeout(function() { renderGroupCallPeer(peerId, peer); }, 1000);
+      setTimeout(function() { renderGroupCallPeer(peerId, peer); }, 2500);
     } else if (pc.connectionState === 'failed') {
       console.log('[GC] Peer ' + peerId + ' connection failed, restarting ICE');
       pc.restartIce();
@@ -6705,7 +6681,7 @@ function renderGroupCallPeer(peerId, peer) {
 
   // Auto-focus screen share
   var videoTracks = peer.stream ? peer.stream.getVideoTracks() : [];
-  var hasScreen = videoTracks.some(function (t) { return t.label && t.label.toLowerCase().indexOf('screen') !== -1; });
+  var hasScreen = videoTracks.some(function(t) { return t.label && t.label.toLowerCase().indexOf('screen') !== -1; });
   if (hasScreen) {
     focusGcParticipant(peerId);
   }
@@ -6723,18 +6699,18 @@ function buildGcThumb(id, peer) {
   var thumb = document.createElement('div');
   thumb.className = 'gc-thumb' + (gcFocusedId === id ? ' active' : '');
   thumb.id = 'gc-thumb-' + id;
-  thumb.onclick = function () { focusGcParticipant(id); };
+  thumb.onclick = function() { focusGcParticipant(id); };
 
   var videoTracks = peer.stream ? peer.stream.getVideoTracks() : [];
 
   // Always show camera if available (screen is in separate thumb now)
-  var showCamera = videoTracks.length > 0 && videoTracks.some(function (t) { return t.enabled; });
+  var showCamera = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
 
   if (showCamera && peer.stream) {
     var vid = document.createElement('video');
     vid.autoplay = true; vid.playsInline = true; vid.muted = true;
     vid.srcObject = peer.stream;
-    vid.play().catch(function (e) { console.log('[GC] thumb video play error:', e); });
+    vid.play().catch(function(e) { console.log('[GC] thumb video play error:', e); });
     thumb.appendChild(vid);
   } else {
     // Show avatar
@@ -6749,7 +6725,7 @@ function buildGcThumb(id, peer) {
     var audio = document.createElement('audio');
     audio.autoplay = true;
     audio.srcObject = peer.stream;
-    audio.play().catch(function (e) { console.log('[GC] thumb audio play error:', e); });
+    audio.play().catch(function(e) { console.log('[GC] thumb audio play error:', e); });
     thumb.appendChild(audio);
   }
 
@@ -6760,8 +6736,8 @@ function buildGcThumb(id, peer) {
 
   // Hover status icons (mic, camera, screen)
   var audioTracks = peer.stream ? peer.stream.getAudioTracks() : [];
-  var micOn = audioTracks.length > 0 && audioTracks.some(function (t) { return t.enabled; });
-  var camOn = videoTracks.length > 0 && videoTracks.some(function (t) { return t.enabled; });
+  var micOn = audioTracks.length > 0 && audioTracks.some(function(t) { return t.enabled; });
+  var camOn = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
   var screenOn = !!GC.screenSharers[id];
 
   var statusDiv = document.createElement('div');
@@ -6774,14 +6750,14 @@ function buildGcThumb(id, peer) {
 
   // Track changes
   if (peer.stream) {
-    peer.stream.getVideoTracks().forEach(function (track) {
-      track.onmute = function () { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
-      track.onunmute = function () { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
+    peer.stream.getVideoTracks().forEach(function(track) {
+      track.onmute = function() { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
+      track.onunmute = function() { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
     });
     if (!peer.stream._thumbTrackListener) {
       peer.stream._thumbTrackListener = true;
-      peer.stream.onaddtrack = function () { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
-      peer.stream.onremovetrack = function () { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
+      peer.stream.onaddtrack = function() { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
+      peer.stream.onremovetrack = function() { buildGcThumb(id, peer); if (gcFocusedId === id) updateGcMainView(id, peer); };
     }
   }
 
@@ -6797,14 +6773,14 @@ function buildLocalThumb() {
   var thumb = document.createElement('div');
   thumb.className = 'gc-thumb gc-local-thumb' + (gcFocusedId === 'local' ? ' active' : '');
   thumb.id = 'gc-thumb-local';
-  thumb.onclick = function () { focusGcParticipant('local'); };
+  thumb.onclick = function() { focusGcParticipant('local'); };
 
   var hasVideo = false;
 
   // Always show camera in local thumb (screen is separate)
   if (GC.localStream) {
     var videoTracks = GC.localStream.getVideoTracks();
-    hasVideo = videoTracks.length > 0 && videoTracks.some(function (t) { return t.enabled; });
+    hasVideo = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
     if (hasVideo) {
       var vid = document.createElement('video');
       vid.autoplay = true; vid.playsInline = true; vid.muted = true;
@@ -6853,7 +6829,7 @@ function buildGcScreenThumb(id, peer) {
   var thumb = document.createElement('div');
   thumb.className = 'gc-thumb gc-screen-thumb' + (gcFocusedId === thumbId ? ' active' : '');
   thumb.id = 'gc-thumb-' + thumbId;
-  thumb.onclick = function () { focusGcParticipant(thumbId); };
+  thumb.onclick = function() { focusGcParticipant(thumbId); };
 
   // Show screen stream preview
   var screenStream = peer.screenStream || peer.stream;
@@ -6896,7 +6872,7 @@ function buildLocalScreenThumb() {
   var thumb = document.createElement('div');
   thumb.className = 'gc-thumb gc-screen-thumb' + (gcFocusedId === 'local_screen' ? ' active' : '');
   thumb.id = 'gc-thumb-local_screen';
-  thumb.onclick = function () { focusGcParticipant('local_screen'); };
+  thumb.onclick = function() { focusGcParticipant('local_screen'); };
 
   var vid = document.createElement('video');
   vid.autoplay = true; vid.playsInline = true; vid.muted = true;
@@ -6962,11 +6938,11 @@ function updateGcMainView(id, peer, showScreen) {
   if (GC.isScreenSharing) sharerIds.push('local');
   // Deduplicate
   var uniqueSharers = [];
-  sharerIds.forEach(function (sid) { if (uniqueSharers.indexOf(sid) === -1) uniqueSharers.push(sid); });
+  sharerIds.forEach(function(sid) { if (uniqueSharers.indexOf(sid) === -1) uniqueSharers.push(sid); });
 
   if (uniqueSharers.length >= 2) {
     mainView.classList.add('dual-screen');
-    uniqueSharers.slice(0, 2).forEach(function (sid) {
+    uniqueSharers.slice(0, 2).forEach(function(sid) {
       var panel = document.createElement('div');
       panel.className = 'gc-split-panel';
       var screenStream = null;
@@ -6987,8 +6963,8 @@ function updateGcMainView(id, peer, showScreen) {
           vid.autoplay = true; vid.playsInline = true;
           vid.srcObject = screenStream;
           panel.appendChild(vid);
-          (function (ss) {
-            panel.onclick = function () { gcOpenScreenZoom(ss); };
+          (function(ss) {
+            panel.onclick = function() { gcOpenScreenZoom(ss); };
             panel.style.cursor = 'pointer';
           })(screenStream);
         }
@@ -7035,7 +7011,7 @@ function updateGcMainView(id, peer, showScreen) {
         hint.className = 'gc-zoom-hint';
         hint.innerHTML = '<i class="fa-solid fa-expand"></i> Click to zoom';
         mainView.appendChild(hint);
-        mainView.onclick = function () { gcOpenScreenZoom(screenStream); };
+        mainView.onclick = function() { gcOpenScreenZoom(screenStream); };
       }
     }
     var nameEl = document.createElement('div');
@@ -7045,14 +7021,14 @@ function updateGcMainView(id, peer, showScreen) {
   } else {
     // Show camera/avatar
     var videoTracks = peer.stream ? peer.stream.getVideoTracks() : [];
-    var hasActiveVideo = videoTracks.length > 0 && videoTracks.some(function (t) { return t.enabled; });
+    var hasActiveVideo = videoTracks.length > 0 && videoTracks.some(function(t) { return t.enabled; });
     if (hasActiveVideo && peer.stream) {
       var vid = document.createElement('video');
       vid.autoplay = true; vid.playsInline = true; vid.muted = true;
       vid.srcObject = peer.stream;
       if (isLocal) { vid.style.transform = 'scaleX(-1)'; }
       mainView.appendChild(vid);
-      vid.play().catch(function (e) { console.log('[GC] main video play error:', e); });
+      vid.play().catch(function(e) { console.log('[GC] main video play error:', e); });
     } else {
       var av = document.createElement('img');
       av.className = 'gc-main-av';
@@ -7071,7 +7047,7 @@ function refreshDualScreenView() {
   var sharerIds = Object.keys(GC.screenSharers);
   if (GC.isScreenSharing) sharerIds.push('local');
   var uniqueSharers = [];
-  sharerIds.forEach(function (sid) { if (uniqueSharers.indexOf(sid) === -1) uniqueSharers.push(sid); });
+  sharerIds.forEach(function(sid) { if (uniqueSharers.indexOf(sid) === -1) uniqueSharers.push(sid); });
   if (uniqueSharers.length >= 2) {
     focusGcParticipant(gcFocusedId);
   } else if (uniqueSharers.length === 1) {
@@ -7112,7 +7088,7 @@ function showGroupCallUI() {
   buildLocalThumb();
   focusGcParticipant('local');
 
-  Object.keys(GC.peers).forEach(function (pid) {
+  Object.keys(GC.peers).forEach(function(pid) {
     buildGcThumb(pid, GC.peers[pid]);
   });
 
@@ -7263,15 +7239,15 @@ function gcToggleMic() {
 
 function toggleCam() {
   if (!CallState.isInCall || !CallState.localStream) return;
-
+ 
   // If screen sharing is active, warn user first
   if (CallState.isScreenSharing) {
     toast('Stop screen sharing before toggling camera', 'e');
     return;
   }
-
+ 
   var videoTracks = CallState.localStream.getVideoTracks();
-
+ 
   if (videoTracks.length > 0 && !CallState.isCamOff) {
     // Turn camera OFF
     CallState.isCamOff = true;
@@ -7305,7 +7281,7 @@ function toggleCam() {
     }
     updateCamButton();
     updateVideoDisplay();
-
+ 
   } else {
     // Turn camera ON
     navigator.mediaDevices.getUserMedia({
@@ -7332,7 +7308,7 @@ function toggleCam() {
       updateCamButton();
       var lv = $('local-video');
       if (lv) {
-        lv.srcObject = CallState.localStream;
+        lv.srcObject     = CallState.localStream;
         lv.style.cssText = '';           // clear any leftover overrides
         lv.style.display = 'block';
       }
@@ -7422,7 +7398,7 @@ function gcStopScreenShare() {
     Object.keys(GC.screenSenders).forEach(function (pid) {
       var pc = GC.peers[pid] && GC.peers[pid].pc;
       if (pc && GC.screenSenders[pid]) {
-        try { pc.removeTrack(GC.screenSenders[pid]); } catch (e) { }
+        try { pc.removeTrack(GC.screenSenders[pid]); } catch (e) {}
       }
     });
     GC.screenSenders = null;
@@ -7511,7 +7487,7 @@ function gcOpenScreenZoom(stream) {
     overlay = document.createElement('div');
     overlay.className = 'gc-screen-zoom-overlay';
     overlay.id = 'gc-screen-zoom-overlay';
-    overlay.onclick = function (e) { if (e.target === overlay) gcCloseScreenZoom(); };
+    overlay.onclick = function(e) { if (e.target === overlay) gcCloseScreenZoom(); };
     var closeBtn = document.createElement('button');
     closeBtn.className = 'gc-screen-zoom-close';
     closeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
@@ -7561,7 +7537,7 @@ function gcStartTalkingDetection() {
     }
 
     // Peer stream analysers
-    Object.keys(GC.peers).forEach(function (pid) {
+    Object.keys(GC.peers).forEach(function(pid) {
       var peer = GC.peers[pid];
       if (peer.stream && peer.stream.getAudioTracks().length > 0) {
         try {
@@ -7570,13 +7546,13 @@ function gcStartTalkingDetection() {
           analyser.fftSize = 256;
           src.connect(analyser);
           gcTalkingState.analysers[pid] = { analyser: analyser, name: peer.name || 'User' };
-        } catch (e) { }
+        } catch(e) {}
       }
     });
 
     // Poll audio levels
     gcTalkingState.interval = setInterval(gcCheckTalkingLevels, 200);
-  } catch (e) {
+  } catch(e) {
     console.log('Talking detection not supported:', e);
   }
 }
@@ -7587,7 +7563,7 @@ function gcStopTalkingDetection() {
     gcTalkingState.interval = null;
   }
   if (gcTalkingState.audioCtx) {
-    try { gcTalkingState.audioCtx.close(); } catch (e) { }
+    try { gcTalkingState.audioCtx.close(); } catch(e) {}
     gcTalkingState.audioCtx = null;
   }
   gcTalkingState.analysers = {};
@@ -7599,7 +7575,7 @@ function gcCheckTalkingLevels() {
   var loudestLevel = 0;
   var threshold = 15; // minimum level to count as "talking"
 
-  Object.keys(gcTalkingState.analysers).forEach(function (id) {
+  Object.keys(gcTalkingState.analysers).forEach(function(id) {
     var entry = gcTalkingState.analysers[id];
     var analyser = entry.analyser;
     var data = new Uint8Array(analyser.frequencyBinCount);
@@ -7624,14 +7600,14 @@ function gcCheckTalkingLevels() {
   }
 
   // Update speaking border on thumbnails
-  document.querySelectorAll('.gc-thumb').forEach(function (t) { t.classList.remove('speaking'); });
+  document.querySelectorAll('.gc-thumb').forEach(function(t) { t.classList.remove('speaking'); });
   if (loudestId) {
     var thumb = document.getElementById('gc-thumb-' + loudestId);
     if (thumb) thumb.classList.add('speaking');
   }
 
   // Add new peer analysers that joined after detection started
-  Object.keys(GC.peers).forEach(function (pid) {
+  Object.keys(GC.peers).forEach(function(pid) {
     if (!gcTalkingState.analysers[pid] && gcTalkingState.audioCtx) {
       var peer = GC.peers[pid];
       if (peer.stream && peer.stream.getAudioTracks().length > 0) {
@@ -7641,7 +7617,7 @@ function gcCheckTalkingLevels() {
           analyser.fftSize = 256;
           src.connect(analyser);
           gcTalkingState.analysers[pid] = { analyser: analyser, name: peer.name || 'User' };
-        } catch (e) { }
+        } catch(e) {}
       }
     }
   });
@@ -8000,7 +7976,7 @@ requestNotificationPermission();
 
   // Check if bridge has screen capture method (don't use typeof, Java bridge methods may not report as function)
   var hasCapture = false;
-  try { bridge.startScreenCapture; hasCapture = true; } catch (e) { }
+  try { bridge.startScreenCapture; hasCapture = true; } catch(e) {}
   if (!hasCapture) {
     console.log('[ScreenShare] AndroidBridge has no startScreenCapture');
     return;
@@ -8013,11 +7989,11 @@ requestNotificationPermission();
   var _screenStream = null;
   var _frameCount = 0;
 
-  window._onScreenFrame = function (dataUrl) {
+  window._onScreenFrame = function(dataUrl) {
     if (!_screenCanvas || !_screenCtx) return;
     _frameCount++;
     var img = new Image();
-    img.onload = function () {
+    img.onload = function() {
       if (!_screenCanvas || !_screenCtx) return;
       if (_screenCanvas.width !== img.width || _screenCanvas.height !== img.height) {
         _screenCanvas.width = img.width;
@@ -8036,19 +8012,19 @@ requestNotificationPermission();
     img.src = dataUrl;
   };
 
-  window._stopAndroidScreenCapture = function () {
+  window._stopAndroidScreenCapture = function() {
     console.log('[ScreenShare] Stopping capture, frames sent: ' + _frameCount);
     _screenCanvas = null;
     _screenCtx = null;
     _screenStream = null;
     _frameCount = 0;
-    try { bridge.stopScreenCapture(); } catch (e) { console.warn('[ScreenShare] stopScreenCapture error:', e); }
+    try { bridge.stopScreenCapture(); } catch(e) { console.warn('[ScreenShare] stopScreenCapture error:', e); }
   };
 
   // Override getDisplayMedia
   var _origGetDisplayMedia = navigator.mediaDevices.getDisplayMedia;
 
-  navigator.mediaDevices.getDisplayMedia = function (constraints) {
+  navigator.mediaDevices.getDisplayMedia = function(constraints) {
     console.log('[ScreenShare] getDisplayMedia called on Android');
 
     // Check if captureStream is available
@@ -8062,7 +8038,7 @@ requestNotificationPermission();
       return Promise.reject(new Error('Screen sharing not supported on this device'));
     }
 
-    return new Promise(function (resolve, reject) {
+    return new Promise(function(resolve, reject) {
       try {
         _frameCount = 0;
         _screenCanvas = document.createElement('canvas');
@@ -8084,7 +8060,7 @@ requestNotificationPermission();
         var videoTrack = _screenStream.getVideoTracks()[0];
         if (videoTrack) {
           var origStop = videoTrack.stop.bind(videoTrack);
-          videoTrack.stop = function () {
+          videoTrack.stop = function() {
             console.log('[ScreenShare] Track.stop() called');
             origStop();
             window._stopAndroidScreenCapture();
@@ -8096,7 +8072,7 @@ requestNotificationPermission();
         }
 
         window._screenResolve = resolve;
-        window._screenReject = function (err) {
+        window._screenReject = function(err) {
           console.warn('[ScreenShare] Rejected:', err);
           _screenCanvas = null;
           _screenCtx = null;
@@ -8111,14 +8087,14 @@ requestNotificationPermission();
         bridge.startScreenCapture();
 
         // Timeout after 15s
-        setTimeout(function () {
+        setTimeout(function() {
           if (window._screenReject) {
             console.warn('[ScreenShare] Timed out waiting for frames');
             window._screenReject('timeout');
           }
         }, 15000);
 
-      } catch (e) {
+      } catch(e) {
         console.error('[ScreenShare] Setup error:', e);
         reject(e);
       }
@@ -8378,12 +8354,12 @@ function startCallRecord() {
     preferCurrentTab: true,
     selfBrowserSurface: 'include',
     monitorTypeSurfaces: 'exclude'
-  }).then(function (displayStream) {
+  }).then(function(displayStream) {
     try {
       CallRec.displayStream = displayStream;
 
       // If user stops sharing via browser UI, stop recording too
-      displayStream.getVideoTracks()[0].onended = function () {
+      displayStream.getVideoTracks()[0].onended = function() {
         if (CallRec.isRecording) stopCallRecord();
       };
 
@@ -8401,7 +8377,7 @@ function startCallRecord() {
 
       // Remote audio
       if (GC.active) {
-        Object.keys(GC.peers).forEach(function (pid) {
+        Object.keys(GC.peers).forEach(function(pid) {
           var peer = GC.peers[pid];
           if (peer.stream) {
             var ra = peer.stream.getAudioTracks();
@@ -8432,17 +8408,17 @@ function startCallRecord() {
       CallRec.mediaRecorder = new MediaRecorder(CallRec.mixedStream, options);
       CallRec.chunks = [];
 
-      CallRec.mediaRecorder.ondataavailable = function (e) {
+      CallRec.mediaRecorder.ondataavailable = function(e) {
         if (e.data && e.data.size > 0) CallRec.chunks.push(e.data);
       };
 
-      CallRec.mediaRecorder.onstop = function () {
+      CallRec.mediaRecorder.onstop = function() {
         // Stop display capture
         if (CallRec.displayStream) {
-          CallRec.displayStream.getTracks().forEach(function (t) { t.stop(); });
+          CallRec.displayStream.getTracks().forEach(function(t) { t.stop(); });
           CallRec.displayStream = null;
         }
-        if (CallRec.audioCtx) CallRec.audioCtx.close().catch(function () { });
+        if (CallRec.audioCtx) CallRec.audioCtx.close().catch(function() {});
         if (CallRec.chunks.length > 0) {
           var label = GC.active ? 'SkyChat_GroupCall' : 'SkyChat_Call';
           var durationMs = CallRec.startTime ? (Date.now() - CallRec.startTime) : 0;
@@ -8466,10 +8442,10 @@ function startCallRecord() {
     } catch (err) {
       toast('Could not start recording', 'e');
       console.error('[REC] error:', err);
-      if (displayStream) displayStream.getTracks().forEach(function (t) { t.stop(); });
-      if (CallRec.audioCtx) CallRec.audioCtx.close().catch(function () { });
+      if (displayStream) displayStream.getTracks().forEach(function(t) { t.stop(); });
+      if (CallRec.audioCtx) CallRec.audioCtx.close().catch(function() {});
     }
-  }).catch(function (err) {
+  }).catch(function(err) {
     // User cancelled the tab picker or permission denied
     if (err.name !== 'NotAllowedError') {
       toast('Could not start recording', 'e');
@@ -8536,16 +8512,16 @@ function ebmlWriteVint(val, minLen) {
   return bytes;
 }
 function fixWebmDuration(blob, durationMs) {
-  return new Promise(function (resolve) {
+  return new Promise(function(resolve) {
     var fr = new FileReader();
-    fr.onerror = function () { resolve(blob); };
-    fr.onload = function () {
+    fr.onerror = function() { resolve(blob); };
+    fr.onload = function() {
       try {
         var data = new Uint8Array(fr.result);
         // Find Segment Info element (ID: 0x1549A966)
         var infoPos = -1;
         for (var i = 0; i < Math.min(data.length - 4, 4096); i++) {
-          if (data[i] === 0x15 && data[i + 1] === 0x49 && data[i + 2] === 0xA9 && data[i + 3] === 0x66) { infoPos = i; break; }
+          if (data[i]===0x15 && data[i+1]===0x49 && data[i+2]===0xA9 && data[i+3]===0x66) { infoPos = i; break; }
         }
         if (infoPos === -1) { resolve(blob); return; }
         var sv = ebmlReadVint(data, infoPos + 4);
@@ -8554,18 +8530,18 @@ function fixWebmDuration(blob, durationMs) {
         var infoDataEnd = infoDataStart + sv.val;
         // Check if Duration (0x4489) already exists
         for (var j = infoDataStart; j < Math.min(infoDataEnd - 1, data.length - 1); j++) {
-          if (data[j] === 0x44 && data[j + 1] === 0x89) {
+          if (data[j]===0x44 && data[j+1]===0x89) {
             var ds = ebmlReadVint(data, j + 2);
             if (ds && ds.val === 8) {
               new DataView(data.buffer, j + 2 + ds.len, 8).setFloat64(0, durationMs, false);
-              resolve(new Blob([data], { type: 'video/webm' })); return;
+              resolve(new Blob([data], {type:'video/webm'})); return;
             }
             resolve(blob); return;
           }
         }
         // Inject Duration element: ID(2) + size-vint(1) + float64(8) = 11 bytes
         var durElem = new Uint8Array(11);
-        durElem[0] = 0x44; durElem[1] = 0x89; durElem[2] = 0x88;
+        durElem[0]=0x44; durElem[1]=0x89; durElem[2]=0x88;
         new DataView(durElem.buffer).setFloat64(3, durationMs, false);
         var newInfoSize = sv.val + 11;
         var newSizeBytes = ebmlWriteVint(newInfoSize, sv.len);
@@ -8578,8 +8554,8 @@ function fixWebmDuration(blob, durationMs) {
         result.set(newSizeBytes, off); off += newSizeBytes.length;
         result.set(durElem, off); off += 11;
         result.set(data.subarray(infoDataStart), off);
-        resolve(new Blob([result], { type: 'video/webm' }));
-      } catch (e) { console.warn('[REC] duration fix failed:', e); resolve(blob); }
+        resolve(new Blob([result], {type:'video/webm'}));
+      } catch(e) { console.warn('[REC] duration fix failed:', e); resolve(blob); }
     };
     fr.readAsArrayBuffer(blob);
   });
@@ -8596,7 +8572,7 @@ function downloadRecording(chunks, prefix, durationMs) {
     String(now.getMinutes()).padStart(2, '0') +
     String(now.getSeconds()).padStart(2, '0');
   var filename = prefix + '_' + ts + '.webm';
-  var doDownload = function (finalBlob) {
+  var doDownload = function(finalBlob) {
     var url = URL.createObjectURL(finalBlob);
     var a = document.createElement('a');
     a.href = url;
