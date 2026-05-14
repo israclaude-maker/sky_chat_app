@@ -58,6 +58,12 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         Map<String, String> data = remoteMessage.getData();
         String type = data.get("type");
 
+
+        if (MainActivity.isAppInForeground && !"call".equals(type) && !"call_cancel".equals(type)) {
+        Log.d(TAG, "App in foreground, skipping FCM notification");
+        return;
+    }
+
         if ("call".equals(type)) {
             handleCallNotification(data);
         } else if ("call_cancel".equals(type)) {
