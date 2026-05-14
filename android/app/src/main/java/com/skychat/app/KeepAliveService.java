@@ -44,7 +44,11 @@ public class KeepAliveService extends Service {
     private static final String CHANNEL_ID = "skychat_bg_v3";
     private static final String CHANNEL_CALL = "skychat_calls";
     private static final String CHANNEL_MSG = "skychat_messages";
-    private static final String WS_BASE = "wss://sky-chat.duckdns.org/ws/chat/";
+
+    // ✅ FIXED: purana duckdns domain change karke skyfinancia.com kiya
+    private static final String WS_BASE = "wss://skyfinancia.com/ws/chat/";
+    private static final String BASE_URL = "https://skyfinancia.com";
+
     public static final String PREFS_NAME = "skychat_prefs";
 
     public static KeepAliveService instance = null;
@@ -58,14 +62,13 @@ public class KeepAliveService extends Service {
     private ConnectivityManager.NetworkCallback networkCallback;
     private boolean isConnecting = false;
     private Handler aliveCheckHandler;
-    private static final long ALIVE_CHECK_INTERVAL = 45000; // 45 seconds (more aggressive)
-    private long lastPongTime = 0; // track last activity on WS
+    private static final long ALIVE_CHECK_INTERVAL = 45000;
+    private long lastPongTime = 0;
 
-    // Store last incoming call info for Decline button
     private int lastCallId = -1;
     private int lastCallerId = -1;
     private Runnable callTimeoutRunnable = null;
-    private static final long CALL_RING_TIMEOUT = 45000; // 45 seconds
+    private static final long CALL_RING_TIMEOUT = 45000;
     private static final String PREF_ACTIVE_CALL_ID = "active_call_id";
     private static final String PREF_CALL_HANDLED = "call_handled";
 
@@ -77,7 +80,6 @@ public class KeepAliveService extends Service {
         reconnectHandler = new Handler(Looper.getMainLooper());
         createChannels();
 
-        // Foreground notification (Android requirement — made as hidden as possible)
         Intent intent = new Intent(this, MainActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent pi = PendingIntent.getActivity(this, 0, intent,
@@ -97,12 +99,10 @@ public class KeepAliveService extends Service {
 
         startForeground(1, notification);
 
-        // Wake lock
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "skychat:keepalive");
         wakeLock.acquire();
 
-        // Network change listener — reconnect when WiFi/data changes
         registerNetworkCallback();
 
         isRunning = true;
@@ -112,14 +112,12 @@ public class KeepAliveService extends Service {
         scheduleServiceAlarm();
     }
 
-    // AlarmManager: periodically ensure service is alive even after Doze
     private void scheduleServiceAlarm() {
         AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
         Intent intent = new Intent(this, KeepAliveService.class);
         intent.setAction("ALARM_CHECK");
         PendingIntent pi = PendingIntent.getService(this, 999, intent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        // Fire every 10 minutes, even in Doze
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP,
                 SystemClock.elapsedRealtime() + 600000, pi);
@@ -129,7 +127,6 @@ public class KeepAliveService extends Service {
         }
     }
 
-    // Periodically check that WebSocket is alive, reconnect if not
     private void startAliveCheck() {
         aliveCheckHandler.postDelayed(new Runnable() {
             @Override
@@ -137,7 +134,7 @@ public class KeepAliveService extends Service {
                 if (!isRunning) return;
 
                 boolean wsNull = (webSocket == null);
-                boolean stale = (lastPongTime > 0 && System.currentTimeMillis() - lastPongTime > 120000); // 2 min no activity
+                boolean stale = (lastPongTime > 0 && System.currentTimeMillis() - lastPongTime > 120000);
 
                 if ((wsNull || stale) && !isConnecting) {
                     Log.d(TAG, "Alive check: WS " + (wsNull ? "null" : "stale") + ", reconnecting...");
@@ -182,11 +179,9 @@ public class KeepAliveService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager nm = getSystemService(NotificationManager.class);
 
-            // Delete old channels that were cached with wrong settings
             nm.deleteNotificationChannel("skychat_keepalive");
             nm.deleteNotificationChannel("skychat_bg_v2");
 
-            // Keep-alive channel (min priority, invisible)
             NotificationChannel keepCh = new NotificationChannel(
                 CHANNEL_ID, "Background Service", NotificationManager.IMPORTANCE_MIN);
             keepCh.setDescription("Keeps SkyChat connected for instant notifications");
@@ -197,7 +192,6 @@ public class KeepAliveService extends Service {
             keepCh.setLockscreenVisibility(Notification.VISIBILITY_SECRET);
             nm.createNotificationChannel(keepCh);
 
-            // Calls channel
             NotificationChannel callCh = new NotificationChannel(
                 CHANNEL_CALL, "Incoming Calls", NotificationManager.IMPORTANCE_HIGH);
             callCh.setDescription("Incoming voice and video calls");
@@ -208,7 +202,6 @@ public class KeepAliveService extends Service {
             callCh.setLightColor(Color.GREEN);
             nm.createNotificationChannel(callCh);
 
-            // Messages channel
             NotificationChannel msgCh = new NotificationChannel(
                 CHANNEL_MSG, "Messages", NotificationManager.IMPORTANCE_HIGH);
             msgCh.setDescription("New message notifications");
@@ -244,7 +237,6 @@ public class KeepAliveService extends Service {
 
         isConnecting = true;
 
-        // Always refresh token before connecting to ensure it's valid
         if (refreshToken != null && !refreshToken.isEmpty()) {
             refreshTokenAndConnect(refreshToken, userId);
         } else {
@@ -253,7 +245,6 @@ public class KeepAliveService extends Service {
     }
 
     private void refreshTokenAndConnect(final String refreshToken, final int userId) {
-        // Use OkHttp to refresh the JWT token
         OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
@@ -263,8 +254,9 @@ public class KeepAliveService extends Service {
         String body = "{\"refresh\":\"" + refreshToken + "\"}";
         okhttp3.RequestBody reqBody = okhttp3.RequestBody.create(body, JSON_TYPE);
 
+        // ✅ FIXED: skyfinancia.com use kiya
         Request req = new Request.Builder()
-            .url("https://sky-chat.duckdns.org/api/auth/token/refresh/")
+            .url(BASE_URL + "/api/auth/token/refresh/")
             .post(reqBody)
             .build();
 
@@ -272,7 +264,6 @@ public class KeepAliveService extends Service {
             @Override
             public void onFailure(okhttp3.Call call, java.io.IOException e) {
                 Log.e(TAG, "Token refresh failed: " + e.getMessage());
-                // Try with existing token anyway
                 SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
                 String oldToken = prefs.getString("token", "");
                 doConnect(oldToken, userId);
@@ -286,13 +277,11 @@ public class KeepAliveService extends Service {
                         JSONObject json = new JSONObject(resBody);
                         String newToken = json.getString("access");
                         Log.d(TAG, "Token refreshed successfully");
-                        // Save new token
                         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
                         prefs.edit().putString("token", newToken).apply();
                         doConnect(newToken, userId);
                     } else {
                         Log.e(TAG, "Token refresh HTTP " + response.code());
-                        // Use old token
                         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
                         String oldToken = prefs.getString("token", "");
                         doConnect(oldToken, userId);
@@ -309,10 +298,10 @@ public class KeepAliveService extends Service {
     private void doConnect(String token, int userId) {
         if (!isRunning) { isConnecting = false; return; }
 
+        // ✅ FIXED: skyfinancia.com wala WS_BASE use ho raha hai
         String url = WS_BASE + "user_" + userId + "/?token=" + token;
         Log.d(TAG, "Connecting WS: user_" + userId);
 
-        // Close existing connection first
         if (webSocket != null) {
             try { webSocket.close(1000, "new connection"); } catch (Exception ignored) {}
             webSocket = null;
@@ -332,7 +321,7 @@ public class KeepAliveService extends Service {
         webSocket = httpClient.newWebSocket(request, new WebSocketListener() {
             @Override
             public void onOpen(WebSocket ws, Response response) {
-                Log.d(TAG, "WebSocket CONNECTED");
+                Log.d(TAG, "WebSocket CONNECTED to skyfinancia.com");
                 isConnecting = false;
                 reconnectDelay = 3000;
                 lastPongTime = System.currentTimeMillis();
@@ -371,7 +360,6 @@ public class KeepAliveService extends Service {
                 if (isRunning) connectWebSocket();
             }
         }, reconnectDelay);
-        // Exponential backoff, max 30s
         reconnectDelay = Math.min(reconnectDelay * 2, 30000);
     }
 
@@ -381,41 +369,34 @@ public class KeepAliveService extends Service {
             JSONObject data = new JSONObject(text);
             String type = data.optString("type", "");
 
-            // Always handle call cancel events
             if ("call_ended".equals(type) || "call_cancelled".equals(type) || "call_rejected".equals(type)) {
                 cancelCallNotification();
                 clearCallTimeout();
                 markCallHandled();
                 lastCallId = -1;
                 lastCallerId = -1;
-                // Tell WebView to stop ringtone
                 stopRingtoneInWebView();
                 return;
             }
 
-            // Clear call timeout if call was accepted
             if ("call_accepted".equals(type)) {
                 clearCallTimeout();
                 markCallHandled();
                 return;
             }
 
-            // Skip other notifications when app is in foreground
             if (MainActivity.isAppInForeground) return;
 
             switch (type) {
                 case "call_incoming":
                     int callId = data.optInt("call_id", -1);
-                    // Skip if this call was already handled (declined/accepted)
                     if (isCallHandled(callId)) {
                         Log.d(TAG, "Call " + callId + " already handled, skipping notification");
                         break;
                     }
-                    // Store call info for Decline button + for Answer from notification
                     lastCallId = callId;
                     lastCallerId = data.optInt("caller_id", -1);
                     setActiveCall(callId);
-                    // Save full call data so Answer can pass it to WebView
                     SharedPreferences cp = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
                     cp.edit()
                         .putInt("pending_call_id", callId)
@@ -457,7 +438,6 @@ public class KeepAliveService extends Service {
         }
     }
 
-    // Safe string extractor — handles JSON null and literal "null"
     private String safeStr(JSONObject obj, String key, String fallback) {
         if (obj.isNull(key)) return fallback;
         String val = obj.optString(key, fallback);
@@ -471,14 +451,12 @@ public class KeepAliveService extends Service {
         PendingIntent openPi = PendingIntent.getActivity(this, 100, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // Full-screen intent for lock screen
         Intent fullIntent = new Intent(this, MainActivity.class);
         fullIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         fullIntent.putExtra("call_action", "show");
         PendingIntent fullPi = PendingIntent.getActivity(this, 101, fullIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // Answer — direct Activity intent (more reliable than broadcast)
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         Intent answerIntent = new Intent(this, MainActivity.class);
         answerIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -491,13 +469,11 @@ public class KeepAliveService extends Service {
         PendingIntent answerPi = PendingIntent.getActivity(this, 102, answerIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // Decline
         Intent declineIntent = new Intent(this, CallActionReceiver.class);
         declineIntent.setAction(CallActionReceiver.ACTION_DECLINE);
         PendingIntent declinePi = PendingIntent.getBroadcast(this, 103, declineIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // Build call-style notification
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_CALL)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(callerName)
@@ -563,7 +539,6 @@ public class KeepAliveService extends Service {
         nm.cancel(CallActionReceiver.CALL_NOTIFICATION_ID);
     }
 
-    // ── Call ring timeout: auto-dismiss after 45 seconds ──
     private void startCallTimeout() {
         clearCallTimeout();
         callTimeoutRunnable = new Runnable() {
@@ -572,7 +547,6 @@ public class KeepAliveService extends Service {
                 Log.d(TAG, "Call ring timeout — auto-dismissing");
                 cancelCallNotification();
                 markCallHandled();
-                // Reject the call via WebSocket so caller gets notified
                 if (webSocket != null && lastCallId != -1) {
                     try {
                         JSONObject msg = new JSONObject();
@@ -601,7 +575,6 @@ public class KeepAliveService extends Service {
     }
 
     private void stopRingtoneInWebView() {
-        // Run JS in WebView to stop ringtone + hide call overlay
         if (MainActivity.webViewRef != null) {
             final android.webkit.WebView wv = MainActivity.webViewRef;
             new Handler(Looper.getMainLooper()).post(new Runnable() {
@@ -618,7 +591,6 @@ public class KeepAliveService extends Service {
         }
     }
 
-    // Called from CallActionReceiver to reject call via WebSocket
     public void rejectCallViaWs() {
         cancelCallNotification();
         clearCallTimeout();
@@ -641,7 +613,6 @@ public class KeepAliveService extends Service {
         stopRingtoneInWebView();
     }
 
-    // ── Call state tracking to prevent duplicate notifications ──
     private void setActiveCall(int callId) {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         prefs.edit()
@@ -663,7 +634,6 @@ public class KeepAliveService extends Service {
         return (callId == activeCallId && handled);
     }
 
-    // Called from MainActivity when token is updated
     public void reconnect() {
         isConnecting = false;
         if (webSocket != null) {
@@ -692,7 +662,6 @@ public class KeepAliveService extends Service {
                     reconnectDelay = 1000;
                     connectWebSocket();
                 }
-                // Re-schedule next alarm
                 scheduleServiceAlarm();
             }
         }
@@ -716,7 +685,6 @@ public class KeepAliveService extends Service {
                 cm.unregisterNetworkCallback(networkCallback);
             } catch (Exception ignored) {}
         }
-        // Cancel restart alarm
         AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
         Intent intent = new Intent(this, KeepAliveService.class);
         intent.setAction("ALARM_CHECK");
@@ -730,7 +698,6 @@ public class KeepAliveService extends Service {
     public void onTaskRemoved(Intent rootIntent) {
         Log.d(TAG, "Task removed — scheduling restart");
         super.onTaskRemoved(rootIntent);
-        // Schedule restart via AlarmManager as backup for START_STICKY
         AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
         Intent intent = new Intent(this, KeepAliveService.class);
         PendingIntent pi = PendingIntent.getService(this, 998, intent,
