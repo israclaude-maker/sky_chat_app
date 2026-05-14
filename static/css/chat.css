@@ -1158,7 +1158,7 @@ body {
   display: flex;
   flex-direction: column;
   background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
-  overflow: visible !important;
+  overflow: hidden !important;  /* visible → hidden */
 }
 
 #remote-video {
@@ -3075,11 +3075,7 @@ body {
     height: 52px !important;
     font-size: 18px !important;
   }
-  .call-controls {
-    gap: 4px !important;
-    padding: 10px 6px 24px 6px !important;
-    flex-wrap: nowrap !important;
-  }
+
   .call-info {
     top: 24px;
     padding: 12px 20px;
