@@ -37,10 +37,8 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
     public void onNewToken(String token) {
         super.onNewToken(token);
         Log.d(TAG, "New FCM token: " + token.substring(0, 20) + "...");
-        // Save token locally — will be sent to server on next login/reconnect
         SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
         prefs.edit().putString("fcm_token", token).apply();
-        // If user is logged in, send to server immediately
         sendTokenToServer(token);
     }
 
@@ -49,32 +47,30 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         super.onMessageReceived(remoteMessage);
         Log.d(TAG, "FCM message received from: " + remoteMessage.getFrom());
 
-        // If app is in foreground, let WebSocket handle it
-        if (MainActivity.isAppInForeground) {
-            Log.d(TAG, "App in foreground, skipping FCM notification");
-            return;
-        }
-
         Map<String, String> data = remoteMessage.getData();
         String type = data.get("type");
 
+        Log.d(TAG, "FCM type: " + type + " | foreground: " + MainActivity.isAppInForeground);
 
-        if (MainActivity.isAppInForeground && !"call".equals(type) && !"call_cancel".equals(type)) {
-        Log.d(TAG, "App in foreground, skipping FCM notification");
-        return;
-    }
+        // ✅ FIXED: Foreground mein sirf messages skip karo
+        // Calls HAMESHA show honge chahe app foreground mein ho ya background mein
+        if (MainActivity.isAppInForeground &&
+            !"call".equals(type) &&
+            !"call_cancel".equals(type)) {
+            Log.d(TAG, "App in foreground, skipping message notification (WebSocket handles it)");
+            return;
+        }
 
         if ("call".equals(type)) {
             handleCallNotification(data);
         } else if ("call_cancel".equals(type)) {
-            // Server sent FCM to cancel call notification
             Log.d(TAG, "FCM call_cancel received, dismissing notification");
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             nm.cancel(CallActionReceiver.CALL_NOTIFICATION_ID);
-            // Mark call as handled so no further notifications show
             SharedPreferences prefs = getSharedPreferences(KeepAliveService.PREFS_NAME, MODE_PRIVATE);
             prefs.edit().putBoolean("call_handled", true).apply();
         } else {
+            Log.d(TAG, "Handling message notification");
             handleMessageNotification(remoteMessage);
         }
     }
@@ -88,7 +84,6 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         if (callType == null) callType = "voice";
         String callLabel = "video".equals(callType) ? "Incoming Video Call" : "Incoming Voice Call";
 
-        // Check if this call was already handled (declined/accepted via WebSocket)
         int callId = -1;
         int callerId = -1;
         try { callId = Integer.parseInt(callIdStr); } catch (Exception ignored) {}
@@ -104,7 +99,6 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             }
         }
 
-        // Save call data so Answer button can pass it to WebView
         prefs.edit()
             .putInt("active_call_id", callId)
             .putBoolean("call_handled", false)
@@ -121,14 +115,12 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         PendingIntent openPi = PendingIntent.getActivity(this, 100, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // Full-screen intent (shows on lock screen)
         Intent fullIntent = new Intent(this, MainActivity.class);
         fullIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         fullIntent.putExtra("call_action", "show");
         PendingIntent fullPi = PendingIntent.getActivity(this, 101, fullIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // Answer — open app directly with call data (more reliable than broadcast)
         Intent answerIntent = new Intent(this, MainActivity.class);
         answerIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         answerIntent.putExtra("call_action", "answer");
@@ -139,7 +131,6 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         PendingIntent answerPi = PendingIntent.getActivity(this, 102, answerIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // Decline — use broadcast receiver
         Intent declineIntent = new Intent(this, CallActionReceiver.class);
         declineIntent.setAction(CallActionReceiver.ACTION_DECLINE);
         PendingIntent declinePi = PendingIntent.getBroadcast(this, 103, declineIntent,
@@ -173,17 +164,17 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         String title = "SkyChat";
         String body = "New message";
 
-        // Try data payload first
         Map<String, String> data = remoteMessage.getData();
         if (data.containsKey("title")) title = data.get("title");
         if (data.containsKey("body")) body = data.get("body");
 
-        // Then notification payload
         RemoteMessage.Notification notification = remoteMessage.getNotification();
         if (notification != null) {
             if (notification.getTitle() != null) title = notification.getTitle();
             if (notification.getBody() != null) body = notification.getBody();
         }
+
+        Log.d(TAG, "Showing message notification - title: " + title + " body: " + body);
 
         Intent openIntent = new Intent(this, MainActivity.class);
         openIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -227,7 +218,6 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
 
         if (authToken == null) return;
 
-        // Refresh JWT first, then send FCM token
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -235,7 +225,6 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
                     OkHttpClient client = new OkHttpClient();
                     String currentToken = authToken;
 
-                    // Try to refresh token first
                     if (refreshTokenStr != null) {
                         MediaType JSON = MediaType.parse("application/json; charset=utf-8");
                         String refreshBody = "{\"refresh\":\"" + refreshTokenStr + "\"}";
@@ -252,7 +241,6 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
                         }
                     }
 
-                    // Send FCM token to server
                     MediaType JSON = MediaType.parse("application/json; charset=utf-8");
                     String body = "{\"token\":\"" + fcmToken + "\",\"device_type\":\"android\"}";
                     Request request = new Request.Builder()
