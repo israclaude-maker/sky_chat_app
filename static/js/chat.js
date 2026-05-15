@@ -8665,20 +8665,20 @@ var NoiseCancelState = { enabled: true };
 
 function toggleNoiseCancellation() {
   NoiseCancelState.enabled = !NoiseCancelState.enabled;
-  var stream = GC.active ? GC.localStream : CallState.localStream;
-  if (!stream) { toast('No active call', 'e'); return; }
-  var audioTrack = stream.getAudioTracks()[0];
-  if (!audioTrack) { toast('No mic found', 'e'); return; }
+  updateNoiseCancelBtns();
+  toast(NoiseCancelState.enabled ? '🎙️ Noise cancel ON' : '🔇 Noise cancel OFF', 's');
 
+  var stream = GC.active ? GC.localStream : CallState.localStream;
+  if (!stream) return;
+  var audioTrack = stream.getAudioTracks()[0];
+  if (!audioTrack) return;
+
+  // Try applyConstraints first
   audioTrack.applyConstraints({
     noiseSuppression: NoiseCancelState.enabled,
     echoCancellation: NoiseCancelState.enabled,
     autoGainControl: NoiseCancelState.enabled
-  }).then(function() {
-    updateNoiseCancelBtns();
-    toast(NoiseCancelState.enabled ? '🎙️ Noise cancel ON' : '🔇 Noise cancel OFF', 's');
   }).catch(function() {
-    // Browser support nahi — restart track
     restartAudioWithNoiseCancel();
   });
 }
@@ -8713,11 +8713,10 @@ function updateNoiseCancelBtns() {
   ['gc-noise-btn', 'dm-noise-btn'].forEach(function(id) {
     var btn = document.getElementById(id);
     if (!btn) return;
+    // ON = normal, OFF = muted/red
     btn.classList.toggle('muted', !NoiseCancelState.enabled);
     btn.title = NoiseCancelState.enabled ? 'Noise Cancel ON' : 'Noise Cancel OFF';
-    btn.innerHTML = NoiseCancelState.enabled
-      ? '<i class="fa-solid fa-wave-square"></i>'
-      : '<i class="fa-solid fa-wave-square" style="opacity:0.5;"></i>';
+    btn.innerHTML = '<i class="fa-solid fa-wave-square"></i>';
   });
 }
 
