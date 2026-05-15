@@ -7481,29 +7481,82 @@ function handleGcScreenToggle(data) {
 // ═══ SCREEN SHARE ZOOM/FULLSCREEN ═══
 function gcOpenScreenZoom(stream) {
   if (!stream) return;
-  // Create zoom overlay if not exists
   var overlay = document.getElementById('gc-screen-zoom-overlay');
   if (!overlay) {
     overlay = document.createElement('div');
     overlay.className = 'gc-screen-zoom-overlay';
     overlay.id = 'gc-screen-zoom-overlay';
-    overlay.onclick = function(e) { if (e.target === overlay) gcCloseScreenZoom(); };
+    overlay.onclick = function(e) {
+      if (e.target === overlay) gcCloseScreenZoom();
+    };
     var closeBtn = document.createElement('button');
     closeBtn.className = 'gc-screen-zoom-close';
     closeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
     closeBtn.onclick = gcCloseScreenZoom;
     overlay.appendChild(closeBtn);
+
+    // 8 control buttons
+    var bar = document.createElement('div');
+    bar.className = 'gc-zoom-ctrl-bar';
+    bar.id = 'gc-zoom-ctrl-bar';
+    bar.innerHTML = `
+      <button class="ctrl-btn" id="gz-mic" onclick="gcToggleMic();gzSync()">
+        <i class="fa-solid fa-microphone"></i></button>
+      <button class="ctrl-btn" id="gz-cam" onclick="gcToggleCam();setTimeout(gzSync,200)">
+        <i class="fa-solid fa-video"></i></button>
+      <button class="ctrl-btn" id="gz-fx" onclick="closeCamFxPicker();toggleCamFxPicker('gc')">
+        <i class="fa-solid fa-wand-magic-sparkles"></i></button>
+      <button class="ctrl-btn" id="gz-screen" onclick="gcToggleScreenShare();setTimeout(gzSync,200)">
+        <i class="fa-solid fa-display"></i></button>
+      <button class="ctrl-btn" id="gz-rec" onclick="toggleCallRecord();setTimeout(gzSync,200)">
+        <i class="fa-solid fa-circle" style="font-size:13px;"></i></button>
+      <button class="ctrl-btn" id="gz-add" onclick="openAddUserToCall()">
+        <i class="fa-solid fa-user-plus"></i></button>
+      <button class="ctrl-btn end" onclick="gcCloseScreenZoom();leaveGroupCall()">
+        <i class="fa-solid fa-phone-slash"></i></button>
+      <button class="ctrl-btn" onclick="gcCloseScreenZoom()" title="Exit Fullscreen">
+        <i class="fa-solid fa-compress"></i></button>
+    `;
+    overlay.appendChild(bar);
     document.body.appendChild(overlay);
   }
-  // Remove old video
+
   var oldVid = overlay.querySelector('video');
-  if (oldVid) oldVid.remove();
-  // Add video
+  if (oldVid) { oldVid.srcObject = null; oldVid.remove(); }
+
   var vid = document.createElement('video');
   vid.autoplay = true; vid.playsInline = true;
   vid.srcObject = stream;
   overlay.insertBefore(vid, overlay.firstChild);
   overlay.classList.add('active');
+  gzSync();
+}
+
+function gzSync() {
+  var m = document.getElementById('gz-mic');
+  var c = document.getElementById('gz-cam');
+  var s = document.getElementById('gz-screen');
+  var r = document.getElementById('gz-rec');
+  if (m) {
+    m.classList.toggle('muted', !!GC.isMuted);
+    m.innerHTML = GC.isMuted
+      ? '<i class="fa-solid fa-microphone-slash"></i>'
+      : '<i class="fa-solid fa-microphone"></i>';
+  }
+  if (c) {
+    var camOff = GC.isCamOff || !GC.localStream || GC.localStream.getVideoTracks().length === 0;
+    c.classList.toggle('muted', camOff);
+    c.innerHTML = camOff
+      ? '<i class="fa-solid fa-video-slash"></i>'
+      : '<i class="fa-solid fa-video"></i>';
+  }
+  if (s) {
+    s.classList.toggle('screen-active', !!GC.isScreenSharing);
+    s.innerHTML = GC.isScreenSharing
+      ? '<i class="fa-solid fa-display"></i><span class="screen-dot"></span>'
+      : '<i class="fa-solid fa-display"></i>';
+  }
+  if (r) { r.classList.toggle('rec-active', !!CallRec.isRecording); }
 }
 function gcCloseScreenZoom() {
   var overlay = document.getElementById('gc-screen-zoom-overlay');
