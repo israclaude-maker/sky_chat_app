@@ -3195,4 +3195,39 @@ body {
   max-height: calc(100vh - 130px) !important;
   object-fit: contain;
 }
+/* Speaker & Noise Cancel active states */
+#gc-speaker-btn.muted i,
+#dm-speaker-btn.muted i {
+  position: relative;
+  color: #f15c6d;
+}
 
+#gc-speaker-btn.muted::after,
+#dm-speaker-btn.muted::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(45deg);
+  width: 2px;
+  height: 28px;
+  background: #f15c6d;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+#gc-noise-btn.muted i,
+#dm-noise-btn.muted i {
+  color: #f15c6d;
+  opacity: 0.6;
+}
+
+/* General muted state for all ctrl-btns */
+.ctrl-btn.muted {
+  background: rgba(241, 92, 109, 0.2) !important;
+  border: 1px solid rgba(241, 92, 109, 0.4);
+}
+
+.ctrl-btn.muted i {
+  color: #f15c6d !important;
+}
