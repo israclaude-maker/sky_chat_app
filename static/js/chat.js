@@ -8642,5 +8642,82 @@ function downloadRecording(chunks, prefix, durationMs) {
     doDownload(blob);
   }
 }
+// ═══ GC SPEAKER ═══
+var gcSpeakerOff = false;
+function gcToggleSpeaker() {
+  gcSpeakerOff = !gcSpeakerOff;
+  document.querySelectorAll('#gc-thumb-strip audio').forEach(function(a) {
+    a.muted = gcSpeakerOff;
+  });
+  var btn = document.getElementById('gc-speaker-btn');
+  if (btn) {
+    btn.classList.toggle('muted', gcSpeakerOff);
+    btn.innerHTML = gcSpeakerOff
+      ? '<i class="fa-solid fa-volume-xmark"></i>'
+      : '<i class="fa-solid fa-volume-high"></i>';
+  }
+  toast(gcSpeakerOff ? 'Speaker off' : 'Speaker on', 's');
+}
+
+// ═══ NOISE CANCELLATION ═══
+var NoiseCancelState = { enabled: true };
+
+function toggleNoiseCancellation() {
+  NoiseCancelState.enabled = !NoiseCancelState.enabled;
+  var stream = GC.active ? GC.localStream : CallState.localStream;
+  if (!stream) { toast('No active call', 'e'); return; }
+  var audioTrack = stream.getAudioTracks()[0];
+  if (!audioTrack) { toast('No mic found', 'e'); return; }
+
+  audioTrack.applyConstraints({
+    noiseSuppression: NoiseCancelState.enabled,
+    echoCancellation: NoiseCancelState.enabled,
+    autoGainControl: NoiseCancelState.enabled
+  }).then(function() {
+    updateNoiseCancelBtns();
+    toast(NoiseCancelState.enabled ? '🎙️ Noise cancel ON' : '🔇 Noise cancel OFF', 's');
+  }).catch(function() {
+    // Browser support nahi — restart track
+    restartAudioWithNoiseCancel();
+  });
+}
+
+function restartAudioWithNoiseCancel() {
+  navigator.mediaDevices.getUserMedia({
+    audio: {
+      noiseSuppression: NoiseCancelState.enabled,
+      echoCancellation: NoiseCancelState.enabled,
+      autoGainControl: NoiseCancelState.enabled
+    }
+  }).then(function(newStream) {
+    var newTrack = newStream.getAudioTracks()[0];
+    var stream = GC.active ? GC.localStream : CallState.localStream;
+    stream.getAudioTracks().forEach(function(t) { t.stop(); stream.removeTrack(t); });
+    stream.addTrack(newTrack);
+    // Peer connections mein replace
+    var peers = GC.active ? GC.peers : (CallState.pc ? { 0: { pc: CallState.pc } } : {});
+    Object.keys(peers).forEach(function(pid) {
+      var pc = peers[pid].pc;
+      if (!pc) return;
+      pc.getSenders().forEach(function(s) {
+        if (s.track && s.track.kind === 'audio') s.replaceTrack(newTrack);
+      });
+    });
+    updateNoiseCancelBtns();
+    toast(NoiseCancelState.enabled ? '🎙️ Noise cancel ON' : '🔇 Noise cancel OFF', 's');
+  }).catch(function() { toast('Could not change noise settings', 'e'); });
+}
+
+function updateNoiseCancelBtns() {
+  ['gc-noise-btn', 'dm-noise-btn'].forEach(function(id) {
+    var btn = document.getElementById(id);
+    if (!btn) return;
+    btn.classList.toggle('muted', !NoiseCancelState.enabled);
+    btn.title = NoiseCancelState.enabled ? 'Noise Cancel ON' : 'Noise Cancel OFF';
+    btn.innerHTML = NoiseCancelState.enabled
+      ? '<i class="fa-solid fa-wave-square"></i>'
+      : '<i class="fa-solid fa-wave-square" style="opacity:0.5;"></i>';
+  });
+}
 
 init();

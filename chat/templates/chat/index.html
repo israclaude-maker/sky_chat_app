@@ -24,8 +24,9 @@
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
     crossorigin="anonymous">
-<link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260507d">
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260515">
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"
+    crossorigin="anonymous"></script>
 </head>
 
 <body>
@@ -40,7 +41,8 @@
     <div class="screen-rec-dot"></div>
     <span class="screen-rec-label">Recording</span>
     <span class="screen-rec-timer" id="screen-rec-timer">00:00</span>
-    <button class="screen-rec-mic" id="screen-rec-mic" onclick="toggleScreenRecMic()" title="Mic Off"><i class="fa-solid fa-microphone-slash"></i></button>
+    <button class="screen-rec-mic" id="screen-rec-mic" onclick="toggleScreenRecMic()" title="Mic Off"><i
+        class="fa-solid fa-microphone-slash"></i></button>
     <button class="screen-rec-stop" onclick="stopScreenRecord()"><i class="fa-solid fa-stop"></i> Stop</button>
   </div>
 
@@ -56,14 +58,19 @@
         </div>
         <span class="sb-title" id="sb-username">SkyChat</span>
         <div class="sb-hdr-icons">
-          <button class="icon-btn" id="screen-rec-btn" onclick="toggleScreenRecord()" title="Screen Record"><i class="fa-solid fa-circle" style="font-size:13px;"></i></button>
-          <button class="icon-btn" onclick="openNewChat()" title="New Chat"><i class="fa-solid fa-comment-medical"></i></button>
+          <button class="icon-btn" id="screen-rec-btn" onclick="toggleScreenRecord()" title="Screen Record"><i
+              class="fa-solid fa-circle" style="font-size:13px;"></i></button>
+          <button class="icon-btn" onclick="openNewChat()" title="New Chat"><i
+              class="fa-solid fa-comment-medical"></i></button>
           <div class="sb-menu-wrap">
-            <button class="icon-btn" onclick="toggleSbMenu(event)" title="Menu"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+            <button class="icon-btn" onclick="toggleSbMenu(event)" title="Menu"><i
+                class="fa-solid fa-ellipsis-vertical"></i></button>
             <div class="sb-dropdown" id="sb-dropdown">
               <div class="sb-drop-item" onclick="openNewGroup()"><i class="fa-solid fa-users"></i> New group</div>
-              <div class="sb-drop-item" onclick="openNewChat()"><i class="fa-solid fa-comment-medical"></i> New chat</div>
-              <div class="sb-drop-item" onclick="doLogout()"><i class="fa-solid fa-right-from-bracket"></i> Log out</div>
+              <div class="sb-drop-item" onclick="openNewChat()"><i class="fa-solid fa-comment-medical"></i> New chat
+              </div>
+              <div class="sb-drop-item" onclick="doLogout()"><i class="fa-solid fa-right-from-bracket"></i> Log out
+              </div>
             </div>
           </div>
         </div>
@@ -137,7 +144,8 @@
           <div class="ip-section" id="ip-members-section" style="display:none;">
             <div class="ip-section-header">
               <div class="ip-section-title">Members</div>
-              <button class="gi-action-btn" id="ip-add-member-btn" onclick="addGroupMember(S.activeGroup && S.activeGroup.id)" title="Add member" style="display:none;">
+              <button class="gi-action-btn" id="ip-add-member-btn"
+                onclick="addGroupMember(S.activeGroup && S.activeGroup.id)" title="Add member" style="display:none;">
                 <i class="fa-solid fa-user-plus"></i>
               </button>
             </div>
@@ -147,7 +155,8 @@
             <button class="gi-leave-btn" id="ip-leave-btn">
               <i class="fa-solid fa-right-from-bracket"></i> Exit Group
             </button>
-            <button class="gi-leave-btn" id="ip-delete-group-btn" style="display:none;background:#dc3545;margin-top:8px;">
+            <button class="gi-leave-btn" id="ip-delete-group-btn"
+              style="display:none;background:#dc3545;margin-top:8px;">
               <i class="fa-solid fa-trash"></i> Delete Group
             </button>
           </div>
@@ -173,11 +182,15 @@
             <button class="icon-btn" title="Voice Call" onclick="startCall('voice')"><i
                 class="fa-solid fa-phone"></i></button>
             <div class="tb-menu-wrap">
-              <button class="icon-btn" title="More" onclick="toggleTbMenu(event)"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+              <button class="icon-btn" title="More" onclick="toggleTbMenu(event)"><i
+                  class="fa-solid fa-ellipsis-vertical"></i></button>
               <div class="tb-dropdown" id="tb-dropdown">
-                <div class="sb-drop-item" onclick="closeTbMenu();openContactOrGroupInfo()"><i class="fa-solid fa-circle-info"></i> Info</div>
-                <div class="sb-drop-item" onclick="closeTbMenu();closeChat()"><i class="fa-solid fa-xmark"></i> Close chat</div>
-                <div class="sb-drop-item danger" onclick="closeTbMenu();deleteCurrentChat()"><i class="fa-solid fa-trash"></i> Delete chat</div>
+                <div class="sb-drop-item" onclick="closeTbMenu();openContactOrGroupInfo()"><i
+                    class="fa-solid fa-circle-info"></i> Info</div>
+                <div class="sb-drop-item" onclick="closeTbMenu();closeChat()"><i class="fa-solid fa-xmark"></i> Close
+                  chat</div>
+                <div class="sb-drop-item danger" onclick="closeTbMenu();deleteCurrentChat()"><i
+                    class="fa-solid fa-trash"></i> Delete chat</div>
               </div>
             </div>
           </div>
@@ -316,15 +329,18 @@
     <div class="modal" style="max-width:420px;">
       <div class="modal-title"><i class="fa-solid fa-users"></i>Group Info</div>
       <div style="text-align:center;padding:16px 0;">
-        <img id="gi-av" src="" style="width:80px;height:80px;border-radius:50%;border:3px solid var(--blue);object-fit:cover;" alt="">
+        <img id="gi-av" src=""
+          style="width:80px;height:80px;border-radius:50%;border:3px solid var(--blue);object-fit:cover;" alt="">
         <div id="gi-name" style="font-size:20px;font-weight:700;margin-top:10px;"></div>
         <div id="gi-desc" style="font-size:13px;color:var(--sub);margin-top:4px;"></div>
         <div id="gi-count" style="font-size:12px;color:var(--sub);margin-top:4px;"></div>
         <div style="font-size:11px;color:var(--sub);margin-top:2px;">Created <span id="gi-created"></span></div>
       </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--divider);margin-bottom:8px;">
+      <div
+        style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--divider);margin-bottom:8px;">
         <span style="font-weight:600;font-size:14px;color:var(--text);">Members</span>
-        <button class="gi-action-btn" id="gi-add-btn" onclick="addGroupMember(S.activeGroup && S.activeGroup.id)" title="Add member" style="display:none;">
+        <button class="gi-action-btn" id="gi-add-btn" onclick="addGroupMember(S.activeGroup && S.activeGroup.id)"
+          title="Add member" style="display:none;">
           <i class="fa-solid fa-user-plus"></i>
         </button>
       </div>
@@ -343,7 +359,8 @@
     <div class="modal" style="max-width:380px;">
       <div class="modal-title"><i class="fa-solid fa-user-plus"></i>Add Member</div>
       <div class="user-list" id="gam-list">
-        <div style="padding:16px;text-align:center;color:var(--sub);"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>
+        <div style="padding:16px;text-align:center;color:var(--sub);"><i class="fa-solid fa-spinner fa-spin"></i>
+          Loading...</div>
       </div>
       <div class="modal-foot"><button class="mbtn mbtn-cancel" onclick="closeM('gam-modal')">Cancel</button></div>
     </div>
@@ -479,32 +496,18 @@
         <div class="call-name" id="ongoing-name">User</div>
         <div class="call-timer" id="call-timer">00:00</div>
       </div>
-      <div class="call-controls">
-<button class="ctrl-btn call-mic-btn" id="mic-btn" onclick="toggleMic()">
-  <i class="fa-solid fa-microphone"></i>
-</button>
-        <button class="ctrl-btn" id="cam-btn" onclick="toggleCam()">
-          <i class="fa-solid fa-video"></i>
-        </button>
-        <button class="ctrl-btn" id="cam-fx-btn" onclick="toggleCamFxPicker('dm')" title="Camera Effects">
-          <i class="fa-solid fa-wand-magic-sparkles"></i>
-        </button>
-        <button class="ctrl-btn" id="screen-btn" onclick="toggleScreenShare()" title="Share Screen">
-          <i class="fa-solid fa-display"></i>
-        </button>
-        <button class="ctrl-btn" id="call-rec-btn" onclick="toggleCallRecord()" title="Record Call">
-          <i class="fa-solid fa-circle" style="font-size:13px;"></i>
-        </button>
-        <button class="ctrl-btn" id="add-user-btn" onclick="openAddUserToCall()" title="Add User">
-          <i class="fa-solid fa-user-plus"></i>
-        </button>
-        <button class="ctrl-btn end" onclick="endCall()">
-          <i class="fa-solid fa-phone-slash"></i>
-        </button>
-        <button class="ctrl-btn" id="speaker-btn" onclick="toggleSpeaker()">
-          <i class="fa-solid fa-volume-high"></i>
-        </button>
-      </div>
+      
+<div class="call-controls">
+  <button class="ctrl-btn" id="gc-mic-btn" onclick="gcToggleMic()"><i class="fa-solid fa-microphone"></i></button>
+  <button class="ctrl-btn" id="gc-cam-btn" onclick="gcToggleCam()"><i class="fa-solid fa-video"></i></button>
+  <button class="ctrl-btn" id="gc-cam-fx-btn" onclick="toggleCamFxPicker('gc')" title="Camera Effects"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+  <button class="ctrl-btn" id="gc-rec-btn" onclick="toggleCallRecord()" title="Record Call"><i class="fa-solid fa-circle" style="font-size:13px;"></i></button>
+  <button class="ctrl-btn" id="gc-screen-btn" onclick="gcToggleScreenShare()" title="Share Screen"><i class="fa-solid fa-display"></i></button>
+  <button class="ctrl-btn" id="gc-add-user-btn" onclick="openAddUserToCall()" title="Add User"><i class="fa-solid fa-user-plus"></i></button>
+  <button class="ctrl-btn end" onclick="leaveGroupCall()"><i class="fa-solid fa-phone-slash"></i></button>
+  <button class="ctrl-btn" id="gc-speaker-btn" onclick="gcToggleSpeaker()" title="Speaker"><i class="fa-solid fa-volume-high"></i></button>
+  <button class="ctrl-btn" id="gc-noise-btn" onclick="toggleNoiseCancellation()" title="Noise Cancel ON"><i class="fa-solid fa-wave-square"></i></button>
+</div>
     </div>
   </div>
 
@@ -534,10 +537,14 @@
       <div class="call-controls">
         <button class="ctrl-btn" id="gc-mic-btn" onclick="gcToggleMic()"><i class="fa-solid fa-microphone"></i></button>
         <button class="ctrl-btn" id="gc-cam-btn" onclick="gcToggleCam()"><i class="fa-solid fa-video"></i></button>
-        <button class="ctrl-btn" id="gc-cam-fx-btn" onclick="toggleCamFxPicker('gc')" title="Camera Effects"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
-        <button class="ctrl-btn" id="gc-rec-btn" onclick="toggleCallRecord()" title="Record Call"><i class="fa-solid fa-circle" style="font-size:13px;"></i></button>
-        <button class="ctrl-btn" id="gc-screen-btn" onclick="gcToggleScreenShare()" title="Share Screen"><i class="fa-solid fa-display"></i></button>
-        <button class="ctrl-btn" id="gc-add-user-btn" onclick="openAddUserToCall()" title="Add User"><i class="fa-solid fa-user-plus"></i></button>
+        <button class="ctrl-btn" id="gc-cam-fx-btn" onclick="toggleCamFxPicker('gc')" title="Camera Effects"><i
+            class="fa-solid fa-wand-magic-sparkles"></i></button>
+        <button class="ctrl-btn" id="gc-rec-btn" onclick="toggleCallRecord()" title="Record Call"><i
+            class="fa-solid fa-circle" style="font-size:13px;"></i></button>
+        <button class="ctrl-btn" id="gc-screen-btn" onclick="gcToggleScreenShare()" title="Share Screen"><i
+            class="fa-solid fa-display"></i></button>
+        <button class="ctrl-btn" id="gc-add-user-btn" onclick="openAddUserToCall()" title="Add User"><i
+            class="fa-solid fa-user-plus"></i></button>
         <button class="ctrl-btn end" onclick="leaveGroupCall()"><i class="fa-solid fa-phone-slash"></i></button>
       </div>
     </div>
@@ -577,10 +584,12 @@
       <button class="call-pip-btn pip-end" onclick="event.stopPropagation(); pipEndCall();" title="End Call">
         <i class="fa-solid fa-phone-slash"></i>
       </button>
-      <button class="call-pip-btn pip-mic" id="pip-mic-btn" onclick="event.stopPropagation(); toggleMic(); updatePipMic();" title="Mute">
+      <button class="call-pip-btn pip-mic" id="pip-mic-btn"
+        onclick="event.stopPropagation(); toggleMic(); updatePipMic();" title="Mute">
         <i class="fa-solid fa-microphone"></i>
       </button>
-      <button class="call-pip-btn pip-cam" id="pip-cam-btn" onclick="event.stopPropagation(); pipToggleCam();" title="Camera">
+      <button class="call-pip-btn pip-cam" id="pip-cam-btn" onclick="event.stopPropagation(); pipToggleCam();"
+        title="Camera">
         <i class="fa-solid fa-video"></i>
       </button>
     </div>
@@ -617,17 +626,25 @@
       <div class="cam-fx-section">
         <div class="cam-fx-label">Virtual Background</div>
         <div class="cam-fx-options cam-fx-bg-options">
-          <div class="cam-fx-bg" data-fx="bg-beach" onclick="selectCamFx('bg-beach')" style="background:linear-gradient(135deg,#87CEEB,#FFD700,#4682B4);" title="Beach"></div>
-          <div class="cam-fx-bg" data-fx="bg-mountain" onclick="selectCamFx('bg-mountain')" style="background:linear-gradient(180deg,#87CEEB 0%,#6B8E23 50%,#228B22 100%);" title="Mountain"></div>
-          <div class="cam-fx-bg" data-fx="bg-city" onclick="selectCamFx('bg-city')" style="background:linear-gradient(180deg,#2c3e50,#3498db,#1a1a2e);" title="City Night"></div>
-          <div class="cam-fx-bg" data-fx="bg-space" onclick="selectCamFx('bg-space')" style="background:radial-gradient(circle,#1a1a3e,#0a0a1a);" title="Space"></div>
-          <div class="cam-fx-bg" data-fx="bg-sunset" onclick="selectCamFx('bg-sunset')" style="background:linear-gradient(180deg,#ff7e5f,#feb47b,#ff6b6b);" title="Sunset"></div>
-          <div class="cam-fx-bg" data-fx="bg-forest" onclick="selectCamFx('bg-forest')" style="background:linear-gradient(180deg,#0f4c2e,#1b6b3a,#2d8f4e);" title="Forest"></div>
-          <div class="cam-fx-bg cam-fx-bg-upload" data-fx="bg-custom" onclick="document.getElementById('cam-fx-bg-input').click()" title="Upload Image">
+          <div class="cam-fx-bg" data-fx="bg-beach" onclick="selectCamFx('bg-beach')"
+            style="background:linear-gradient(135deg,#87CEEB,#FFD700,#4682B4);" title="Beach"></div>
+          <div class="cam-fx-bg" data-fx="bg-mountain" onclick="selectCamFx('bg-mountain')"
+            style="background:linear-gradient(180deg,#87CEEB 0%,#6B8E23 50%,#228B22 100%);" title="Mountain"></div>
+          <div class="cam-fx-bg" data-fx="bg-city" onclick="selectCamFx('bg-city')"
+            style="background:linear-gradient(180deg,#2c3e50,#3498db,#1a1a2e);" title="City Night"></div>
+          <div class="cam-fx-bg" data-fx="bg-space" onclick="selectCamFx('bg-space')"
+            style="background:radial-gradient(circle,#1a1a3e,#0a0a1a);" title="Space"></div>
+          <div class="cam-fx-bg" data-fx="bg-sunset" onclick="selectCamFx('bg-sunset')"
+            style="background:linear-gradient(180deg,#ff7e5f,#feb47b,#ff6b6b);" title="Sunset"></div>
+          <div class="cam-fx-bg" data-fx="bg-forest" onclick="selectCamFx('bg-forest')"
+            style="background:linear-gradient(180deg,#0f4c2e,#1b6b3a,#2d8f4e);" title="Forest"></div>
+          <div class="cam-fx-bg cam-fx-bg-upload" data-fx="bg-custom"
+            onclick="document.getElementById('cam-fx-bg-input').click()" title="Upload Image">
             <i class="fa-solid fa-plus"></i>
           </div>
         </div>
-        <input type="file" id="cam-fx-bg-input" accept="image/*" style="display:none" onchange="handleCamFxBgUpload(event)">
+        <input type="file" id="cam-fx-bg-input" accept="image/*" style="display:none"
+          onchange="handleCamFxBgUpload(event)">
       </div>
       <div class="cam-fx-actions">
         <button class="cam-fx-apply-btn" onclick="applyCamFx()">Apply</button>
@@ -719,7 +736,7 @@
   <!-- TOASTS -->
   <div id="toasts"></div>
 
-<script src="{% static 'js/chat.js' %}?v=20260507f"></script>
+  <script src="{% static 'js/chat.js' %}?v=20260515"></script>
 
   <!-- Service Worker Registration -->
   <script>
