@@ -3231,3 +3231,28 @@ body {
 .ctrl-btn.muted i {
   color: #f15c6d !important;
 }
+
+/* ═══ SPEAKER & NOISE CANCEL TOGGLE STATES ═══ */
+.ctrl-btn.muted {
+  background: rgba(241, 92, 109, 0.85) !important;
+  border: none !important;
+}
+.ctrl-btn.muted i {
+  color: #ffffff !important;
+}
+
+/* Screen active state */
+.ctrl-btn.screen-active {
+  background: rgba(79, 195, 247, 0.3) !important;
+}
+.ctrl-btn.screen-active i {
+  color: #4fc3f7 !important;
+}
+
+/* Cam FX active */
+.ctrl-btn.cam-fx-active {
+  background: rgba(167, 105, 230, 0.3) !important;
+}
+.ctrl-btn.cam-fx-active i {
+  color: #a769e6 !important;
+}
