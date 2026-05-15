@@ -5092,17 +5092,18 @@ function toggleMic() {
   if (!CallState.localStream) return;
   CallState.isMuted = !CallState.isMuted;
   CallState.localStream.getAudioTracks().forEach(function (t) { t.enabled = !CallState.isMuted; });
-  var btn = document.querySelector('.ctrl-btn[onclick*="toggleMic"]');
+  var btn = document.getElementById('dm-mic-btn');
   if (btn) {
     btn.classList.toggle('muted', CallState.isMuted);
     btn.innerHTML = CallState.isMuted ? '<i class="fa-solid fa-microphone-slash"></i>' : '<i class="fa-solid fa-microphone"></i>';
   }
+  updatePipMic();
 }
 
 
 
 function updateCamButton() {
-  var btn = document.querySelector('.ctrl-btn[onclick*="toggleCam"]');
+  var btn = document.getElementById('dm-cam-btn');
   if (btn) {
     btn.classList.toggle('muted', CallState.isCamOff);
     btn.innerHTML = CallState.isCamOff ? '<i class="fa-solid fa-video-slash"></i>' : '<i class="fa-solid fa-video"></i>';
