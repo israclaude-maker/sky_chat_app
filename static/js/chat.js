@@ -8650,13 +8650,25 @@ function gcToggleSpeaker() {
   document.querySelectorAll('#gc-thumb-strip audio').forEach(function(a) {
     a.muted = gcSpeakerOff;
   });
-  var btn = document.getElementById('gc-speaker-btn');
-  if (btn) {
-    btn.classList.toggle('muted', gcSpeakerOff);
-    btn.innerHTML = gcSpeakerOff
-      ? '<i class="fa-solid fa-volume-xmark"></i>'
-      : '<i class="fa-solid fa-volume-high"></i>';
-  }
+  // Also mute remote audio for 1:1 calls
+  var remoteAudio = document.getElementById('remote-audio');
+  if (remoteAudio) remoteAudio.muted = gcSpeakerOff;
+
+  ['gc-speaker-btn', 'dm-speaker-btn'].forEach(function(id) {
+    var btn = document.getElementById(id);
+    if (!btn) return;
+    if (gcSpeakerOff) {
+      btn.style.background = 'rgba(241,92,109,0.85)';
+      btn.style.border = 'none';
+      btn.innerHTML = '<i class="fa-solid fa-volume-xmark" style="color:#fff;"></i>';
+      btn.classList.add('muted');
+    } else {
+      btn.style.background = '';
+      btn.style.border = '';
+      btn.innerHTML = '<i class="fa-solid fa-volume-high" style="color:#fff;"></i>';
+      btn.classList.remove('muted');
+    }
+  });
   toast(gcSpeakerOff ? 'Speaker off' : 'Speaker on', 's');
 }
 
@@ -8713,10 +8725,21 @@ function updateNoiseCancelBtns() {
   ['gc-noise-btn', 'dm-noise-btn'].forEach(function(id) {
     var btn = document.getElementById(id);
     if (!btn) return;
-    // ON = normal, OFF = muted/red
-    btn.classList.toggle('muted', !NoiseCancelState.enabled);
-    btn.title = NoiseCancelState.enabled ? 'Noise Cancel ON' : 'Noise Cancel OFF';
-    btn.innerHTML = '<i class="fa-solid fa-wave-square"></i>';
+    if (NoiseCancelState.enabled) {
+      // ON state - normal grey
+      btn.style.background = '';
+      btn.style.border = '';
+      btn.title = 'Noise Cancel ON';
+      btn.innerHTML = '<i class="fa-solid fa-wave-square" style="color:#fff;"></i>';
+      btn.classList.remove('muted');
+    } else {
+      // OFF state - red like mic mute
+      btn.style.background = 'rgba(241,92,109,0.85)';
+      btn.style.border = 'none';
+      btn.title = 'Noise Cancel OFF';
+      btn.innerHTML = '<i class="fa-solid fa-wave-square" style="color:#fff;"></i>';
+      btn.classList.add('muted');
+    }
   });
 }
 
