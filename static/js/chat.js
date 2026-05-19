@@ -8684,25 +8684,16 @@ function downloadRecording(chunks, prefix, durationMs) {
 var gcSpeakerOff = false;
 function gcToggleSpeaker() {
   gcSpeakerOff = !gcSpeakerOff;
-  document.querySelectorAll(
-    '#gc-thumb-strip audio'
-  ).forEach(function(a) {
+  document.querySelectorAll('#gc-thumb-strip audio').forEach(function(a) {
     a.muted = gcSpeakerOff;
   });
   var remoteAudio = document.getElementById('remote-audio');
   if (remoteAudio) remoteAudio.muted = gcSpeakerOff;
 
-  ['gc-speaker-btn','dm-speaker-btn'].forEach(function(id) {
+  ['gc-speaker-btn', 'dm-speaker-btn'].forEach(function(id) {
     var btn = document.getElementById(id);
     if (!btn) return;
-    /* clear old inline overrides */
-    btn.style.background = '';
-    btn.style.border = '';
-    btn.style.color = '';
     btn.classList.toggle('muted', gcSpeakerOff);
-    btn.innerHTML = gcSpeakerOff
-      ? '<i class="fa-solid fa-volume-xmark"></i>'
-      : '<i class="fa-solid fa-volume-high"></i>';
   });
   toast(gcSpeakerOff ? 'Speaker off' : 'Speaker on', 's');
 }
@@ -8800,12 +8791,11 @@ function updateNoiseCancelBtns() {
     if (!btn) return;
     if (NoiseCancelState.enabled) {
       btn.classList.remove('muted');
-      btn.title = 'Noise cancel ON — click to disable';
+      btn.title = 'Noise cancel ON';
     } else {
       btn.classList.add('muted');
-      btn.title = 'Noise cancel OFF — click to enable';
+      btn.title = 'Noise cancel OFF';
     }
-    btn.innerHTML = '<i class="fa-solid fa-wave-square"></i>';
   });
 }
 
