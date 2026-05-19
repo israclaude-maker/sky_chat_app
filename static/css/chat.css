@@ -3196,11 +3196,11 @@ body {
   object-fit: contain;
 }
 /* Speaker & Noise Cancel active states */
-#gc-speaker-btn.muted i,
+/* #gc-speaker-btn.muted i,
 #dm-speaker-btn.muted i {
   position: relative;
   color: #f15c6d;
-}
+} */
 
 /* #gc-speaker-btn.muted::after,
 #dm-speaker-btn.muted::after {
@@ -3255,4 +3255,23 @@ body {
 }
 .ctrl-btn.cam-fx-active i {
   color: #a769e6 !important;
+}
+/* Noise cancel button - strikethrough line on muted state */
+#gc-noise-btn,
+#dm-noise-btn {
+  position: relative;
+}
+
+#gc-noise-btn.muted::after,
+#dm-noise-btn.muted::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(45deg);
+  width: 2px;
+  height: 28px;
+  background: #ffffff;
+  border-radius: 2px;
+  pointer-events: none;
 }

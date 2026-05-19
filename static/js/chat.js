@@ -5402,6 +5402,8 @@ function cleanupCall() {
 
 function resetCallState() {
   CallState.isInCall = false;
+  var ra = document.getElementById('remote-audio');
+  if (ra) { ra.srcObject = null; ra.muted = true; }
   CallState.callType = null;
   CallState.callId = null;
   CallState.remoteUserId = null;
@@ -8710,24 +8712,62 @@ var NoiseCancelState = { enabled: true };
 
 function toggleNoiseCancellation() {
   NoiseCancelState.enabled = !NoiseCancelState.enabled;
-  updateNoiseCancelBtns();
-  toast(NoiseCancelState.enabled ? '🎙️ Noise cancel ON' : '🔇 Noise cancel OFF', 's');
 
   var stream = GC.active ? GC.localStream : CallState.localStream;
-  if (!stream) return;
-  var audioTrack = stream.getAudioTracks()[0];
-  if (!audioTrack) return;
+  if (!stream) {
+    updateNoiseCancelBtns();
+    toast(NoiseCancelState.enabled ? 'Noise cancel ON' : 'Noise cancel OFF', 's');
+    return;
+  }
 
-  // Try applyConstraints first
-  audioTrack.applyConstraints({
-    noiseSuppression: NoiseCancelState.enabled,
-    echoCancellation: NoiseCancelState.enabled,
-    autoGainControl: NoiseCancelState.enabled
-  }).catch(function () {
-    restartAudioWithNoiseCancel();
+  var oldTrack = stream.getAudioTracks()[0];
+  if (!oldTrack) {
+    updateNoiseCancelBtns();
+    return;
+  }
+
+  navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: NoiseCancelState.enabled,
+      noiseSuppression: NoiseCancelState.enabled,
+      autoGainControl: NoiseCancelState.enabled
+    }
+  }).then(function(newStream) {
+    var newTrack = newStream.getAudioTracks()[0];
+    if (!newTrack) return;
+
+    stream.removeTrack(oldTrack);
+    oldTrack.stop();
+    stream.addTrack(newTrack);
+
+    var peers = {};
+    if (GC.active) {
+      peers = GC.peers;
+    } else if (CallState.pc) {
+      peers = { '_dm': { pc: CallState.pc } };
+    }
+
+    Object.keys(peers).forEach(function(pid) {
+      var pc = peers[pid] && peers[pid].pc;
+      if (!pc) return;
+      pc.getSenders().forEach(function(s) {
+        if (s.track && s.track.kind === 'audio') {
+          s.replaceTrack(newTrack).catch(function(e) {
+            console.warn('replaceTrack error:', e);
+          });
+        }
+      });
+    });
+
+    updateNoiseCancelBtns();
+    toast(NoiseCancelState.enabled ? 'Noise cancel ON' : 'Noise cancel OFF', 's');
+  }).catch(function(e) {
+    console.error('Noise cancel error:', e);
+    NoiseCancelState.enabled = !NoiseCancelState.enabled; // revert
+    updateNoiseCancelBtns();
+    toast('Could not change audio settings', 'e');
   });
 }
-
 function restartAudioWithNoiseCancel() {
   navigator.mediaDevices.getUserMedia({
     audio: {
@@ -8758,18 +8798,14 @@ function updateNoiseCancelBtns() {
   ['gc-noise-btn', 'dm-noise-btn'].forEach(function(id) {
     var btn = document.getElementById(id);
     if (!btn) return;
-    btn.style.background = '';
-    btn.style.border = '';
-    btn.style.color = '';
     if (NoiseCancelState.enabled) {
       btn.classList.remove('muted');
-      btn.title = 'Noise cancel on';
+      btn.title = 'Noise cancel ON — click to disable';
     } else {
       btn.classList.add('muted');
-      btn.title = 'Noise cancel off';
+      btn.title = 'Noise cancel OFF — click to enable';
     }
-    btn.innerHTML =
-      '<i class="fa-solid fa-wave-square"></i>';
+    btn.innerHTML = '<i class="fa-solid fa-wave-square"></i>';
   });
 }
 
