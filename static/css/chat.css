@@ -3202,7 +3202,7 @@ body {
   color: #f15c6d;
 }
 
-#gc-speaker-btn.muted::after,
+/* #gc-speaker-btn.muted::after,
 #dm-speaker-btn.muted::after {
   content: '';
   position: absolute;
@@ -3220,7 +3220,7 @@ body {
 #dm-noise-btn.muted i {
   color: #f15c6d;
   opacity: 0.6;
-}
+} */
 
 /* General muted state for all ctrl-btns */
 .ctrl-btn.muted {

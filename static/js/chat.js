@@ -8682,27 +8682,25 @@ function downloadRecording(chunks, prefix, durationMs) {
 var gcSpeakerOff = false;
 function gcToggleSpeaker() {
   gcSpeakerOff = !gcSpeakerOff;
-  document.querySelectorAll('#gc-thumb-strip audio').forEach(function (a) {
+  document.querySelectorAll(
+    '#gc-thumb-strip audio'
+  ).forEach(function(a) {
     a.muted = gcSpeakerOff;
   });
-  // Also mute remote audio for 1:1 calls
   var remoteAudio = document.getElementById('remote-audio');
   if (remoteAudio) remoteAudio.muted = gcSpeakerOff;
 
-  ['gc-speaker-btn', 'dm-speaker-btn'].forEach(function (id) {
+  ['gc-speaker-btn','dm-speaker-btn'].forEach(function(id) {
     var btn = document.getElementById(id);
     if (!btn) return;
-    if (gcSpeakerOff) {
-      btn.style.background = 'rgba(241,92,109,0.85)';
-      btn.style.border = 'none';
-      btn.innerHTML = '<i class="fa-solid fa-volume-xmark" style="color:#fff;"></i>';
-      btn.classList.add('muted');
-    } else {
-      btn.style.background = '';
-      btn.style.border = '';
-      btn.innerHTML = '<i class="fa-solid fa-volume-high" style="color:#fff;"></i>';
-      btn.classList.remove('muted');
-    }
+    /* clear old inline overrides */
+    btn.style.background = '';
+    btn.style.border = '';
+    btn.style.color = '';
+    btn.classList.toggle('muted', gcSpeakerOff);
+    btn.innerHTML = gcSpeakerOff
+      ? '<i class="fa-solid fa-volume-xmark"></i>'
+      : '<i class="fa-solid fa-volume-high"></i>';
   });
   toast(gcSpeakerOff ? 'Speaker off' : 'Speaker on', 's');
 }
@@ -8757,24 +8755,21 @@ function restartAudioWithNoiseCancel() {
 }
 
 function updateNoiseCancelBtns() {
-  ['gc-noise-btn', 'dm-noise-btn'].forEach(function (id) {
+  ['gc-noise-btn', 'dm-noise-btn'].forEach(function(id) {
     var btn = document.getElementById(id);
     if (!btn) return;
+    btn.style.background = '';
+    btn.style.border = '';
+    btn.style.color = '';
     if (NoiseCancelState.enabled) {
-      // ON state - normal grey
-      btn.style.background = '';
-      btn.style.border = '';
-      btn.title = 'Noise Cancel ON';
-      btn.innerHTML = '<i class="fa-solid fa-wave-square" style="color:#fff;"></i>';
       btn.classList.remove('muted');
+      btn.title = 'Noise cancel on';
     } else {
-      // OFF state - red like mic mute
-      btn.style.background = 'rgba(241,92,109,0.85)';
-      btn.style.border = 'none';
-      btn.title = 'Noise Cancel OFF';
-      btn.innerHTML = '<i class="fa-solid fa-wave-square" style="color:#fff;"></i>';
       btn.classList.add('muted');
+      btn.title = 'Noise cancel off';
     }
+    btn.innerHTML =
+      '<i class="fa-solid fa-wave-square"></i>';
   });
 }
 
