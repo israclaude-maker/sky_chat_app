@@ -5118,16 +5118,16 @@ body {
   color: #ffffff !important;
 }
 
-/* Speaker & Noise buttons need overflow:visible so ::after extends outside */
-#gc-noise-btn,
-#dm-noise-btn,
-#gc-speaker-btn,
-#dm-speaker-btn {
-  position: relative;
-  overflow: visible !important;
+/* Speaker & Noise Cancellation Buttons - Sirf White Line */
+#gc-noise-btn.muted,
+#dm-noise-btn.muted,
+#gc-speaker-btn.muted,
+#dm-speaker-btn.muted {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #fff !important;
 }
 
-/* White diagonal strikethrough line — same as speaker icon in image */
+/* White Diagonal Slash Line */
 #gc-noise-btn.muted::after,
 #dm-noise-btn.muted::after,
 #gc-speaker-btn.muted::after,
@@ -5137,32 +5137,39 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%) rotate(45deg);
-  width: 2px;
-  height: 32px;
+  width: 2.8px;
+  height: 34px;
   background: #ffffff;
   border-radius: 2px;
   pointer-events: none;
   z-index: 2;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
 }
 
-/* Screen share active */
+/* Base for speaker & noise buttons */
+#gc-noise-btn,
+#dm-noise-btn,
+#gc-speaker-btn,
+#dm-speaker-btn {
+  position: relative;
+  overflow: visible !important;
+}
+
+/* Other Button States */
 .ctrl-btn.screen-active {
   background: #25d366 !important;
-  position: relative;
 }
 
 .ctrl-btn.screen-active i {
   color: #ffffff !important;
 }
 
-/* Cam FX active */
 .ctrl-btn.cam-fx-active {
   background: rgba(37, 211, 102, 0.25) !important;
   color: #25d366 !important;
   box-shadow: 0 0 8px rgba(37, 211, 102, 0.4);
 }
 
-/* Recording active */
 .ctrl-btn.rec-active {
   background: rgba(211, 47, 47, .25) !important;
 }
@@ -5171,3 +5178,4 @@ body {
   color: #ff5252 !important;
   animation: recPulse 1s infinite;
 }
+
