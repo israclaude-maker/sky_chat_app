@@ -42,24 +42,38 @@ class UserViewSet(viewsets.ModelViewSet):
         """.format(user.username), content_type='text/html')
 
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
-    def register(self, request):               # ✅ 4 spaces indent
+    def register(self, request):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
-            user = serializer.save()
-            token = str(user.activation_token)
-            activation_link = f"https://skyfinancia.com/api/users/activate/?token={token}"
-            send_mail(
-                subject=f'New User Registered: {user.username}',
-                message='',
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=['israclaude@gmail.com'],
-                html_message=f"""...""",
-                fail_silently=False,
-            )
-            return Response({
-                'user': UserSerializer(user).data,
-                'message': 'Account created. Admin ko notification bhej di gayi hai.'
-            }, status=status.HTTP_201_CREATED)
+          user = serializer.save()
+        token = str(user.activation_token)
+        activation_link = f"https://skyfinancia.com/api/users/activate/?token={token}"
+        send_mail(
+            subject=f'New User Registered: {user.username}',
+            message='',
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=['israclaude@gmail.com'],
+            html_message=f"""
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+            <h2 style="color: #333;">🔔 New User Registration</h2>
+            <p><b>Username:</b> {user.username}</p>
+            <p><b>Email:</b> {user.email or 'N/A'}</p>
+            <p><b>Name:</b> {user.first_name} {user.last_name}</p>
+            <br>
+            <a href="{activation_link}" style="background-color: #4CAF50; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-size: 16px; display: inline-block;">
+            ✅ Activate User
+            </a>
+            <p style="color: #999; font-size: 12px; margin-top: 20px;">
+            Button click karte hi <b>{user.username}</b> activate ho jayega.
+            </p>
+            </div>
+            """,
+            fail_silently=False,
+        )
+        return Response({
+            'user': UserSerializer(user).data,
+            'message': 'Account created. Admin ko notification bhej di gayi hai.'
+        }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
