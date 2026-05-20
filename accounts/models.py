@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
+import uuid
 
 class CustomUser(AbstractUser):
     email = models.EmailField(blank=True, null=True, unique=False)
@@ -9,6 +10,7 @@ class CustomUser(AbstractUser):
     profile_picture = models.ImageField(upload_to='profile_pics/', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    activation_token = models.UUIDField(default=uuid.uuid4, null=True, blank=True)
 
     class Meta:
         ordering = ['-created_at']

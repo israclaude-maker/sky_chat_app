@@ -13,19 +13,52 @@ from accounts.models import CustomUser, PushSubscription, FCMDevice
 from accounts.serializers import UserSerializer, RegisterSerializer, LoginSerializer
 from chat.models import Conversation, Message, Group, GroupMembership, ConversationClear, Reaction, MessageReadReceipt
 from chat.push import send_push_notification
+from django.core.mail import send_mail
+from django.conf import settings
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = CustomUser.objects.all()
     serializer_class = UserSerializer
 
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny], url_path='activate')
+    def activate_user(self, request):          # ✅ 4 spaces indent
+        token = request.query_params.get('token')
+        if not token:
+            return Response({'error': 'Token missing'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            import uuid
+            user = CustomUser.objects.get(activation_token=uuid.UUID(token), is_active=False)
+        except (CustomUser.DoesNotExist, ValueError):
+            return Response({'error': 'Invalid or already used token'}, status=status.HTTP_400_BAD_REQUEST)
+        user.is_active = True
+        user.activation_token = None
+        user.save(update_fields=['is_active', 'activation_token'])
+        from django.http import HttpResponse
+        return HttpResponse("""
+            <html><body style="font-family:Arial; text-align:center; padding:50px;">
+                <h2 style="color:green;">✅ User Activated!</h2>
+                <p><b>{}</b> successfully activate ho gaya.</p>
+            </body></html>
+        """.format(user.username), content_type='text/html')
+
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
-    def register(self, request):
+    def register(self, request):               # ✅ 4 spaces indent
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
+            token = str(user.activation_token)
+            activation_link = f"https://skyfinancia.com/api/users/activate/?token={token}"
+            send_mail(
+                subject=f'New User Registered: {user.username}',
+                message='',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=['israclaude@gmail.com'],
+                html_message=f"""...""",
+                fail_silently=False,
+            )
             return Response({
                 'user': UserSerializer(user).data,
-                'message': 'Account created. Please wait for admin approval before you can login.'
+                'message': 'Account created. Admin ko notification bhej di gayi hai.'
             }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
