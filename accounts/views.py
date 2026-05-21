@@ -58,18 +58,27 @@ class UserViewSet(viewsets.ModelViewSet):
         from django.http import HttpResponse
 
         return HttpResponse(
-            """
-    <html>
-    <head><meta charset="UTF-8"></head>
-    <body style="font-family:Arial,sans-serif; text-align:center; padding:60px; background:#f9f9f9;">
-        <div style="max-width:480px; margin:auto; background:white; padding:40px; border-radius:10px; box-shadow:0 2px 12px rgba(0,0,0,0.1);">
-            <div style="font-size:48px; color:#2e7d32;">&#10003;</div>
-            <h2 style="color:#2e7d32;">Account Activated</h2>
-            <p style="color:#555;">The account for <strong>{}</strong> has been successfully activated. The user can now log in.</p>
+            f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Activated</title>
+</head>
+<body style="font-family:Arial,sans-serif; text-align:center; padding:60px; background:#f0f4f0; margin:0;">
+    <div style="max-width:480px; margin:auto; background:white; padding:40px; border-radius:12px; box-shadow:0 4px 20px rgba(0,0,0,0.1);">
+        <div style="font-size:64px; color:#2e7d32;">&#10003;</div>
+        <h2 style="color:#2e7d32; margin:16px 0 8px;">Account Activated Successfully</h2>
+        <p style="color:#555; font-size:16px;">
+            The account for <strong>{user.username}</strong> has been activated.<br>
+            The user may now log in to the platform.
+        </p>
+        <div style="margin-top:24px; padding:12px 24px; background:#e8f5e9; border-radius:8px; color:#2e7d32; font-weight:bold;">
+            &#10003; Activation Complete
         </div>
-    </body>
-    </html>
-    """.format(user.username),
+    </div>
+</body>
+</html>""",
             content_type="text/html; charset=utf-8",
         )
 
@@ -90,18 +99,18 @@ class UserViewSet(viewsets.ModelViewSet):
                 html_message=f"""
                 <div style="font-family:Arial,sans-serif; max-width:520px; margin:auto; padding:32px; border:1px solid #e0e0e0; border-radius:10px; background:#ffffff;">
                 <h2 style="color:#1a1a2e; margin-bottom:4px;">New User Registration</h2>
-                <p style="color:#888; font-size:13px; margin-top:0;">A new user has registered and is awaiting activation.</p>
+                <p style="color:#888; font-size:13px; margin-top:0;">A new user has registered and is pending activation.</p>
                 <hr style="border:none; border-top:1px solid #eee; margin:20px 0;">
                 <p style="margin:8px 0;"><span style="color:#555;">Username:</span> <strong>{user.username}</strong></p>
                 <p style="margin:8px 0;"><span style="color:#555;">Email:</span> <strong>{user.email or 'N/A'}</strong></p>
                 <p style="margin:8px 0;"><span style="color:#555;">Full Name:</span> <strong>{user.first_name} {user.last_name}</strong></p>
                 <div style="margin-top:28px;">
                 <a href="{activation_link}" style="background-color:#2e7d32; color:white; padding:13px 28px; text-decoration:none; border-radius:6px; font-size:15px; font-weight:bold; display:inline-block;">
-                Activate Account
+                &#10003; Activate User
                 </a>
                 </div>
                 <p style="color:#aaa; font-size:12px; margin-top:24px;">
-                Clicking the button above will immediately activate <strong>{user.username}</strong>'s account.
+                Clicking the button above will immediately activate <strong>{user.username}</strong>'s account and grant them access to the platform.
                 </p>
                 </div>
                 """,
