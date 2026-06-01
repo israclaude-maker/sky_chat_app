@@ -1,759 +1,1483 @@
 {% load static %}
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>SkyChat</title>
 
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>SkyChat</title>
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#25d366" />
+    <meta name="description" content="SkyChat - Real-time messaging app" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="SkyChat" />
 
-  <!-- PWA Meta Tags -->
-  <meta name="theme-color" content="#25d366">
-  <meta name="description" content="SkyChat - Real-time messaging app">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="SkyChat">
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
 
-  <!-- PWA Manifest -->
-  <link rel="manifest" href="/manifest.json">
+    <!-- Icons -->
+    <link
+      rel="icon"
+      href="{% static 'icons/icon-72x72.png' %}"
+      type="image/png"
+    />
+    <link rel="apple-touch-icon" href="{% static 'icons/icon-192x192.png' %}" />
 
-  <!-- Icons -->
-  <link rel="icon" href="{% static 'icons/icon-72x72.png' %}" type="image/png">
-  <link rel="apple-touch-icon" href="{% static 'icons/icon-192x192.png' %}">
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+      crossorigin="anonymous"
+    />
+    <link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260515" />
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"
+      crossorigin="anonymous"
+    ></script>
+  </head>
 
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
-    crossorigin="anonymous">
-  <link rel="stylesheet" href="{% static 'css/chat.css' %}?v=20260515">
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"
-    crossorigin="anonymous"></script>
-</head>
+  <body>
+    <script>
+      // Check authentication - redirect to login if no token
+      if (!localStorage.getItem("access_token")) {
+        window.location.href = "/login/";
+      }
+    </script>
+    <!-- Screen Recording Indicator -->
+    <div id="screen-rec-bar" class="screen-rec-bar hidden">
+      <div class="screen-rec-dot"></div>
+      <span class="screen-rec-label">Recording</span>
+      <span class="screen-rec-timer" id="screen-rec-timer">00:00</span>
+      <button
+        class="screen-rec-mic"
+        id="screen-rec-mic"
+        onclick="toggleScreenRecMic()"
+        title="Mic Off"
+      >
+        <i class="fa-solid fa-microphone-slash"></i>
+      </button>
+      <button class="screen-rec-stop" onclick="stopScreenRecord()">
+        <i class="fa-solid fa-stop"></i> Stop
+      </button>
+    </div>
 
-<body>
-  <script>
-    // Check authentication - redirect to login if no token
-    if (!localStorage.getItem('access_token')) {
-      window.location.href = '/login/';
-    }
-  </script>
-  <!-- Screen Recording Indicator -->
-  <div id="screen-rec-bar" class="screen-rec-bar hidden">
-    <div class="screen-rec-dot"></div>
-    <span class="screen-rec-label">Recording</span>
-    <span class="screen-rec-timer" id="screen-rec-timer">00:00</span>
-    <button class="screen-rec-mic" id="screen-rec-mic" onclick="toggleScreenRecMic()" title="Mic Off"><i
-        class="fa-solid fa-microphone-slash"></i></button>
-    <button class="screen-rec-stop" onclick="stopScreenRecord()"><i class="fa-solid fa-stop"></i> Stop</button>
-  </div>
-
-  <div id="app">
-    <!-- SIDEBAR -->
-    <aside id="sidebar">
-      <div class="sb-hdr">
-        <div class="my-av-wrap" onclick="openProfile()" style="cursor:pointer;">
-          <img class="my-av" id="my-av" src="" alt="" style="display:none;">
-          <div id="my-av-init"
-            style="display:none;width:36px;height:36px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;">
-            U</div>
-        </div>
-        <span class="sb-title" id="sb-username">SkyChat</span>
-        <div class="sb-hdr-icons">
-          <button class="icon-btn" id="screen-rec-btn" onclick="toggleScreenRecord()" title="Screen Record"><i
-              class="fa-solid fa-circle" style="font-size:13px;"></i></button>
-          <button class="icon-btn" onclick="openNewChat()" title="New Chat"><i
-              class="fa-solid fa-comment-medical"></i></button>
-          <div class="sb-menu-wrap">
-            <button class="icon-btn" onclick="toggleSbMenu(event)" title="Menu"><i
-                class="fa-solid fa-ellipsis-vertical"></i></button>
-            <div class="sb-dropdown" id="sb-dropdown">
-              <div class="sb-drop-item" onclick="openNewGroup()"><i class="fa-solid fa-users"></i> New group</div>
-              <div class="sb-drop-item" onclick="openNewChat()"><i class="fa-solid fa-comment-medical"></i> New chat
+    <div id="app">
+      <!-- SIDEBAR -->
+      <aside id="sidebar">
+        <div class="sb-hdr">
+          <div
+            class="my-av-wrap"
+            onclick="openProfile()"
+            style="cursor: pointer"
+          >
+            <img class="my-av" id="my-av" src="" alt="" style="display: none" />
+            <div
+              id="my-av-init"
+              style="
+                display: none;
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                background: var(--blue);
+                color: #fff;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: 700;
+                font-size: 16px;
+              "
+            >
+              U
+            </div>
+          </div>
+          <span class="sb-title" id="sb-username">SkyChat</span>
+          <div class="sb-hdr-icons">
+            <button
+              class="icon-btn"
+              id="screen-rec-btn"
+              onclick="toggleScreenRecord()"
+              title="Screen Record"
+            >
+              <i class="fa-solid fa-circle" style="font-size: 13px"></i>
+            </button>
+            <button class="icon-btn" onclick="openNewChat()" title="New Chat">
+              <i class="fa-solid fa-comment-medical"></i>
+            </button>
+            <div class="sb-menu-wrap">
+              <button
+                class="icon-btn"
+                onclick="toggleSbMenu(event)"
+                title="Menu"
+              >
+                <i class="fa-solid fa-ellipsis-vertical"></i>
+              </button>
+              <div class="sb-dropdown" id="sb-dropdown">
+                <div class="sb-drop-item" onclick="openNewGroup()">
+                  <i class="fa-solid fa-users"></i> New group
+                </div>
+                <div class="sb-drop-item" onclick="openNewChat()">
+                  <i class="fa-solid fa-comment-medical"></i> New chat
+                </div>
+                <div class="sb-drop-item" onclick="doLogout()">
+                  <i class="fa-solid fa-right-from-bracket"></i> Log out
+                </div>
               </div>
-              <div class="sb-drop-item" onclick="doLogout()"><i class="fa-solid fa-right-from-bracket"></i> Log out
-              </div>
             </div>
           </div>
         </div>
-      </div>
-      <div class="sb-search">
-        <div class="search-row">
-          <i class="fa-solid fa-magnifying-glass"></i>
-          <input type="text" placeholder="Search or start new chat" id="search-inp" oninput="handleSearch(this.value)">
+        <div class="sb-search">
+          <div class="search-row">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input
+              type="text"
+              placeholder="Search or start new chat"
+              id="search-inp"
+              oninput="handleSearch(this.value)"
+            />
+          </div>
         </div>
-      </div>
-      <div class="sb-tabs">
-        <button class="sb-tab on" onclick="swTab('chats',this)">Chats</button>
-        <button class="sb-tab" onclick="swTab('unread',this)">Unread</button>
-        <button class="sb-tab" onclick="swTab('groups',this)">Groups</button>
-        <button class="sb-tab" onclick="swTab('calls',this)">Calls</button>
-      </div>
-      <div class="conv-list" id="conv-list">
-        <div style="padding:28px;text-align:center;color:var(--sub);font-size:13px;">
-          <i class="fa-solid fa-spinner fa-spin"
-            style="font-size:22px;display:block;margin-bottom:10px;color:var(--blue);"></i>Loading chats...
+        <div class="sb-tabs">
+          <button class="sb-tab on" onclick="swTab('chats', this)">
+            Chats
+          </button>
+          <button class="sb-tab" onclick="swTab('unread', this)">Unread</button>
+          <button class="sb-tab" onclick="swTab('groups', this)">Groups</button>
+          <button class="sb-tab" onclick="swTab('calls', this)">Calls</button>
         </div>
-      </div>
-      <button class="fab" onclick="openNewChat()" title="New Chat"><i class="fa-solid fa-comment-medical"></i></button>
-    </aside>
+        <div class="conv-list" id="conv-list">
+          <div
+            style="
+              padding: 28px;
+              text-align: center;
+              color: var(--sub);
+              font-size: 13px;
+            "
+          >
+            <i
+              class="fa-solid fa-spinner fa-spin"
+              style="
+                font-size: 22px;
+                display: block;
+                margin-bottom: 10px;
+                color: var(--blue);
+              "
+            ></i
+            >Loading chats...
+          </div>
+        </div>
+        <button class="fab" onclick="openNewChat()" title="New Chat">
+          <i class="fa-solid fa-comment-medical"></i>
+        </button>
+      </aside>
 
-    <!-- CHAT PANEL -->
-    <main id="chat-panel">
-      <div id="empty-state">
-        <i class="fa-regular fa-comments"></i>
-        <h3>SkyChat Web</h3>
-        <p>Select a conversation to start chatting, or start a new one.</p>
-        <span><i class="fa-solid fa-lock" style="color:var(--blue);"></i> End-to-end encrypted</span>
-      </div>
-      <!-- INFO SIDE PANEL -->
-      <div id="info-panel" class="info-panel">
-        <div class="ip-header">
-          <button class="icon-btn" onclick="closeInfoPanel()"><i class="fa-solid fa-xmark"></i></button>
-          <span class="ip-header-title" id="ip-header-title">Contact info</span>
+      <!-- CHAT PANEL -->
+      <main id="chat-panel">
+        <div id="empty-state">
+          <i class="fa-regular fa-comments"></i>
+          <h3>SkyChat Web</h3>
+          <p>Select a conversation to start chatting, or start a new one.</p>
+          <span
+            ><i class="fa-solid fa-lock" style="color: var(--blue)"></i>
+            End-to-end encrypted</span
+          >
         </div>
-        <div class="ip-body" id="ip-body">
-          <div class="ip-profile">
-            <img class="ip-avatar" id="ip-avatar" src="" alt="">
-            <div class="ip-name" id="ip-name"></div>
-            <div class="ip-sub" id="ip-sub"></div>
-          </div>
-          <div class="ip-actions" id="ip-actions">
-            <button class="ip-action-btn" id="ip-search-btn" onclick="closeInfoPanel()">
-              <i class="fa-solid fa-magnifying-glass"></i><span>Search</span>
+        <!-- INFO SIDE PANEL -->
+        <div id="info-panel" class="info-panel">
+          <div class="ip-header">
+            <button class="icon-btn" onclick="closeInfoPanel()">
+              <i class="fa-solid fa-xmark"></i>
             </button>
-            <button class="ip-action-btn" id="ip-video-btn" onclick="startCall('video')">
-              <i class="fa-solid fa-video"></i><span>Video</span>
-            </button>
-            <button class="ip-action-btn" id="ip-voice-btn" onclick="startCall('voice')">
-              <i class="fa-solid fa-phone"></i><span>Voice</span>
-            </button>
+            <span class="ip-header-title" id="ip-header-title"
+              >Contact info</span
+            >
           </div>
-          <div class="ip-section" id="ip-about-section">
-            <div class="ip-section-title">About</div>
-            <div class="ip-about" id="ip-about"></div>
-          </div>
-          <div class="ip-section">
-            <div class="ip-section-header">
-              <div class="ip-section-title">Media, links and docs</div>
-              <span class="ip-media-count" id="ip-media-count"></span>
+          <div class="ip-body" id="ip-body">
+            <div class="ip-profile">
+              <img class="ip-avatar" id="ip-avatar" src="" alt="" />
+              <div class="ip-name" id="ip-name"></div>
+              <div class="ip-sub" id="ip-sub"></div>
             </div>
-            <div class="ip-media-grid" id="ip-media-grid">
-              <div style="padding:12px;text-align:center;color:var(--sub);font-size:13px;">No media yet</div>
-            </div>
-          </div>
-          <!-- Group-specific sections -->
-          <div class="ip-section" id="ip-members-section" style="display:none;">
-            <div class="ip-section-header">
-              <div class="ip-section-title">Members</div>
-              <button class="gi-action-btn" id="ip-add-member-btn"
-                onclick="addGroupMember(S.activeGroup && S.activeGroup.id)" title="Add member" style="display:none;">
-                <i class="fa-solid fa-user-plus"></i>
+            <div class="ip-actions" id="ip-actions">
+              <button
+                class="ip-action-btn"
+                id="ip-search-btn"
+                onclick="closeInfoPanel()"
+              >
+                <i class="fa-solid fa-magnifying-glass"></i><span>Search</span>
+              </button>
+              <button
+                class="ip-action-btn"
+                id="ip-video-btn"
+                onclick="startCall('video')"
+              >
+                <i class="fa-solid fa-video"></i><span>Video</span>
+              </button>
+              <button
+                class="ip-action-btn"
+                id="ip-voice-btn"
+                onclick="startCall('voice')"
+              >
+                <i class="fa-solid fa-phone"></i><span>Voice</span>
               </button>
             </div>
-            <div id="ip-members"></div>
-          </div>
-          <div class="ip-section" id="ip-leave-section" style="display:none;">
-            <button class="gi-leave-btn" id="ip-leave-btn">
-              <i class="fa-solid fa-right-from-bracket"></i> Exit Group
-            </button>
-            <button class="gi-leave-btn" id="ip-delete-group-btn"
-              style="display:none;background:#dc3545;margin-top:8px;">
-              <i class="fa-solid fa-trash"></i> Delete Group
-            </button>
+            <div class="ip-section" id="ip-about-section">
+              <div class="ip-section-title">About</div>
+              <div class="ip-about" id="ip-about"></div>
+            </div>
+            <div class="ip-section">
+              <div class="ip-section-header">
+                <div class="ip-section-title">Media, links and docs</div>
+                <span class="ip-media-count" id="ip-media-count"></span>
+              </div>
+              <div class="ip-media-grid" id="ip-media-grid">
+                <div
+                  style="
+                    padding: 12px;
+                    text-align: center;
+                    color: var(--sub);
+                    font-size: 13px;
+                  "
+                >
+                  No media yet
+                </div>
+              </div>
+            </div>
+            <!-- Group-specific sections -->
+            <div
+              class="ip-section"
+              id="ip-members-section"
+              style="display: none"
+            >
+              <div class="ip-section-header">
+                <div class="ip-section-title">Members</div>
+                <button
+                  class="gi-action-btn"
+                  id="ip-add-member-btn"
+                  onclick="addGroupMember(S.activeGroup && S.activeGroup.id)"
+                  title="Add member"
+                  style="display: none"
+                >
+                  <i class="fa-solid fa-user-plus"></i>
+                </button>
+              </div>
+              <div id="ip-members"></div>
+            </div>
+            <div class="ip-section" id="ip-leave-section" style="display: none">
+              <button class="gi-leave-btn" id="ip-leave-btn">
+                <i class="fa-solid fa-right-from-bracket"></i> Exit Group
+              </button>
+              <button
+                class="gi-leave-btn"
+                id="ip-delete-group-btn"
+                style="display: none; background: #dc3545; margin-top: 8px"
+              >
+                <i class="fa-solid fa-trash"></i> Delete Group
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-      <div id="chat-view">
-        <div id="chat-topbar">
-
-          <button class="icon-btn" id="back-btn" onclick="goBack()" style="display:none;">
-            <i class="fa-solid fa-arrow-left"></i>
-          </button>
-          <div class="av-wrap">
-            <img class="av-img av-42" id="tb-av" src="" alt="">
-            <div class="sdot off" id="tb-dot"></div>
-          </div>
-          <div class="tb-info">
-            <div class="tb-name" id="tb-name"></div>
-            <div class="tb-sub" id="tb-sub"></div>
-          </div>
-          <div class="tb-icons">
-            <button class="icon-btn" title="Video Call" onclick="startCall('video')"><i
-                class="fa-solid fa-video"></i></button>
-            <button class="icon-btn" title="Voice Call" onclick="startCall('voice')"><i
-                class="fa-solid fa-phone"></i></button>
-            <div class="tb-menu-wrap">
-              <button class="icon-btn" title="More" onclick="toggleTbMenu(event)"><i
-                  class="fa-solid fa-ellipsis-vertical"></i></button>
-              <div class="tb-dropdown" id="tb-dropdown">
-                <div class="sb-drop-item" onclick="closeTbMenu();openContactOrGroupInfo()"><i
-                    class="fa-solid fa-circle-info"></i> Info</div>
-                <div class="sb-drop-item" onclick="closeTbMenu();closeChat()"><i class="fa-solid fa-xmark"></i> Close
-                  chat</div>
-                <div class="sb-drop-item danger" onclick="closeTbMenu();deleteCurrentChat()"><i
-                    class="fa-solid fa-trash"></i> Delete chat</div>
+        <div id="chat-view">
+          <div id="chat-topbar">
+            <button
+              class="icon-btn"
+              id="back-btn"
+              onclick="goBack()"
+              style="display: none"
+            >
+              <i class="fa-solid fa-arrow-left"></i>
+            </button>
+            <div class="av-wrap">
+              <img class="av-img av-42" id="tb-av" src="" alt="" />
+              <div class="sdot off" id="tb-dot"></div>
+            </div>
+            <div class="tb-info">
+              <div class="tb-name" id="tb-name"></div>
+              <div class="tb-sub" id="tb-sub"></div>
+            </div>
+            <div class="tb-icons">
+              <button
+                class="icon-btn"
+                title="Video Call"
+                onclick="startCall('video')"
+              >
+                <i class="fa-solid fa-video"></i>
+              </button>
+              <button
+                class="icon-btn"
+                title="Voice Call"
+                onclick="startCall('voice')"
+              >
+                <i class="fa-solid fa-phone"></i>
+              </button>
+              <div class="tb-menu-wrap">
+                <button
+                  class="icon-btn"
+                  title="More"
+                  onclick="toggleTbMenu(event)"
+                >
+                  <i class="fa-solid fa-ellipsis-vertical"></i>
+                </button>
+                <div class="tb-dropdown" id="tb-dropdown">
+                  <div
+                    class="sb-drop-item"
+                    onclick="
+                      closeTbMenu();
+                      openContactOrGroupInfo();
+                    "
+                  >
+                    <i class="fa-solid fa-circle-info"></i> Info
+                  </div>
+                  <div
+                    class="sb-drop-item"
+                    onclick="
+                      closeTbMenu();
+                      closeChat();
+                    "
+                  >
+                    <i class="fa-solid fa-xmark"></i> Close chat
+                  </div>
+                  <div
+                    class="sb-drop-item danger"
+                    onclick="
+                      closeTbMenu();
+                      deleteCurrentChat();
+                    "
+                  >
+                    <i class="fa-solid fa-trash"></i> Delete chat
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-        <!-- GROUP CALL JOIN BANNER -->
-        <div class="gc-join-banner" id="gc-join-banner" style="display:none;">
-          <div class="gc-banner-info">
-            <span class="gc-banner-text" id="gc-banner-text"></span>
-          </div>
-          <button class="gc-banner-join-btn" onclick="joinGroupCallFromBanner()">Join</button>
-        </div>
-        <div id="msg-area"></div>
-        <div class="typing-row" id="typing-row">
-          <div class="typing-dots"><span></span><span></span><span></span></div>
-          <span id="typing-txt"></span>
-        </div>
-        <div id="input-area">
-          <!-- Reply Preview -->
-          <div id="reply-preview" class="reply-preview hidden">
-            <div class="reply-bar"></div>
-            <div class="reply-content">
-              <div class="reply-name" id="reply-name">You</div>
-              <div class="reply-text" id="reply-text"></div>
+          <!-- GROUP CALL JOIN BANNER -->
+          <div class="gc-join-banner" id="gc-join-banner" style="display: none">
+            <div class="gc-banner-info">
+              <span class="gc-banner-text" id="gc-banner-text"></span>
             </div>
-            <button class="reply-close" onclick="cancelReply()">
+            <button
+              class="gc-banner-join-btn"
+              onclick="joinGroupCallFromBanner()"
+            >
+              Join
+            </button>
+          </div>
+          <div id="msg-area"></div>
+          <div class="typing-row" id="typing-row">
+            <div class="typing-dots">
+              <span></span><span></span><span></span>
+            </div>
+            <span id="typing-txt"></span>
+          </div>
+          <div id="input-area">
+            <!-- Reply Preview -->
+            <div id="reply-preview" class="reply-preview hidden">
+              <div class="reply-bar"></div>
+              <div class="reply-content">
+                <div class="reply-name" id="reply-name">You</div>
+                <div class="reply-text" id="reply-text"></div>
+              </div>
+              <button class="reply-close" onclick="cancelReply()">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            <div id="emoji-picker">
+              <div class="ep-cats" id="ep-cats"></div>
+              <div class="ep-grid" id="ep-grid"></div>
+            </div>
+            <!-- Voice Recording UI -->
+            <div id="voice-record" class="voice-record hidden">
+              <button class="icon-btn voice-cancel" onclick="cancelVoice()">
+                <i class="fa-solid fa-trash" style="color: var(--red)"></i>
+              </button>
+              <div class="voice-timer" id="voice-timer">00:00</div>
+              <div class="voice-wave">
+                <span></span><span></span><span></span><span></span
+                ><span></span>
+              </div>
+              <button class="icon-btn voice-send" onclick="sendVoice()">
+                <i
+                  class="fa-solid fa-paper-plane"
+                  style="color: var(--blue)"
+                ></i>
+              </button>
+            </div>
+            <div class="input-row">
+              <div class="input-box">
+                <button
+                  class="icon-btn"
+                  id="emoji-btn"
+                  onclick="toggleEmoji()"
+                  style="flex-shrink: 0"
+                >
+                  <i
+                    class="fa-regular fa-face-smile"
+                    style="font-size: 22px; color: #8696a0"
+                  ></i>
+                </button>
+                <textarea
+                  id="msg-ta"
+                  rows="1"
+                  placeholder="Type a message"
+                  oninput="onInput(this)"
+                  onkeydown="onKey(event)"
+                ></textarea>
+                <input
+                  type="file"
+                  id="file-input"
+                  hidden
+                  multiple
+                  accept="*/*"
+                  onchange="handleFileSelect(event)"
+                />
+                <button
+                  class="icon-btn"
+                  style="flex-shrink: 0"
+                  title="Attach file"
+                  onclick="$('file-input').click()"
+                >
+                  <i
+                    class="fa-solid fa-paperclip"
+                    style="font-size: 18px; color: #8696a0"
+                  ></i>
+                </button>
+              </div>
+              <button
+                class="send-btn"
+                id="send-btn"
+                onclick="doSend()"
+                disabled
+              >
+                <i class="fa-solid fa-paper-plane"></i>
+              </button>
+              <button
+                class="send-btn mic-btn"
+                id="mic-record-btn"
+                onclick="startVoiceRecord()"
+              >
+                <i class="fa-solid fa-microphone"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- NOTIFICATIONS -->
+    <div id="notif-stack"></div>
+
+    <!-- NEW CHAT MODAL -->
+    <div class="modal-bg" id="nc-modal">
+      <div class="modal">
+        <div class="modal-title">
+          <i class="fa-solid fa-comment-medical"></i>New Conversation
+        </div>
+        <input
+          class="modal-inp"
+          type="text"
+          id="nc-srch"
+          placeholder="Search by name or username..."
+          oninput="searchNC(this.value)"
+        />
+        <div class="user-list" id="nc-list">
+          <div style="padding: 16px; text-align: center; color: var(--sub)">
+            <i class="fa-solid fa-spinner fa-spin"></i> Loading...
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CREATE GROUP MODAL -->
+    <div class="modal-bg" id="cg-modal">
+      <div class="modal">
+        <div class="modal-title">
+          <i class="fa-solid fa-users"></i>Create Group
+        </div>
+        <input
+          class="modal-inp"
+          type="text"
+          id="cg-name"
+          placeholder="Group name..."
+        />
+        <input
+          class="modal-inp"
+          type="text"
+          id="cg-srch"
+          placeholder="Search users to add..."
+          oninput="searchGroupUsers(this.value)"
+        />
+        <div class="user-list" id="cg-list">
+          <div style="padding: 16px; text-align: center; color: var(--sub)">
+            <i class="fa-solid fa-spinner fa-spin"></i> Loading...
+          </div>
+        </div>
+        <div
+          id="cg-selected"
+          style="padding: 10px 0; display: flex; flex-wrap: wrap; gap: 6px"
+        ></div>
+        <div class="modal-foot">
+          <button class="mbtn mbtn-cancel" onclick="closeM('cg-modal')">
+            Cancel
+          </button>
+          <button class="mbtn mbtn-ok" onclick="createGroup()">
+            Create Group
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MESSAGE INFO MODAL -->
+    <div class="modal-bg" id="mi-modal">
+      <div class="modal" style="max-width: 420px">
+        <div class="modal-title">
+          <i class="fa-solid fa-circle-info"></i>Message Info
+        </div>
+        <div id="mi-content" style="padding: 8px 0">
+          <div
+            style="
+              background: var(--bg);
+              padding: 12px;
+              border-radius: 10px;
+              margin-bottom: 16px;
+            "
+          >
+            <div id="mi-text" style="font-size: 14px; color: var(--text)"></div>
+          </div>
+          <div class="msg-info-row">
+            <span class="msg-info-label">Sent</span>
+            <span class="msg-info-value" id="mi-sent">-</span>
+          </div>
+          <div id="mi-simple-info">
+            <div class="msg-info-row">
+              <span class="msg-info-label">Delivered</span>
+              <span class="msg-info-value blue" id="mi-delivered">-</span>
+            </div>
+            <div class="msg-info-row">
+              <span class="msg-info-label">Seen</span>
+              <span class="msg-info-value blue" id="mi-seen">-</span>
+            </div>
+          </div>
+          <div
+            id="mi-read-by"
+            style="display: none; max-height: 200px; overflow-y: auto"
+          ></div>
+          <div
+            id="mi-delivered-to"
+            style="display: none; max-height: 200px; overflow-y: auto"
+          ></div>
+        </div>
+        <div class="modal-foot">
+          <button class="mbtn mbtn-cancel" onclick="closeM('mi-modal')">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- GROUP INFO MODAL -->
+    <div class="modal-bg" id="gi-modal">
+      <div class="modal" style="max-width: 420px">
+        <div class="modal-title">
+          <i class="fa-solid fa-users"></i>Group Info
+        </div>
+        <div style="text-align: center; padding: 16px 0">
+          <img
+            id="gi-av"
+            src=""
+            style="
+              width: 80px;
+              height: 80px;
+              border-radius: 50%;
+              border: 3px solid var(--blue);
+              object-fit: cover;
+            "
+            alt=""
+          />
+          <div
+            id="gi-name"
+            style="font-size: 20px; font-weight: 700; margin-top: 10px"
+          ></div>
+          <div
+            id="gi-desc"
+            style="font-size: 13px; color: var(--sub); margin-top: 4px"
+          ></div>
+          <div
+            id="gi-count"
+            style="font-size: 12px; color: var(--sub); margin-top: 4px"
+          ></div>
+          <div style="font-size: 11px; color: var(--sub); margin-top: 2px">
+            Created <span id="gi-created"></span>
+          </div>
+        </div>
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--divider);
+            margin-bottom: 8px;
+          "
+        >
+          <span style="font-weight: 600; font-size: 14px; color: var(--text)"
+            >Members</span
+          >
+          <button
+            class="gi-action-btn"
+            id="gi-add-btn"
+            onclick="addGroupMember(S.activeGroup && S.activeGroup.id)"
+            title="Add member"
+            style="display: none"
+          >
+            <i class="fa-solid fa-user-plus"></i>
+          </button>
+        </div>
+        <div id="gi-members" style="max-height: 350px; overflow-y: auto"></div>
+        <div
+          style="
+            padding: 12px 0;
+            border-top: 1px solid var(--divider);
+            margin-top: 8px;
+          "
+        >
+          <button
+            class="gi-leave-btn"
+            id="gi-leave-btn"
+            onclick="leaveGroup(S.activeGroup && S.activeGroup.id)"
+          >
+            <i class="fa-solid fa-right-from-bracket"></i> Exit Group
+          </button>
+        </div>
+        <div class="modal-foot">
+          <button class="mbtn mbtn-cancel" onclick="closeM('gi-modal')">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADD GROUP MEMBER MODAL -->
+    <div class="modal-bg" id="gam-modal">
+      <div class="modal" style="max-width: 380px">
+        <div class="modal-title">
+          <i class="fa-solid fa-user-plus"></i>Add Member
+        </div>
+        <div class="user-list" id="gam-list">
+          <div style="padding: 16px; text-align: center; color: var(--sub)">
+            <i class="fa-solid fa-spinner fa-spin"></i> Loading...
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="mbtn mbtn-cancel" onclick="closeM('gam-modal')">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FORWARD MESSAGE MODAL -->
+    <div class="modal-bg" id="fwd-modal">
+      <div class="modal fwd-modal-box">
+        <div class="fwd-header">
+          <button class="fwd-close-btn" onclick="closeM('fwd-modal')">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+          <span class="fwd-title">Forward message to</span>
+        </div>
+        <div class="fwd-search-wrap">
+          <i class="fa-solid fa-search fwd-search-icon"></i>
+          <input
+            type="text"
+            class="fwd-search-input"
+            id="fwd-search"
+            placeholder="Search name or group..."
+            oninput="searchForwardList(this.value)"
+          />
+        </div>
+        <div
+          class="fwd-selected-bar"
+          id="fwd-selected-bar"
+          style="display: none"
+        >
+          <div class="fwd-selected-chips" id="fwd-selected-chips"></div>
+        </div>
+        <div id="fwd-list" class="fwd-list"></div>
+        <div class="fwd-footer" id="fwd-footer" style="display: none">
+          <div id="fwd-msg-preview" class="fwd-preview-text"></div>
+          <button
+            class="fwd-send-btn"
+            id="fwd-send-btn"
+            onclick="sendForwardToSelected()"
+          >
+            <i class="fa-solid fa-paper-plane"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PROFILE MODAL -->
+    <div class="modal-bg" id="pf-modal">
+      <div class="modal" style="max-width: 400px">
+        <div class="modal-title">
+          <i class="fa-solid fa-circle-user"></i>My Profile
+        </div>
+        <div
+          style="text-align: center; margin-bottom: 16px; position: relative"
+        >
+          <div
+            class="pf-av-wrap"
+            style="position: relative; display: inline-block"
+          >
+            <img
+              id="pf-av"
+              style="
+                width: 100px;
+                height: 100px;
+                border-radius: 50%;
+                border: 3px solid var(--blue);
+                object-fit: cover;
+                display: none;
+              "
+              src=""
+              alt=""
+            />
+            <div
+              id="pf-av-init"
+              style="
+                width: 100px;
+                height: 100px;
+                border-radius: 50%;
+                border: 3px solid var(--blue);
+                background: var(--blue);
+                color: #fff;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: 700;
+                font-size: 36px;
+              "
+            >
+              U
+            </div>
+            <label class="pf-av-edit" for="pf-pic-input" title="Change photo">
+              <i class="fa-solid fa-camera"></i>
+            </label>
+            <button
+              id="remove-photo-btn"
+              onclick="removeProfilePicture()"
+              style="
+                display: none;
+                position: absolute;
+                top: 0;
+                right: 0;
+                width: 28px;
+                height: 28px;
+                border-radius: 50%;
+                background: #f15c6d;
+                border: none;
+                color: #fff;
+                cursor: pointer;
+                font-size: 12px;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+              "
+              title="Remove photo"
+            >
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
-          <div id="emoji-picker">
-            <div class="ep-cats" id="ep-cats"></div>
-            <div class="ep-grid" id="ep-grid"></div>
+          <input
+            type="file"
+            id="pf-pic-input"
+            hidden
+            accept="image/*"
+            onchange="uploadProfilePicture(this)"
+          />
+          <div
+            id="pf-un"
+            style="margin-top: 8px; font-size: 14px; color: var(--sub)"
+          ></div>
+        </div>
+        <div style="padding: 0 4px">
+          <div class="pf-field">
+            <label class="pf-label">First Name</label>
+            <input
+              type="text"
+              class="pf-input"
+              id="pf-fname"
+              placeholder="Enter first name"
+            />
           </div>
-          <!-- Voice Recording UI -->
-          <div id="voice-record" class="voice-record hidden">
-            <button class="icon-btn voice-cancel" onclick="cancelVoice()">
-              <i class="fa-solid fa-trash" style="color:var(--red);"></i>
-            </button>
-            <div class="voice-timer" id="voice-timer">00:00</div>
-            <div class="voice-wave">
-              <span></span><span></span><span></span><span></span><span></span>
-            </div>
-            <button class="icon-btn voice-send" onclick="sendVoice()">
-              <i class="fa-solid fa-paper-plane" style="color:var(--blue);"></i>
-            </button>
+          <div class="pf-field">
+            <label class="pf-label">Last Name</label>
+            <input
+              type="text"
+              class="pf-input"
+              id="pf-lname"
+              placeholder="Enter last name"
+            />
           </div>
-          <div class="input-row">
-            <div class="input-box">
-              <button class="icon-btn" id="emoji-btn" onclick="toggleEmoji()" style="flex-shrink:0;">
-                <i class="fa-regular fa-face-smile" style="font-size:22px;color:#8696a0;"></i>
-              </button>
-              <textarea id="msg-ta" rows="1" placeholder="Type a message" oninput="onInput(this)"
-                onkeydown="onKey(event)"></textarea>
-              <input type="file" id="file-input" hidden multiple accept="*/*" onchange="handleFileSelect(event)">
-              <button class="icon-btn" style="flex-shrink:0;" title="Attach file" onclick="$('file-input').click()">
-                <i class="fa-solid fa-paperclip" style="font-size:18px;color:#8696a0;"></i>
-              </button>
-            </div>
-            <button class="send-btn" id="send-btn" onclick="doSend()" disabled>
-              <i class="fa-solid fa-paper-plane"></i>
-            </button>
-            <button class="send-btn mic-btn" id="mic-record-btn" onclick="startVoiceRecord()">
-              <i class="fa-solid fa-microphone"></i>
-            </button>
+          <div class="pf-field">
+            <label class="pf-label">Email</label>
+            <input
+              type="email"
+              class="pf-input"
+              id="pf-email"
+              placeholder="Enter email"
+            />
+          </div>
+          <div class="pf-field">
+            <label class="pf-label">Member Since</label>
+            <div class="pf-static" id="pf-since">-</div>
           </div>
         </div>
-      </div>
-    </main>
-  </div>
-
-  <!-- NOTIFICATIONS -->
-  <div id="notif-stack"></div>
-
-  <!-- NEW CHAT MODAL -->
-  <div class="modal-bg" id="nc-modal">
-    <div class="modal">
-      <div class="modal-title"><i class="fa-solid fa-comment-medical"></i>New Conversation</div>
-      <input class="modal-inp" type="text" id="nc-srch" placeholder="Search by name or username..."
-        oninput="searchNC(this.value)">
-      <div class="user-list" id="nc-list">
-        <div style="padding:16px;text-align:center;color:var(--sub);"><i class="fa-solid fa-spinner fa-spin"></i>
-          Loading...</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- CREATE GROUP MODAL -->
-  <div class="modal-bg" id="cg-modal">
-    <div class="modal">
-      <div class="modal-title"><i class="fa-solid fa-users"></i>Create Group</div>
-      <input class="modal-inp" type="text" id="cg-name" placeholder="Group name...">
-      <input class="modal-inp" type="text" id="cg-srch" placeholder="Search users to add..."
-        oninput="searchGroupUsers(this.value)">
-      <div class="user-list" id="cg-list">
-        <div style="padding:16px;text-align:center;color:var(--sub);"><i class="fa-solid fa-spinner fa-spin"></i>
-          Loading...</div>
-      </div>
-      <div id="cg-selected" style="padding:10px 0;display:flex;flex-wrap:wrap;gap:6px;"></div>
-      <div class="modal-foot">
-        <button class="mbtn mbtn-cancel" onclick="closeM('cg-modal')">Cancel</button>
-        <button class="mbtn mbtn-ok" onclick="createGroup()">Create Group</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- MESSAGE INFO MODAL -->
-  <div class="modal-bg" id="mi-modal">
-    <div class="modal" style="max-width:420px;">
-      <div class="modal-title"><i class="fa-solid fa-circle-info"></i>Message Info</div>
-      <div id="mi-content" style="padding:8px 0;">
-        <div style="background:var(--bg);padding:12px;border-radius:10px;margin-bottom:16px;">
-          <div id="mi-text" style="font-size:14px;color:var(--text);"></div>
+        <div class="modal-foot">
+          <button class="mbtn mbtn-cancel" onclick="closeM('pf-modal')">
+            Cancel
+          </button>
+          <button class="mbtn mbtn-ok" onclick="saveProfile()">
+            Save Changes
+          </button>
         </div>
-        <div class="msg-info-row">
-          <span class="msg-info-label">Sent</span>
-          <span class="msg-info-value" id="mi-sent">-</span>
+      </div>
+    </div>
+
+    <!-- INCOMING CALL MODAL -->
+    <div class="call-overlay" id="incoming-call">
+      <div class="call-card incoming">
+        <div class="call-ripple"></div>
+        <img class="call-avatar" id="incoming-av" src="" alt="" />
+        <div class="call-name" id="incoming-name">Caller</div>
+        <div class="call-type" id="incoming-type">
+          <i class="fa-solid fa-phone"></i> Voice Call
         </div>
-        <div id="mi-simple-info">
-          <div class="msg-info-row">
-            <span class="msg-info-label">Delivered</span>
-            <span class="msg-info-value blue" id="mi-delivered">-</span>
-          </div>
-          <div class="msg-info-row">
-            <span class="msg-info-label">Seen</span>
-            <span class="msg-info-value blue" id="mi-seen">-</span>
+        <div class="call-buttons">
+          <button class="call-btn reject" id="btn-reject-call">
+            <i class="fa-solid fa-phone-slash"></i>
+          </button>
+          <button class="call-btn accept" id="btn-accept-call">
+            <i class="fa-solid fa-phone"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- OUTGOING CALL MODAL -->
+    <div class="call-overlay" id="outgoing-call">
+      <button
+        class="call-minimize-btn"
+        onclick="minimizeCall()"
+        title="Minimize"
+      >
+        <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
+      </button>
+      <div class="call-card outgoing">
+        <div class="call-ripple"></div>
+        <img class="call-avatar" id="outgoing-av" src="" alt="" />
+        <div class="call-name" id="outgoing-name">Calling...</div>
+        <div class="call-status" id="outgoing-type">Ringing...</div>
+        <div class="call-buttons">
+          <button class="call-btn reject" onclick="cancelCall()">
+            <i class="fa-solid fa-phone-slash"></i>
+          </button>
+        </div>
+      </div>
+      <!-- Local video preview for video calls -->
+      <div class="outgoing-local-video-wrap" id="outgoing-local-wrap">
+        <video id="outgoing-local-video" autoplay playsinline muted></video>
+      </div>
+    </div>
+
+    <!-- ONGOING CALL SCREEN -->
+    <div class="call-overlay" id="ongoing-call">
+      <button
+        class="call-minimize-btn"
+        onclick="minimizeCall()"
+        title="Minimize"
+      >
+        <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
+      </button>
+      <div class="call-screen">
+        <audio id="remote-audio" autoplay playsinline></audio>
+        <video id="remote-video" autoplay playsinline></video>
+        <video
+          id="remote-screen-video"
+          autoplay
+          playsinline
+          style="display: none"
+        ></video>
+        <video id="local-video" autoplay playsinline muted></video>
+        <div class="call-info">
+          <img class="call-avatar-sm" id="ongoing-av" src="" alt="" />
+          <div class="call-name" id="ongoing-name">User</div>
+          <div class="call-timer" id="call-timer">00:00</div>
+        </div>
+
+        <div class="call-controls">
+          <button class="ctrl-btn" id="dm-mic-btn" onclick="toggleMic()">
+            <i class="fa-solid fa-microphone"></i>
+          </button>
+          <button class="ctrl-btn" id="dm-cam-btn" onclick="toggleCam()">
+            <i class="fa-solid fa-video"></i>
+          </button>
+          <button
+            class="ctrl-btn"
+            id="dm-cam-fx-btn"
+            onclick="toggleCamFxPicker('dm')"
+            title="Camera Effects"
+          >
+            <i class="fa-solid fa-wand-magic-sparkles"></i>
+          </button>
+          <button
+            class="ctrl-btn"
+            id="call-rec-btn"
+            onclick="toggleCallRecord()"
+            title="Record Call"
+          >
+            <i class="fa-solid fa-circle" style="font-size: 13px"></i>
+          </button>
+          <button
+            class="ctrl-btn"
+            id="dm-screen-btn"
+            onclick="toggleScreenShare()"
+            title="Share Screen"
+          >
+            <i class="fa-solid fa-display"></i>
+          </button>
+
+          <button
+            id="rc-btn"
+            class="ctrl-btn"
+            onclick="
+              RemoteCtrl.isControlling
+                ? stopRemoteControl()
+                : requestRemoteControl()
+            "
+            title="Remote Control"
+            style="display:none"
+          >
+            <i class="fa-solid fa-computer-mouse"></i>
+          </button>
+          <button
+            class="ctrl-btn"
+            id="dm-add-user-btn"
+            onclick="openAddUserToCall()"
+            title="Add User"
+          >
+            <i class="fa-solid fa-user-plus"></i>
+          </button>
+          <button class="ctrl-btn end" onclick="endCall()">
+            <i class="fa-solid fa-phone-slash"></i>
+          </button>
+          <button
+            class="ctrl-btn"
+            id="dm-speaker-btn"
+            onclick="toggleSpeaker()"
+            title="Speaker"
+          >
+            <i class="fa-solid fa-volume-high"></i>
+          </button>
+          <button
+            class="ctrl-btn"
+            id="dm-noise-btn"
+            onclick="toggleNoiseCancellation()"
+            title="Noise Cancel ON"
+          >
+            <i class="fa-solid fa-wave-square"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- GROUP CALL: ONGOING -->
+    <div class="call-overlay" id="gc-ongoing-call">
+      <button
+        class="call-minimize-btn"
+        onclick="minimizeGroupCall()"
+        title="Minimize"
+      >
+        <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
+      </button>
+      <div class="gc-call-screen">
+        <div class="gc-header">
+          <div class="call-name" id="gc-call-name">Group Call</div>
+          <div class="call-timer" id="gc-timer">00:00</div>
+          <div class="gc-participant-count" id="gc-participant-count">
+            1 participant
           </div>
         </div>
-        <div id="mi-read-by" style="display:none;max-height:200px;overflow-y:auto;"></div>
-        <div id="mi-delivered-to" style="display:none;max-height:200px;overflow-y:auto;"></div>
-      </div>
-      <div class="modal-foot"><button class="mbtn mbtn-cancel" onclick="closeM('mi-modal')">Close</button></div>
-    </div>
-  </div>
-
-  <!-- GROUP INFO MODAL -->
-  <div class="modal-bg" id="gi-modal">
-    <div class="modal" style="max-width:420px;">
-      <div class="modal-title"><i class="fa-solid fa-users"></i>Group Info</div>
-      <div style="text-align:center;padding:16px 0;">
-        <img id="gi-av" src=""
-          style="width:80px;height:80px;border-radius:50%;border:3px solid var(--blue);object-fit:cover;" alt="">
-        <div id="gi-name" style="font-size:20px;font-weight:700;margin-top:10px;"></div>
-        <div id="gi-desc" style="font-size:13px;color:var(--sub);margin-top:4px;"></div>
-        <div id="gi-count" style="font-size:12px;color:var(--sub);margin-top:4px;"></div>
-        <div style="font-size:11px;color:var(--sub);margin-top:2px;">Created <span id="gi-created"></span></div>
-      </div>
-      <div
-        style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--divider);margin-bottom:8px;">
-        <span style="font-weight:600;font-size:14px;color:var(--text);">Members</span>
-        <button class="gi-action-btn" id="gi-add-btn" onclick="addGroupMember(S.activeGroup && S.activeGroup.id)"
-          title="Add member" style="display:none;">
-          <i class="fa-solid fa-user-plus"></i>
-        </button>
-      </div>
-      <div id="gi-members" style="max-height:350px;overflow-y:auto;"></div>
-      <div style="padding:12px 0;border-top:1px solid var(--divider);margin-top:8px;">
-        <button class="gi-leave-btn" id="gi-leave-btn" onclick="leaveGroup(S.activeGroup && S.activeGroup.id)">
-          <i class="fa-solid fa-right-from-bracket"></i> Exit Group
-        </button>
-      </div>
-      <div class="modal-foot"><button class="mbtn mbtn-cancel" onclick="closeM('gi-modal')">Close</button></div>
-    </div>
-  </div>
-
-  <!-- ADD GROUP MEMBER MODAL -->
-  <div class="modal-bg" id="gam-modal">
-    <div class="modal" style="max-width:380px;">
-      <div class="modal-title"><i class="fa-solid fa-user-plus"></i>Add Member</div>
-      <div class="user-list" id="gam-list">
-        <div style="padding:16px;text-align:center;color:var(--sub);"><i class="fa-solid fa-spinner fa-spin"></i>
-          Loading...</div>
-      </div>
-      <div class="modal-foot"><button class="mbtn mbtn-cancel" onclick="closeM('gam-modal')">Cancel</button></div>
-    </div>
-  </div>
-
-  <!-- FORWARD MESSAGE MODAL -->
-  <div class="modal-bg" id="fwd-modal">
-    <div class="modal fwd-modal-box">
-      <div class="fwd-header">
-        <button class="fwd-close-btn" onclick="closeM('fwd-modal')"><i class="fa-solid fa-xmark"></i></button>
-        <span class="fwd-title">Forward message to</span>
-      </div>
-      <div class="fwd-search-wrap">
-        <i class="fa-solid fa-search fwd-search-icon"></i>
-        <input type="text" class="fwd-search-input" id="fwd-search" placeholder="Search name or group..."
-          oninput="searchForwardList(this.value)">
-      </div>
-      <div class="fwd-selected-bar" id="fwd-selected-bar" style="display:none;">
-        <div class="fwd-selected-chips" id="fwd-selected-chips"></div>
-      </div>
-      <div id="fwd-list" class="fwd-list"></div>
-      <div class="fwd-footer" id="fwd-footer" style="display:none;">
-        <div id="fwd-msg-preview" class="fwd-preview-text"></div>
-        <button class="fwd-send-btn" id="fwd-send-btn" onclick="sendForwardToSelected()">
-          <i class="fa-solid fa-paper-plane"></i>
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- PROFILE MODAL -->
-  <div class="modal-bg" id="pf-modal">
-    <div class="modal" style="max-width:400px;">
-      <div class="modal-title"><i class="fa-solid fa-circle-user"></i>My Profile</div>
-      <div style="text-align:center;margin-bottom:16px;position:relative;">
-        <div class="pf-av-wrap" style="position:relative;display:inline-block;">
-          <img id="pf-av"
-            style="width:100px;height:100px;border-radius:50%;border:3px solid var(--blue);object-fit:cover;display:none;"
-            src="" alt="">
-          <div id="pf-av-init"
-            style="width:100px;height:100px;border-radius:50%;border:3px solid var(--blue);background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:36px;">
-            U
+        <div class="gc-waiting" id="gc-waiting">
+          <div class="gc-waiting-icon"><i class="fa-solid fa-users"></i></div>
+          <div class="gc-waiting-text">Waiting for others to join...</div>
+        </div>
+        <div class="gc-video-grid" id="gc-video-grid">
+          <!-- Local tile -->
+          <div class="gc-peer-tile gc-local-tile" id="gc-local-tile">
+            <video id="gc-local-video" autoplay playsinline muted></video>
+            <img
+              class="gc-peer-av"
+              id="gc-local-av"
+              src=""
+              alt=""
+              style="display: none"
+            />
+            <div class="gc-peer-name">You</div>
           </div>
-          <label class="pf-av-edit" for="pf-pic-input" title="Change photo">
-            <i class="fa-solid fa-camera"></i>
-          </label>
-          <button id="remove-photo-btn" onclick="removeProfilePicture()"
-            style="display:none;position:absolute;top:0;right:0;width:28px;height:28px;border-radius:50%;background:#f15c6d;border:none;color:#fff;cursor:pointer;font-size:12px;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.3);"
-            title="Remove photo">
+        </div>
+        <div class="call-controls">
+          <button class="ctrl-btn" id="gc-mic-btn" onclick="gcToggleMic()">
+            <i class="fa-solid fa-microphone"></i>
+          </button>
+          <button class="ctrl-btn" id="gc-cam-btn" onclick="gcToggleCam()">
+            <i class="fa-solid fa-video"></i>
+          </button>
+          <button
+            class="ctrl-btn"
+            id="gc-cam-fx-btn"
+            onclick="toggleCamFxPicker('gc')"
+            title="Camera Effects"
+          >
+            <i class="fa-solid fa-wand-magic-sparkles"></i>
+          </button>
+          <button
+            class="ctrl-btn"
+            id="gc-rec-btn"
+            onclick="toggleCallRecord()"
+            title="Record Call"
+          >
+            <i class="fa-solid fa-circle" style="font-size: 13px"></i>
+          </button>
+          <button
+            class="ctrl-btn"
+            id="gc-screen-btn"
+            onclick="gcToggleScreenShare()"
+            title="Share Screen"
+          >
+            <i class="fa-solid fa-display"></i>
+          </button>
+          <button
+            class="ctrl-btn"
+            id="gc-add-user-btn"
+            onclick="openAddUserToCall()"
+            title="Add User"
+          >
+            <i class="fa-solid fa-user-plus"></i>
+          </button>
+          <button class="ctrl-btn end" onclick="leaveGroupCall()">
+            <i class="fa-solid fa-phone-slash"></i>
+          </button>
+          <button
+            class="ctrl-btn"
+            id="gc-speaker-btn"
+            onclick="gcToggleSpeaker()"
+            title="Speaker"
+          >
+            <i class="fa-solid fa-volume-high"></i>
+          </button>
+          <button
+            class="ctrl-btn"
+            id="gc-noise-btn"
+            onclick="toggleNoiseCancellation()"
+            title="Noise Cancel ON"
+          >
+            <i class="fa-solid fa-wave-square"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADD USER TO CALL MODAL -->
+    <div
+      class="add-user-call-overlay"
+      id="add-user-call-overlay"
+      style="display: none"
+    >
+      <div class="add-user-call-modal">
+        <div class="add-user-call-header">
+          <h3><i class="fa-solid fa-user-plus"></i> Add to Call</h3>
+          <button class="add-user-call-close" onclick="closeAddUserToCall()">
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
-        <input type="file" id="pf-pic-input" hidden accept="image/*" onchange="uploadProfilePicture(this)">
-        <div id="pf-un" style="margin-top:8px;font-size:14px;color:var(--sub);"></div>
-      </div>
-      <div style="padding:0 4px;">
-        <div class="pf-field">
-          <label class="pf-label">First Name</label>
-          <input type="text" class="pf-input" id="pf-fname" placeholder="Enter first name">
+        <div class="add-user-call-search">
+          <i class="fa-solid fa-search"></i>
+          <input
+            type="text"
+            id="add-user-call-input"
+            placeholder="Search users..."
+            oninput="filterAddUserList()"
+          />
         </div>
-        <div class="pf-field">
-          <label class="pf-label">Last Name</label>
-          <input type="text" class="pf-input" id="pf-lname" placeholder="Enter last name">
-        </div>
-        <div class="pf-field">
-          <label class="pf-label">Email</label>
-          <input type="email" class="pf-input" id="pf-email" placeholder="Enter email">
-        </div>
-        <div class="pf-field">
-          <label class="pf-label">Member Since</label>
-          <div class="pf-static" id="pf-since">-</div>
-        </div>
-      </div>
-      <div class="modal-foot">
-        <button class="mbtn mbtn-cancel" onclick="closeM('pf-modal')">Cancel</button>
-        <button class="mbtn mbtn-ok" onclick="saveProfile()">Save Changes</button>
+        <div class="add-user-call-list" id="add-user-call-list"></div>
       </div>
     </div>
-  </div>
 
-  <!-- INCOMING CALL MODAL -->
-  <div class="call-overlay" id="incoming-call">
-    <div class="call-card incoming">
-      <div class="call-ripple"></div>
-      <img class="call-avatar" id="incoming-av" src="" alt="">
-      <div class="call-name" id="incoming-name">Caller</div>
-      <div class="call-type" id="incoming-type"><i class="fa-solid fa-phone"></i> Voice Call</div>
-      <div class="call-buttons">
-        <button class="call-btn reject" id="btn-reject-call">
+    <!-- FLOATING PIP CALL WIDGET (WhatsApp style) -->
+    <div class="call-pip" id="call-pip" onclick="expandCall()">
+      <div class="call-pip-video-wrap" id="pip-video-wrap">
+        <video id="pip-remote-video" autoplay playsinline></video>
+      </div>
+      <div class="call-pip-voice" id="pip-voice-wrap">
+        <img class="call-pip-avatar" id="pip-avatar" src="" alt="" />
+        <div class="call-pip-pulse"></div>
+      </div>
+      <div class="call-pip-info">
+        <div class="call-pip-name" id="pip-name">User</div>
+        <div class="call-pip-timer" id="pip-timer">00:00</div>
+      </div>
+      <div class="call-pip-actions">
+        <button
+          class="call-pip-btn pip-end"
+          onclick="
+            event.stopPropagation();
+            pipEndCall();
+          "
+          title="End Call"
+        >
           <i class="fa-solid fa-phone-slash"></i>
         </button>
-        <button class="call-btn accept" id="btn-accept-call">
-          <i class="fa-solid fa-phone"></i>
+        <button
+          class="call-pip-btn pip-mic"
+          id="pip-mic-btn"
+          onclick="
+            event.stopPropagation();
+            toggleMic();
+            updatePipMic();
+          "
+          title="Mute"
+        >
+          <i class="fa-solid fa-microphone"></i>
+        </button>
+        <button
+          class="call-pip-btn pip-cam"
+          id="pip-cam-btn"
+          onclick="
+            event.stopPropagation();
+            pipToggleCam();
+          "
+          title="Camera"
+        >
+          <i class="fa-solid fa-video"></i>
         </button>
       </div>
     </div>
-  </div>
 
-  <!-- OUTGOING CALL MODAL -->
-  <div class="call-overlay" id="outgoing-call">
-    <button class="call-minimize-btn" onclick="minimizeCall()" title="Minimize">
-      <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
-    </button>
-    <div class="call-card outgoing">
-      <div class="call-ripple"></div>
-      <img class="call-avatar" id="outgoing-av" src="" alt="">
-      <div class="call-name" id="outgoing-name">Calling...</div>
-      <div class="call-status" id="outgoing-type">Ringing...</div>
-      <div class="call-buttons">
-        <button class="call-btn reject" onclick="cancelCall()">
-          <i class="fa-solid fa-phone-slash"></i>
-        </button>
-      </div>
-    </div>
-    <!-- Local video preview for video calls -->
-    <div class="outgoing-local-video-wrap" id="outgoing-local-wrap">
-      <video id="outgoing-local-video" autoplay playsinline muted></video>
-    </div>
-  </div>
-
-  <!-- ONGOING CALL SCREEN -->
-  <div class="call-overlay" id="ongoing-call">
-    <button class="call-minimize-btn" onclick="minimizeCall()" title="Minimize">
-      <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
-    </button>
-    <div class="call-screen">
-      <audio id="remote-audio" autoplay playsinline></audio>
-      <video id="remote-video" autoplay playsinline></video>
-      <video id="remote-screen-video" autoplay playsinline style="display:none;"></video>
-      <video id="local-video" autoplay playsinline muted></video>
-      <div class="call-info">
-        <img class="call-avatar-sm" id="ongoing-av" src="" alt="">
-        <div class="call-name" id="ongoing-name">User</div>
-        <div class="call-timer" id="call-timer">00:00</div>
-      </div>
-      
-<div class="call-controls">
-  <button class="ctrl-btn" id="dm-mic-btn" onclick="toggleMic()"><i class="fa-solid fa-microphone"></i></button>
-  <button class="ctrl-btn" id="dm-cam-btn" onclick="toggleCam()"><i class="fa-solid fa-video"></i></button>
-  <button class="ctrl-btn" id="dm-cam-fx-btn" onclick="toggleCamFxPicker('dm')" title="Camera Effects"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
-  <button class="ctrl-btn" id="call-rec-btn" onclick="toggleCallRecord()" title="Record Call"><i class="fa-solid fa-circle" style="font-size:13px;"></i></button>
-  <button class="ctrl-btn" id="dm-screen-btn" onclick="toggleScreenShare()" title="Share Screen"><i class="fa-solid fa-display"></i></button>
-  <button class="ctrl-btn" id="dm-add-user-btn" onclick="openAddUserToCall()" title="Add User"><i class="fa-solid fa-user-plus"></i></button>
-  <button class="ctrl-btn end" onclick="endCall()"><i class="fa-solid fa-phone-slash"></i></button>
-  <button class="ctrl-btn" id="dm-speaker-btn" onclick="toggleSpeaker()" title="Speaker"><i class="fa-solid fa-volume-high"></i></button>
-  <button class="ctrl-btn" id="dm-noise-btn" onclick="toggleNoiseCancellation()" title="Noise Cancel ON"><i class="fa-solid fa-wave-square"></i></button>
-</div>
-    </div>
-  </div>
-
-  <!-- GROUP CALL: ONGOING -->
-  <div class="call-overlay" id="gc-ongoing-call">
-    <button class="call-minimize-btn" onclick="minimizeGroupCall()" title="Minimize">
-      <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
-    </button>
-    <div class="gc-call-screen">
-      <div class="gc-header">
-        <div class="call-name" id="gc-call-name">Group Call</div>
-        <div class="call-timer" id="gc-timer">00:00</div>
-        <div class="gc-participant-count" id="gc-participant-count">1 participant</div>
-      </div>
-      <div class="gc-waiting" id="gc-waiting">
-        <div class="gc-waiting-icon"><i class="fa-solid fa-users"></i></div>
-        <div class="gc-waiting-text">Waiting for others to join...</div>
-      </div>
-      <div class="gc-video-grid" id="gc-video-grid">
-        <!-- Local tile -->
-        <div class="gc-peer-tile gc-local-tile" id="gc-local-tile">
-          <video id="gc-local-video" autoplay playsinline muted></video>
-          <img class="gc-peer-av" id="gc-local-av" src="" alt="" style="display:none;">
-          <div class="gc-peer-name">You</div>
+    <!-- CAMERA EFFECTS PICKER -->
+    <div class="cam-fx-overlay" id="cam-fx-overlay">
+      <div class="cam-fx-panel">
+        <div class="cam-fx-header">
+          <h3>
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Camera Effects
+          </h3>
+          <button class="cam-fx-close" onclick="closeCamFxPicker()">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
         </div>
-      </div>
-      <div class="call-controls">
-        <button class="ctrl-btn" id="gc-mic-btn" onclick="gcToggleMic()"><i class="fa-solid fa-microphone"></i></button>
-        <button class="ctrl-btn" id="gc-cam-btn" onclick="gcToggleCam()"><i class="fa-solid fa-video"></i></button>
-        <button class="ctrl-btn" id="gc-cam-fx-btn" onclick="toggleCamFxPicker('gc')" title="Camera Effects"><i
-            class="fa-solid fa-wand-magic-sparkles"></i></button>
-        <button class="ctrl-btn" id="gc-rec-btn" onclick="toggleCallRecord()" title="Record Call"><i
-            class="fa-solid fa-circle" style="font-size:13px;"></i></button>
-        <button class="ctrl-btn" id="gc-screen-btn" onclick="gcToggleScreenShare()" title="Share Screen"><i
-            class="fa-solid fa-display"></i></button>
-        <button class="ctrl-btn" id="gc-add-user-btn" onclick="openAddUserToCall()" title="Add User"><i
-            class="fa-solid fa-user-plus"></i></button>
-        <button class="ctrl-btn end" onclick="leaveGroupCall()"><i class="fa-solid fa-phone-slash"></i></button>
-        <button class="ctrl-btn" id="gc-speaker-btn" onclick="gcToggleSpeaker()" title="Speaker"><i class="fa-solid fa-volume-high"></i></button>
-        <button class="ctrl-btn" id="gc-noise-btn" onclick="toggleNoiseCancellation()" title="Noise Cancel ON"><i class="fa-solid fa-wave-square"></i></button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ADD USER TO CALL MODAL -->
-  <div class="add-user-call-overlay" id="add-user-call-overlay" style="display:none;">
-    <div class="add-user-call-modal">
-      <div class="add-user-call-header">
-        <h3><i class="fa-solid fa-user-plus"></i> Add to Call</h3>
-        <button class="add-user-call-close" onclick="closeAddUserToCall()">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
-      <div class="add-user-call-search">
-        <i class="fa-solid fa-search"></i>
-        <input type="text" id="add-user-call-input" placeholder="Search users..." oninput="filterAddUserList()">
-      </div>
-      <div class="add-user-call-list" id="add-user-call-list"></div>
-    </div>
-  </div>
-
-  <!-- FLOATING PIP CALL WIDGET (WhatsApp style) -->
-  <div class="call-pip" id="call-pip" onclick="expandCall()">
-    <div class="call-pip-video-wrap" id="pip-video-wrap">
-      <video id="pip-remote-video" autoplay playsinline></video>
-    </div>
-    <div class="call-pip-voice" id="pip-voice-wrap">
-      <img class="call-pip-avatar" id="pip-avatar" src="" alt="">
-      <div class="call-pip-pulse"></div>
-    </div>
-    <div class="call-pip-info">
-      <div class="call-pip-name" id="pip-name">User</div>
-      <div class="call-pip-timer" id="pip-timer">00:00</div>
-    </div>
-    <div class="call-pip-actions">
-      <button class="call-pip-btn pip-end" onclick="event.stopPropagation(); pipEndCall();" title="End Call">
-        <i class="fa-solid fa-phone-slash"></i>
-      </button>
-      <button class="call-pip-btn pip-mic" id="pip-mic-btn"
-        onclick="event.stopPropagation(); toggleMic(); updatePipMic();" title="Mute">
-        <i class="fa-solid fa-microphone"></i>
-      </button>
-      <button class="call-pip-btn pip-cam" id="pip-cam-btn" onclick="event.stopPropagation(); pipToggleCam();"
-        title="Camera">
-        <i class="fa-solid fa-video"></i>
-      </button>
-    </div>
-  </div>
-
-  <!-- CAMERA EFFECTS PICKER -->
-  <div class="cam-fx-overlay" id="cam-fx-overlay">
-    <div class="cam-fx-panel">
-      <div class="cam-fx-header">
-        <h3><i class="fa-solid fa-wand-magic-sparkles"></i> Camera Effects</h3>
-        <button class="cam-fx-close" onclick="closeCamFxPicker()"><i class="fa-solid fa-xmark"></i></button>
-      </div>
-      <div class="cam-fx-preview">
-        <video id="cam-fx-preview-video" autoplay playsinline muted></video>
-        <canvas id="cam-fx-preview-canvas"></canvas>
-      </div>
-      <div class="cam-fx-section">
-        <div class="cam-fx-label">Background</div>
-        <div class="cam-fx-options">
-          <div class="cam-fx-option active" data-fx="none" onclick="selectCamFx('none')">
-            <i class="fa-solid fa-ban"></i>
-            <span>None</span>
-          </div>
-          <div class="cam-fx-option" data-fx="blur-light" onclick="selectCamFx('blur-light')">
-            <i class="fa-solid fa-droplet"></i>
-            <span>Light Blur</span>
-          </div>
-          <div class="cam-fx-option" data-fx="blur-heavy" onclick="selectCamFx('blur-heavy')">
-            <i class="fa-solid fa-water"></i>
-            <span>Heavy Blur</span>
+        <div class="cam-fx-preview">
+          <video id="cam-fx-preview-video" autoplay playsinline muted></video>
+          <canvas id="cam-fx-preview-canvas"></canvas>
+        </div>
+        <div class="cam-fx-section">
+          <div class="cam-fx-label">Background</div>
+          <div class="cam-fx-options">
+            <div
+              class="cam-fx-option active"
+              data-fx="none"
+              onclick="selectCamFx('none')"
+            >
+              <i class="fa-solid fa-ban"></i>
+              <span>None</span>
+            </div>
+            <div
+              class="cam-fx-option"
+              data-fx="blur-light"
+              onclick="selectCamFx('blur-light')"
+            >
+              <i class="fa-solid fa-droplet"></i>
+              <span>Light Blur</span>
+            </div>
+            <div
+              class="cam-fx-option"
+              data-fx="blur-heavy"
+              onclick="selectCamFx('blur-heavy')"
+            >
+              <i class="fa-solid fa-water"></i>
+              <span>Heavy Blur</span>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="cam-fx-section">
-        <div class="cam-fx-label">Virtual Background</div>
-        <div class="cam-fx-options cam-fx-bg-options">
-          <div class="cam-fx-bg" data-fx="bg-beach" onclick="selectCamFx('bg-beach')"
-            style="background:linear-gradient(135deg,#87CEEB,#FFD700,#4682B4);" title="Beach"></div>
-          <div class="cam-fx-bg" data-fx="bg-mountain" onclick="selectCamFx('bg-mountain')"
-            style="background:linear-gradient(180deg,#87CEEB 0%,#6B8E23 50%,#228B22 100%);" title="Mountain"></div>
-          <div class="cam-fx-bg" data-fx="bg-city" onclick="selectCamFx('bg-city')"
-            style="background:linear-gradient(180deg,#2c3e50,#3498db,#1a1a2e);" title="City Night"></div>
-          <div class="cam-fx-bg" data-fx="bg-space" onclick="selectCamFx('bg-space')"
-            style="background:radial-gradient(circle,#1a1a3e,#0a0a1a);" title="Space"></div>
-          <div class="cam-fx-bg" data-fx="bg-sunset" onclick="selectCamFx('bg-sunset')"
-            style="background:linear-gradient(180deg,#ff7e5f,#feb47b,#ff6b6b);" title="Sunset"></div>
-          <div class="cam-fx-bg" data-fx="bg-forest" onclick="selectCamFx('bg-forest')"
-            style="background:linear-gradient(180deg,#0f4c2e,#1b6b3a,#2d8f4e);" title="Forest"></div>
-          <div class="cam-fx-bg cam-fx-bg-upload" data-fx="bg-custom"
-            onclick="document.getElementById('cam-fx-bg-input').click()" title="Upload Image">
-            <i class="fa-solid fa-plus"></i>
+        <div class="cam-fx-section">
+          <div class="cam-fx-label">Virtual Background</div>
+          <div class="cam-fx-options cam-fx-bg-options">
+            <div
+              class="cam-fx-bg"
+              data-fx="bg-beach"
+              onclick="selectCamFx('bg-beach')"
+              style="
+                background: linear-gradient(135deg, #87ceeb, #ffd700, #4682b4);
+              "
+              title="Beach"
+            ></div>
+            <div
+              class="cam-fx-bg"
+              data-fx="bg-mountain"
+              onclick="selectCamFx('bg-mountain')"
+              style="
+                background: linear-gradient(
+                  180deg,
+                  #87ceeb 0%,
+                  #6b8e23 50%,
+                  #228b22 100%
+                );
+              "
+              title="Mountain"
+            ></div>
+            <div
+              class="cam-fx-bg"
+              data-fx="bg-city"
+              onclick="selectCamFx('bg-city')"
+              style="
+                background: linear-gradient(180deg, #2c3e50, #3498db, #1a1a2e);
+              "
+              title="City Night"
+            ></div>
+            <div
+              class="cam-fx-bg"
+              data-fx="bg-space"
+              onclick="selectCamFx('bg-space')"
+              style="background: radial-gradient(circle, #1a1a3e, #0a0a1a)"
+              title="Space"
+            ></div>
+            <div
+              class="cam-fx-bg"
+              data-fx="bg-sunset"
+              onclick="selectCamFx('bg-sunset')"
+              style="
+                background: linear-gradient(180deg, #ff7e5f, #feb47b, #ff6b6b);
+              "
+              title="Sunset"
+            ></div>
+            <div
+              class="cam-fx-bg"
+              data-fx="bg-forest"
+              onclick="selectCamFx('bg-forest')"
+              style="
+                background: linear-gradient(180deg, #0f4c2e, #1b6b3a, #2d8f4e);
+              "
+              title="Forest"
+            ></div>
+            <div
+              class="cam-fx-bg cam-fx-bg-upload"
+              data-fx="bg-custom"
+              onclick="document.getElementById('cam-fx-bg-input').click()"
+              title="Upload Image"
+            >
+              <i class="fa-solid fa-plus"></i>
+            </div>
           </div>
+          <input
+            type="file"
+            id="cam-fx-bg-input"
+            accept="image/*"
+            style="display: none"
+            onchange="handleCamFxBgUpload(event)"
+          />
         </div>
-        <input type="file" id="cam-fx-bg-input" accept="image/*" style="display:none"
-          onchange="handleCamFxBgUpload(event)">
-      </div>
-      <div class="cam-fx-actions">
-        <button class="cam-fx-apply-btn" onclick="applyCamFx()">Apply</button>
+        <div class="cam-fx-actions">
+          <button class="cam-fx-apply-btn" onclick="applyCamFx()">Apply</button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Ringtones -->
-  <audio id="ringtone" loop preload="auto">
-    <source src="{% static 'ringtone.wav' %}" type="audio/wav">
-    <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg">
-  </audio>
-  <audio id="ringback">
-    <source src="https://assets.mixkit.co/active_storage/sfx/1361/1361-preview.mp3" type="audio/mpeg">
-  </audio>
-  <audio id="callend">
-    <source src="https://assets.mixkit.co/active_storage/sfx/2570/2570-preview.mp3" type="audio/mpeg">
-  </audio>
+    <!-- Ringtones -->
+    <audio id="ringtone" loop preload="auto">
+      <source src="{% static 'ringtone.wav' %}" type="audio/wav" />
+      <source
+        src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"
+        type="audio/mpeg"
+      />
+    </audio>
+    <audio id="ringback">
+      <source
+        src="https://assets.mixkit.co/active_storage/sfx/1361/1361-preview.mp3"
+        type="audio/mpeg"
+      />
+    </audio>
+    <audio id="callend">
+      <source
+        src="https://assets.mixkit.co/active_storage/sfx/2570/2570-preview.mp3"
+        type="audio/mpeg"
+      />
+    </audio>
 
-  <!-- PASTE IMAGE PREVIEW MODAL -->
-  <div class="modal-bg" id="paste-modal">
-    <div class="modal" style="max-width:500px;">
-      <div class="modal-title"><i class="fa-solid fa-image"></i>Send Image</div>
-      <div style="text-align:center;padding:16px 0;">
-        <img id="paste-preview"
-          style="max-width:100%;max-height:300px;border-radius:10px;border:1px solid var(--divider);" src="" alt="">
-      </div>
-      <div style="padding:0 4px;">
-        <input type="text" class="pf-input" id="paste-caption" placeholder="Add a caption (optional)..."
-          style="margin-bottom:12px;" onkeydown="if(event.key==='Enter'){sendPastedImage();event.preventDefault();}">
-      </div>
-      <div class="modal-foot">
-        <button class="mbtn mbtn-cancel" onclick="closePastePreview()">Cancel</button>
-        <button class="mbtn mbtn-ok" onclick="sendPastedImage()"><i class="fa-solid fa-paper-plane"></i> Send</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- FILE UPLOAD PREVIEW MODAL -->
-  <div class="modal-bg" id="file-preview-modal">
-    <div class="modal" style="max-width:500px;">
-      <div class="modal-title"><i class="fa-solid fa-paperclip"></i> Send Files</div>
-      <div id="file-preview-list" style="max-height:300px;overflow-y:auto;padding:8px 0;"></div>
-      <div style="padding:0 4px;">
-        <input type="text" class="pf-input" id="file-preview-caption" placeholder="Add a caption (optional)..."
-          style="margin-bottom:12px;" onkeydown="if(event.key==='Enter'){sendPreviewFiles();event.preventDefault();}">
-      </div>
-      <div class="modal-foot">
-        <button class="mbtn mbtn-cancel" onclick="closeFilePreview()">Cancel</button>
-        <button class="mbtn mbtn-ok" onclick="sendPreviewFiles()"><i class="fa-solid fa-paper-plane"></i> Send</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- EDIT MESSAGE MODAL -->
-  <div class="modal-bg" id="edit-msg-modal">
-    <div class="modal" style="max-width:450px;">
-      <div class="modal-title"><i class="fa-solid fa-pen"></i> Edit Message</div>
-      <div style="padding:12px 0;">
-        <textarea id="edit-msg-input" class="pf-input" rows="3" placeholder="Edit your message..."
-          style="resize:vertical;min-height:60px;max-height:200px;"></textarea>
-      </div>
-      <div class="modal-foot">
-        <button class="mbtn mbtn-cancel" onclick="closeM('edit-msg-modal')">Cancel</button>
-        <button class="mbtn mbtn-ok" onclick="saveEditedMsg()"><i class="fa-solid fa-check"></i> Save</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- MEDIA PREVIEW MODAL -->
-  <div class="media-preview-overlay" id="media-preview" onclick="closeMediaPreview(event)">
-    <div class="media-preview-header">
-      <div class="media-preview-title" id="media-preview-title">Preview</div>
-      <div class="media-preview-actions">
-        <button class="media-action-btn" onclick="downloadMedia()" title="Download">
-          <i class="fa-solid fa-download"></i>
-        </button>
-        <button class="media-action-btn" onclick="openMediaInNewTab()" title="Open in new tab">
-          <i class="fa-solid fa-external-link-alt"></i>
-        </button>
-        <button class="media-action-btn close-btn" onclick="closeMediaPreview()" title="Close">
-          <i class="fa-solid fa-times"></i>
-        </button>
+    <!-- PASTE IMAGE PREVIEW MODAL -->
+    <div class="modal-bg" id="paste-modal">
+      <div class="modal" style="max-width: 500px">
+        <div class="modal-title">
+          <i class="fa-solid fa-image"></i>Send Image
+        </div>
+        <div style="text-align: center; padding: 16px 0">
+          <img
+            id="paste-preview"
+            style="
+              max-width: 100%;
+              max-height: 300px;
+              border-radius: 10px;
+              border: 1px solid var(--divider);
+            "
+            src=""
+            alt=""
+          />
+        </div>
+        <div style="padding: 0 4px">
+          <input
+            type="text"
+            class="pf-input"
+            id="paste-caption"
+            placeholder="Add a caption (optional)..."
+            style="margin-bottom: 12px"
+            onkeydown="
+              if (event.key === 'Enter') {
+                sendPastedImage();
+                event.preventDefault();
+              }
+            "
+          />
+        </div>
+        <div class="modal-foot">
+          <button class="mbtn mbtn-cancel" onclick="closePastePreview()">
+            Cancel
+          </button>
+          <button class="mbtn mbtn-ok" onclick="sendPastedImage()">
+            <i class="fa-solid fa-paper-plane"></i> Send
+          </button>
+        </div>
       </div>
     </div>
-    <div class="media-preview-content" id="media-preview-content"></div>
-  </div>
 
-  <!-- TOASTS -->
-  <div id="toasts"></div>
+    <!-- FILE UPLOAD PREVIEW MODAL -->
+    <div class="modal-bg" id="file-preview-modal">
+      <div class="modal" style="max-width: 500px">
+        <div class="modal-title">
+          <i class="fa-solid fa-paperclip"></i> Send Files
+        </div>
+        <div
+          id="file-preview-list"
+          style="max-height: 300px; overflow-y: auto; padding: 8px 0"
+        ></div>
+        <div style="padding: 0 4px">
+          <input
+            type="text"
+            class="pf-input"
+            id="file-preview-caption"
+            placeholder="Add a caption (optional)..."
+            style="margin-bottom: 12px"
+            onkeydown="
+              if (event.key === 'Enter') {
+                sendPreviewFiles();
+                event.preventDefault();
+              }
+            "
+          />
+        </div>
+        <div class="modal-foot">
+          <button class="mbtn mbtn-cancel" onclick="closeFilePreview()">
+            Cancel
+          </button>
+          <button class="mbtn mbtn-ok" onclick="sendPreviewFiles()">
+            <i class="fa-solid fa-paper-plane"></i> Send
+          </button>
+        </div>
+      </div>
+    </div>
 
-  <script src="{% static 'js/chat.js' %}?v=20260515"></script>
+    <!-- EDIT MESSAGE MODAL -->
+    <div class="modal-bg" id="edit-msg-modal">
+      <div class="modal" style="max-width: 450px">
+        <div class="modal-title">
+          <i class="fa-solid fa-pen"></i> Edit Message
+        </div>
+        <div style="padding: 12px 0">
+          <textarea
+            id="edit-msg-input"
+            class="pf-input"
+            rows="3"
+            placeholder="Edit your message..."
+            style="resize: vertical; min-height: 60px; max-height: 200px"
+          ></textarea>
+        </div>
+        <div class="modal-foot">
+          <button class="mbtn mbtn-cancel" onclick="closeM('edit-msg-modal')">
+            Cancel
+          </button>
+          <button class="mbtn mbtn-ok" onclick="saveEditedMsg()">
+            <i class="fa-solid fa-check"></i> Save
+          </button>
+        </div>
+      </div>
+    </div>
 
-  <!-- Service Worker Registration -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function () {
-        navigator.serviceWorker.register('/sw.js')
-          .then(function (registration) {
-            console.log('ServiceWorker registered:', registration.scope);
-          })
-          .catch(function (err) {
-            console.log('ServiceWorker registration failed:', err);
-          });
-      });
-    }
-  </script>
-</body>
+    <!-- MEDIA PREVIEW MODAL -->
+    <div
+      class="media-preview-overlay"
+      id="media-preview"
+      onclick="closeMediaPreview(event)"
+    >
+      <div class="media-preview-header">
+        <div class="media-preview-title" id="media-preview-title">Preview</div>
+        <div class="media-preview-actions">
+          <button
+            class="media-action-btn"
+            onclick="downloadMedia()"
+            title="Download"
+          >
+            <i class="fa-solid fa-download"></i>
+          </button>
+          <button
+            class="media-action-btn"
+            onclick="openMediaInNewTab()"
+            title="Open in new tab"
+          >
+            <i class="fa-solid fa-external-link-alt"></i>
+          </button>
+          <button
+            class="media-action-btn close-btn"
+            onclick="closeMediaPreview()"
+            title="Close"
+          >
+            <i class="fa-solid fa-times"></i>
+          </button>
+        </div>
+      </div>
+      <div class="media-preview-content" id="media-preview-content"></div>
+    </div>
 
+    <!-- TOASTS -->
+    <div id="toasts"></div>
+
+    <script src="{% static 'js/chat.js' %}?v=20260515"></script>
+
+    <!-- Service Worker Registration -->
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker
+            .register("/sw.js")
+            .then(function (registration) {
+              console.log("ServiceWorker registered:", registration.scope);
+            })
+            .catch(function (err) {
+              console.log("ServiceWorker registration failed:", err);
+            });
+        });
+      }
+    </script>
+  </body>
 </html>
