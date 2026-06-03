@@ -21,7 +21,10 @@ contextBridge.exposeInMainWorld('DesktopBridge', {
   flashWindow: () => ipcRenderer.send('flash-window'),
   setBadgeCount: (count) => ipcRenderer.send('set-badge-count', count),
 
-  // Callbacks from main process
+  // Remote Control
+sendRCEvent: (data) => ipcRenderer.send('rc-event', data),
+
+// Callbacks from main process
   onCallAction: (callback) => {
     ipcRenderer.on('call-action', (event, action) => callback(action));
   },
@@ -35,3 +38,5 @@ contextBridge.exposeInMainWorld('ElectronBridge', {
   isElectron: true,
   platform: process.platform
 });
+
+ipcRenderer.on('rc-event',(_,d)=>ipcRenderer.send('rc-event',d));

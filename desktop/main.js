@@ -102,7 +102,7 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-    if (!app.isPackaged) mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools();
   });
 
   // ─── Inject DesktopBridge helpers after every page load ───
@@ -334,6 +334,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
+
+const robot=require('@jitsi/robotjs');
+const keyMap={'Enter':'enter','Backspace':'backspace','Delete':'delete','ArrowLeft':'left','ArrowRight':'right','ArrowUp':'up','ArrowDown':'down','Tab':'tab','Escape':'escape',' ':'space','Shift':'shift','Control':'control','Alt':'alt'};
+ipcMain.on('rc-event',(event,data)=>{try{const {width,height}=require('electron').screen.getPrimaryDisplay().workAreaSize;const x=Math.round(data.x*width);const y=Math.round(data.y*height);if(data.event==='mousemove'){robot.moveMouse(x,y);}else if(data.event==='click'){robot.moveMouse(x,y);setTimeout(()=>{robot.mouseClick();},50);}else if(data.event==='scroll'){const amt=data.direction==='down'?-5:5;robot.scrollMouse(0,amt);}else if(data.event==='keypress'){const k=data.key;const mapped=keyMap[k]||(k.length===1?k.toLowerCase():null);if(mapped){try{robot.keyTap(mapped);}catch(e){console.log('key err',e);}}}}catch(e){console.error('RC:',e);}});
 app.on('before-quit', () => {
   isQuitting = true;
 });

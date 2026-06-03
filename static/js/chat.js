@@ -11236,7 +11236,7 @@ function handleRemoteControlAccepted(data) {
       if (throttleTimer) return;
       throttleTimer = setTimeout(function () {
         throttleTimer = null;
-      }, 50);
+      }, 16);
       var r = vid.getBoundingClientRect();
       var x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
       var y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
@@ -11268,6 +11268,27 @@ function handleRemoteControlAccepted(data) {
 
     vid.addEventListener("mousemove", vid._rcMove);
     vid.addEventListener("click", vid._rcClick);
+
+    // Keyboard events
+    vid._rcKeydown = function (e) {
+      // Sirf RC active ho tab, aur input/textarea mein na ho
+      var tag = document.activeElement.tagName.toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
+      e.preventDefault();
+      sendRCEvent("keypress", 0, 0, { key: e.key, code: e.code });
+    };
+    document.addEventListener("keydown", vid._rcKeydown);
+
+    // Scroll events
+    vid._rcScroll = function (e) {
+      e.preventDefault();
+      var dir = e.deltaY > 0 ? "down" : "up";
+      sendRCEvent("scroll", 0, 0, {
+        direction: dir,
+        delta: Math.abs(e.deltaY),
+      });
+    };
+    vid.addEventListener("wheel", vid._rcScroll, { passive: false });
 
     // RC indicator
     var overlay = $("ongoing-call") || $("gc-ongoing-call");
@@ -11391,6 +11412,8 @@ function cleanupRC() {
     // Ensure you use the exact function reference that was used to add them
     if (el._rcMove) el.removeEventListener("mousemove", el._rcMove);
     if (el._rcClick) el.removeEventListener("click", el._rcClick);
+    if (el._rcKeydown) document.removeEventListener("keydown", el._rcKeydown);
+    if (el._rcScroll) el.removeEventListener("wheel", el._rcScroll);
 
     el.style.cursor = "";
     RemoteCtrl.videoEl = null; // Important: Clear the reference
@@ -11413,17 +11436,22 @@ function cleanupRC() {
 
   updateRCButton();
 }
-function sendRCEvent(ev, x, y) {
+function sendRCEvent(ev, x, y, extra) {
   var ws = S.globalWs || S.ws;
   if (ws && ws.readyState === 1)
     ws.send(
-      JSON.stringify({
-        type: "remote_control_event",
-        target_user_id: RemoteCtrl.targetUserId,
-        event: ev,
-        x: x,
-        y: y,
-      }),
+      JSON.stringify(
+        Object.assign(
+          {
+            type: "remote_control_event",
+            target_user_id: RemoteCtrl.targetUserId,
+            event: ev,
+            x: x,
+            y: y,
+          },
+          extra || {},
+        ),
+      ),
     );
 }
 
