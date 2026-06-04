@@ -11363,30 +11363,16 @@ function handleRemoteControlEvent(data) {
     cur.style.display = "block";
   }
 
-  // ACTUAL PC CONTROL
-  fetch("/api/remote/action/", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + S.token,
-    },
-    body: JSON.stringify({
+  // ACTUAL PC CONTROL - Desktop app pe robotjs se
+  if (window.DesktopBridge && window.DesktopBridge.sendRCEvent) {
+    DesktopBridge.sendRCEvent({
       event: data.event,
       x: data.x,
       y: data.y,
       key: data.key || "",
       direction: data.direction || "down",
-    }),
-  })
-    .then(function (r) {
-      return r.json();
-    })
-    .then(function (result) {
-      console.log("RC Action result:", result); // DEBUG
-    })
-    .catch(function (e) {
-      console.error("Remote error:", e);
     });
+  }
 }
 
 function stopRemoteControl() {
