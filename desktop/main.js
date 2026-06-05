@@ -1,9 +1,16 @@
 const {
-  app, BrowserWindow, Tray, Menu, nativeImage, Notification,
-  shell, ipcMain, desktopCapturer
-} = require('electron');
-const path = require('path');
-const fs = require('fs');
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  nativeImage,
+  Notification,
+  shell,
+  ipcMain,
+  desktopCapturer,
+} = require("electron");
+const path = require("path");
+const fs = require("fs");
 
 let mainWindow;
 let tray;
@@ -12,39 +19,42 @@ let activeCallNotification = null;
 
 // ─── Config ───────────────────────────────────────────────────
 let config = {
-  serverUrl: 'https://sky-chat.duckdns.org',
-  appName: 'SkyChat',
-  mode: 'remote'
+  serverUrl: "https://sky-chat.duckdns.org",
+  appName: "SkyChat",
+  mode: "remote",
 };
 try {
-  const cfgPath = path.join(__dirname, 'config.json');
+  const cfgPath = path.join(__dirname, "config.json");
   if (fs.existsSync(cfgPath)) {
-    Object.assign(config, JSON.parse(fs.readFileSync(cfgPath, 'utf8')));
+    Object.assign(config, JSON.parse(fs.readFileSync(cfgPath, "utf8")));
   }
 } catch (e) {
-  console.error('Config load error:', e.message);
+  console.error("Config load error:", e.message);
 }
 
 const SERVER_URL = config.serverUrl;
-const CHAT_URL = SERVER_URL + '/chat/';
+const CHAT_URL = SERVER_URL + "/chat/";
 
 // ─── Icon helper ──────────────────────────────────────────────
 function getIcon(size) {
-  const iconPath = path.join(__dirname, 'icon.png');
+  const iconPath = path.join(__dirname, "icon.png");
   try {
     if (fs.existsSync(iconPath)) {
       const img = nativeImage.createFromPath(iconPath);
       return size ? img.resize({ width: size, height: size }) : img;
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    /* ignore */
+  }
   return nativeImage.createEmpty();
 }
 
 // ─── Single instance ──────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) { app.quit(); }
-else {
-  app.on('second-instance', () => {
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
@@ -62,61 +72,74 @@ function createWindow() {
     minHeight: 600,
     icon: getIcon(),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: true,
-      spellcheck: true
+      spellcheck: true,
     },
     frame: true,
-    titleBarStyle: 'default',
-    backgroundColor: '#111b21',
+    titleBarStyle: "default",
+    backgroundColor: "#111b21",
     show: false,
-    title: 'SkyChat'
+    title: "SkyChat",
   });
 
   mainWindow.setMenuBarVisibility(false);
 
   // ─── Screen sharing: auto-pick entire screen ───
-  mainWindow.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
-    desktopCapturer.getSources({ types: ['screen', 'window'] }).then(sources => {
-      callback(sources.length > 0 ? { video: sources[0] } : {});
-    }).catch(() => callback({}));
-  });
+  mainWindow.webContents.session.setDisplayMediaRequestHandler(
+    (request, callback) => {
+      desktopCapturer
+        .getSources({ types: ["screen", "window"] })
+        .then((sources) => {
+          callback(sources.length > 0 ? { video: sources[0] } : {});
+        })
+        .catch(() => callback({}));
+    },
+  );
 
   // ─── Permission grants ───
   mainWindow.webContents.session.setPermissionRequestHandler((wc, perm, cb) => {
-    cb(['media', 'mediaKeySystem', 'notifications', 'fullscreen', 'clipboard-read'].includes(perm));
+    cb(
+      [
+        "media",
+        "mediaKeySystem",
+        "notifications",
+        "fullscreen",
+        "clipboard-read",
+      ].includes(perm),
+    );
   });
 
   // ─── Load chat URL ───
-  mainWindow.loadURL(CHAT_URL).catch(err => {
-    console.error('Load failed:', err.message);
+  mainWindow.loadURL(CHAT_URL).catch((err) => {
+    console.error("Load failed:", err.message);
     showOfflinePage();
   });
 
-  mainWindow.webContents.on('did-fail-load', (ev, code, desc) => {
-    console.error('did-fail-load:', code, desc);
+  mainWindow.webContents.on("did-fail-load", (ev, code, desc) => {
+    console.error("did-fail-load:", code, desc);
     showOfflinePage();
   });
 
-  mainWindow.once('ready-to-show', () => {
+  mainWindow.once("ready-to-show", () => {
     mainWindow.show();
     mainWindow.webContents.openDevTools();
   });
 
   // ─── Inject DesktopBridge helpers after every page load ───
-  mainWindow.webContents.on('did-finish-load', () => {
+  mainWindow.webContents.on("did-finish-load", () => {
     injectDesktopHelpers();
   });
 
   // ─── Keyboard shortcuts ───
-  mainWindow.webContents.on('before-input-event', (ev, input) => {
-    if (input.key === 'F5' || (input.control && input.key === 'r')) {
+  mainWindow.webContents.on("before-input-event", (ev, input) => {
+    if (input.key === "F5" || (input.control && input.key === "r")) {
       mainWindow.webContents.reload();
       ev.preventDefault();
     }
-    if (input.control && input.shift && input.key === 'I') {
+    if (input.control && input.shift && input.key === "I") {
       mainWindow.webContents.toggleDevTools();
       ev.preventDefault();
     }
@@ -125,11 +148,11 @@ function createWindow() {
   // ─── External links in default browser ───
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
-    return { action: 'deny' };
+    return { action: "deny" };
   });
 
   // ─── Minimize to tray ───
-  mainWindow.on('close', (ev) => {
+  mainWindow.on("close", (ev) => {
     if (!isQuitting) {
       ev.preventDefault();
       mainWindow.hide();
@@ -160,7 +183,9 @@ function showOfflinePage() {
 // ─── Inject JS into WebView ───────────────────────────────────
 function injectDesktopHelpers() {
   if (!mainWindow || !mainWindow.webContents) return;
-  mainWindow.webContents.executeJavaScript(`
+  mainWindow.webContents
+    .executeJavaScript(
+      `
     (function() {
       if (window._desktopInjected) return;
       window._desktopInjected = true;
@@ -178,7 +203,9 @@ function injectDesktopHelpers() {
         });
       }
     })();
-  `).catch(() => {});
+  `,
+    )
+    .catch(() => {});
 }
 
 // ─── System tray ──────────────────────────────────────────────
@@ -187,18 +214,33 @@ function createTray() {
   tray = new Tray(icon);
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Open SkyChat', click: () => { mainWindow.show(); mainWindow.focus(); } },
-    { type: 'separator' },
-    { label: 'Quit', click: () => { isQuitting = true; app.quit(); } }
+    {
+      label: "Open SkyChat",
+      click: () => {
+        mainWindow.show();
+        mainWindow.focus();
+      },
+    },
+    { type: "separator" },
+    {
+      label: "Quit",
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
   ]);
 
-  tray.setToolTip('SkyChat');
+  tray.setToolTip("SkyChat");
   tray.setContextMenu(contextMenu);
-  tray.on('click', () => {
+  tray.on("click", () => {
     if (mainWindow.isVisible()) mainWindow.focus();
     else mainWindow.show();
   });
-  tray.on('double-click', () => { mainWindow.show(); mainWindow.focus(); });
+  tray.on("double-click", () => {
+    mainWindow.show();
+    mainWindow.focus();
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -206,39 +248,44 @@ function createTray() {
 // ═══════════════════════════════════════════════════════════════
 
 // ─── Call notification with Answer/Decline actions ────────────
-ipcMain.on('show-call-notification', (event, data) => {
+ipcMain.on("show-call-notification", (event, data) => {
   if (activeCallNotification) {
-    try { activeCallNotification.close(); } catch (e) { /* ignore */ }
+    try {
+      activeCallNotification.close();
+    } catch (e) {
+      /* ignore */
+    }
   }
 
-  const callLabel = (data.callType === 'video' ? 'Incoming Video Call' : 'Incoming Voice Call');
+  const callLabel =
+    data.callType === "video" ? "Incoming Video Call" : "Incoming Voice Call";
 
   const notif = new Notification({
-    title: data.callerName || 'Incoming Call',
+    title: data.callerName || "Incoming Call",
     body: callLabel,
     icon: getIcon(),
-    urgency: 'critical',
+    urgency: "critical",
     silent: false,
-    timeoutType: 'never',
+    timeoutType: "never",
     actions: [
-      { type: 'button', text: 'Answer' },
-      { type: 'button', text: 'Decline' }
-    ]
+      { type: "button", text: "Answer" },
+      { type: "button", text: "Decline" },
+    ],
   });
 
-  notif.on('action', (ev, index) => {
+  notif.on("action", (ev, index) => {
     if (index === 0) {
       // Answer
       mainWindow.show();
       mainWindow.focus();
-      mainWindow.webContents.send('call-action', 'answer');
+      mainWindow.webContents.send("call-action", "answer");
     } else {
       // Decline
-      mainWindow.webContents.send('call-action', 'decline');
+      mainWindow.webContents.send("call-action", "decline");
     }
   });
 
-  notif.on('click', () => {
+  notif.on("click", () => {
     mainWindow.show();
     mainWindow.focus();
   });
@@ -252,27 +299,31 @@ ipcMain.on('show-call-notification', (event, data) => {
   }
 });
 
-ipcMain.on('cancel-call-notification', () => {
+ipcMain.on("cancel-call-notification", () => {
   if (activeCallNotification) {
-    try { activeCallNotification.close(); } catch (e) { /* ignore */ }
+    try {
+      activeCallNotification.close();
+    } catch (e) {
+      /* ignore */
+    }
     activeCallNotification = null;
   }
   if (mainWindow) mainWindow.flashFrame(false);
 });
 
 // ─── Message notification ─────────────────────────────────────
-ipcMain.on('show-message-notification', (event, data) => {
+ipcMain.on("show-message-notification", (event, data) => {
   // Don't show if window is focused
   if (mainWindow && mainWindow.isFocused()) return;
 
   const notif = new Notification({
-    title: data.senderName || 'New Message',
-    body: data.message || '',
+    title: data.senderName || "New Message",
+    body: data.message || "",
     icon: getIcon(),
-    silent: true // web app plays its own sound
+    silent: true, // web app plays its own sound
   });
 
-  notif.on('click', () => {
+  notif.on("click", () => {
     mainWindow.show();
     mainWindow.focus();
   });
@@ -285,30 +336,35 @@ ipcMain.on('show-message-notification', (event, data) => {
   }
 });
 
-ipcMain.on('cancel-all-notifications', () => {
+ipcMain.on("cancel-all-notifications", () => {
   if (activeCallNotification) {
-    try { activeCallNotification.close(); } catch (e) { /* ignore */ }
+    try {
+      activeCallNotification.close();
+    } catch (e) {
+      /* ignore */
+    }
     activeCallNotification = null;
   }
   if (mainWindow) mainWindow.flashFrame(false);
 });
 
-ipcMain.on('is-background', (event) => {
+ipcMain.on("is-background", (event) => {
   event.returnValue = mainWindow ? !mainWindow.isFocused() : true;
 });
 
-ipcMain.on('flash-window', () => {
+ipcMain.on("flash-window", () => {
   if (mainWindow && !mainWindow.isFocused()) mainWindow.flashFrame(true);
 });
 
-ipcMain.on('set-badge-count', (event, count) => {
+ipcMain.on("set-badge-count", (event, count) => {
   if (app.setBadgeCount) app.setBadgeCount(count);
-  if (tray) tray.setToolTip(count > 0 ? `SkyChat (${count} unread)` : 'SkyChat');
+  if (tray)
+    tray.setToolTip(count > 0 ? `SkyChat (${count} unread)` : "SkyChat");
 });
 
 // ─── Focus: stop flash ────────────────────────────────────────
 function setupFocusHandlers() {
-  mainWindow.on('focus', () => {
+  mainWindow.on("focus", () => {
     mainWindow.flashFrame(false);
   });
 }
@@ -318,32 +374,84 @@ function setupFocusHandlers() {
 // ═══════════════════════════════════════════════════════════════
 app.whenReady().then(() => {
   // Set app user model ID for Windows notifications
-  app.setAppUserModelId('com.skychat.desktop');
+  app.setAppUserModelId("com.skychat.desktop");
 
   createWindow();
   createTray();
   setupFocusHandlers();
 
-  app.on('activate', () => {
+  app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    else { mainWindow.show(); mainWindow.focus(); }
+    else {
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
 });
 
+const robot = require("@jitsi/robotjs");
+const keyMap = {
+  Enter: "enter",
+  Backspace: "backspace",
+  Delete: "delete",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
+  Tab: "tab",
+  Escape: "escape",
+  " ": "space",
+  Shift: "shift",
+  Control: "control",
+  Alt: "alt",
+};
+ipcMain.on("rc-event", (event, rawData) => {
+  try {
+    const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+    console.log("RC RECEIVED:", data.event, data.x, data.y); // ← ADD KARO
+    console.log("RC coords:", x, y, "screen:", width, height);
+    robot.moveMouse(x, y);
+    console.log("RC moveMouse called");
 
-const robot=require('@jitsi/robotjs');
-const keyMap={'Enter':'enter','Backspace':'backspace','Delete':'delete','ArrowLeft':'left','ArrowRight':'right','ArrowUp':'up','ArrowDown':'down','Tab':'tab','Escape':'escape',' ':'space','Shift':'shift','Control':'control','Alt':'alt'};
-ipcMain.on('rc-event',(event,data)=>{try{const {width,height}=require('electron').screen.getPrimaryDisplay().workAreaSize;const x=Math.round(data.x*width);const y=Math.round(data.y*height);if(data.event==='mousemove'){robot.moveMouse(x,y);}else if(data.event==='click'){robot.moveMouse(x,y);setTimeout(()=>{robot.mouseClick();},50);}else if(data.event==='scroll'){const amt=data.direction==='down'?-5:5;robot.scrollMouse(0,amt);}else if(data.event==='keypress'){const k=data.key;const mapped=keyMap[k]||(k.length===1?k.toLowerCase():null);if(mapped){try{robot.keyTap(mapped);}catch(e){console.log('key err',e);}}}}catch(e){console.error('RC:',e);}});
-app.on('before-quit', () => {
+    const { width, height } =
+      require("electron").screen.getPrimaryDisplay().workAreaSize;
+    const x = Math.round(data.x * width);
+    const y = Math.round(data.y * height);
+    if (data.event === "mousemove") {
+      robot.moveMouse(x, y);
+    } else if (data.event === "click") {
+      robot.moveMouse(x, y);
+      setTimeout(() => {
+        robot.mouseClick();
+      }, 50);
+    } else if (data.event === "scroll") {
+      const amt = data.direction === "down" ? -5 : 5;
+      robot.scrollMouse(0, amt);
+    } else if (data.event === "keypress") {
+      const k = data.key;
+      const mapped = keyMap[k] || (k.length === 1 ? k.toLowerCase() : null);
+      if (mapped) {
+        try {
+          robot.keyTap(mapped);
+        } catch (e) {
+          console.log("key err", e);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("RC:", e);
+  }
+});
+app.on("before-quit", () => {
   isQuitting = true;
 });
 
 // Accept self-signed certs in dev
-app.on('certificate-error', (event, wc, url, error, cert, callback) => {
+app.on("certificate-error", (event, wc, url, error, cert, callback) => {
   event.preventDefault();
   callback(true);
 });

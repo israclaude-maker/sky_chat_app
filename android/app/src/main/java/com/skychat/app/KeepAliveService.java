@@ -97,7 +97,14 @@ public class KeepAliveService extends Service {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build();
 
-        startForeground(1, notification);
+        if (Build.VERSION.SDK_INT >= 34) { // Android 14+
+    startForeground(1, notification,
+        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC |
+        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE |
+        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+} else {
+    startForeground(1, notification);
+}
 
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "skychat:keepalive");

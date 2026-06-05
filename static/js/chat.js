@@ -794,6 +794,7 @@ function connectGlobalWS() {
 
   ws.onopen = function () {
     console.log("Global WS Connected for calls");
+    keepAudioContextAlive();
   };
 
   ws.onmessage = function (e) {
@@ -6288,6 +6289,7 @@ function startScreenShare() {
     .getDisplayMedia({
       video: true,
       audio: false,
+      selfBrowserSurface: "exclude",
       monitorTypeSurfaces: "include",
     })
     .then(function (screenStream) {
@@ -9101,6 +9103,7 @@ function gcStartScreenShare() {
     .getDisplayMedia({
       video: true,
       audio: false,
+      selfBrowserSurface: "exclude",
       monitorTypeSurfaces: "include",
     })
     .then(function (screenStream) {
@@ -10855,7 +10858,9 @@ function toggleNoiseCancellation() {
 
       updateNoiseCancelBtns();
       toast(
-        NoiseCancelState.enabled ? "Noise cancel ON" : "Noise cancel OFF",
+        NoiseCancelState.enabled
+          ? "Noise cancellation ON"
+          : "Noise cancellation OFF",
         "s",
       );
     })
@@ -10898,7 +10903,9 @@ function restartAudioWithNoiseCancel() {
       });
       updateNoiseCancelBtns();
       toast(
-        NoiseCancelState.enabled ? "🎙️ Noise cancel ON" : "🔇 Noise cancel OFF",
+        NoiseCancelState.enabled
+          ? "Noise cancellation ON"
+          : "Noise cancellation OFF",
         "s",
       );
     })
@@ -11038,7 +11045,7 @@ function _showRemoteControlPicker() {
     '<div id="rc-picker" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#1f2937;color:#fff;padding:20px 24px;border-radius:16px;z-index:10010;min-width:240px;box-shadow:0 20px 60px rgba(0,0,0,0.6);">';
   html +=
     '<div style="font-size:15px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;">';
-  html += "<span>🖱️ Choose participant</span>";
+  html += "<span> Choose participant</span>";
   html +=
     '<button onclick="document.getElementById(\'rc-picker\').remove()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:18px;"><i class="fa-solid fa-xmark"></i></button>';
   html += "</div>";
@@ -11365,13 +11372,16 @@ function handleRemoteControlEvent(data) {
 
   // ACTUAL PC CONTROL - Desktop app pe robotjs se
   if (window.DesktopBridge && window.DesktopBridge.sendRCEvent) {
-    DesktopBridge.sendRCEvent({
-      event: data.event,
-      x: data.x,
-      y: data.y,
-      key: data.key || "",
-      direction: data.direction || "down",
-    });
+    DesktopBridge.sendRCEvent(
+      JSON.stringify({
+        event: data.event,
+        x: data.x,
+        y: data.y,
+        key: data.key || "",
+        direction: data.direction || "down",
+        delta: data.delta || 0,
+      }),
+    );
   }
 }
 
@@ -11383,12 +11393,12 @@ function stopRemoteControl() {
       JSON.stringify({ type: "remote_control_stop", target_user_id: tid }),
     );
   cleanupRC();
-  toast("Remote control band ho gai", "i");
+  toast("Remote control has been closed", "i");
 }
 
 function handleRemoteControlStopped() {
   cleanupRC();
-  toast("Remote control session khatam", "i");
+  toast("Remote control session Ended", "i");
 }
 
 function cleanupRC() {
@@ -11465,5 +11475,58 @@ function hideRCButton() {
     stopRemoteControl();
   }
 }
+function keepAudioContextAlive() {
+  try {
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    gain.gain.value = 0.001; // almost silent
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    console.log("Audio context alive");
+  } catch (e) {
+    console.log("Audio keepalive skip:", e);
+  }
+}
+
+(function diagnosisTracker() {
+  var badge = document.createElement("div");
+  badge.id = "diag-badge";
+  badge.style.cssText =
+    "position:fixed;bottom:10px;left:10px;z-index:99999;" +
+    "background:#000;color:#0f0;font-size:11px;" +
+    "padding:6px 10px;border-radius:8px;font-family:monospace;" +
+    "pointer-events:none;max-width:200px;";
+  document.body.appendChild(badge);
+
+  setInterval(function () {
+    var micOk = "?",
+      spkOk = "?";
+    if (window.CallState && CallState.localStream) {
+      var at = CallState.localStream.getAudioTracks();
+      micOk = at.length > 0 && at[0].enabled ? "OK" : "DEAD";
+    }
+    var ra = document.getElementById("remote-audio");
+    spkOk = ra && ra.srcObject ? "OK" : "DEAD";
+    var wsOk =
+      window.S && S.globalWs && S.globalWs.readyState === 1 ? "OK" : "DEAD";
+
+    badge.innerHTML =
+      "SCR:" +
+      (document.hidden ? "OFF" : "ON") +
+      "<br>" +
+      "MIC:" +
+      micOk +
+      "<br>" +
+      "SPK:" +
+      spkOk +
+      "<br>" +
+      "WS:" +
+      wsOk +
+      "<br>" +
+      new Date().toLocaleTimeString();
+  }, 1000);
+})();
 
 init();

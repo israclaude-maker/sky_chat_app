@@ -766,23 +766,32 @@ public class MainActivity extends Activity {
         return super.onKeyDown(keyCode, event);
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        isAppInForeground = true;
+    
+
+
+@Override
+protected void onPause() {
+    isAppInForeground = false;
+    // WebView ko background mein alive rakho
+    if (webView != null) {
+        webView.onPause();        // rendering rokta hai (battery save)
+        webView.pauseTimers();    // JS timers temporarily pause
+    }
+    super.onPause();
+}
+
+@Override
+protected void onResume() {
+    super.onResume();
+    isAppInForeground = true;
+    if (webView != null) {
         webView.onResume();
-        // Cancel message notifications when user opens the app (like WhatsApp)
-        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        nm.cancel(0); // group summary
+        webView.resumeTimers();
     }
-
-    @Override
-    protected void onPause() {
-        isAppInForeground = false;
-        // Do NOT pause webView — keep WebSocket alive in background
-        super.onPause();
-    }
-
+    // ✅ YAHAN YEH LIKHO
+    NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+    nm.cancel(0);
+}
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
