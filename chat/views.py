@@ -1,3 +1,4 @@
+import threading
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 
@@ -97,9 +98,12 @@ def active_group_calls(request):
     return JsonResponse(result, safe=False)
 
 
-import pyautogui
-
-pyautogui.FAILSAFE = False
+try:
+    import pyautogui
+    pyautogui.FAILSAFE = False
+    pyautogui.PAUSE = 0
+except Exception:
+    pyautogui = None
 
 
 @api_view(["POST"])
@@ -115,14 +119,32 @@ def remote_control_action(request):
         actual_y = int(y * screen_h)
 
         if event == "mousemove":
-            pyautogui.moveTo(actual_x, actual_y, duration=0.02)
+            t = threading.Thread(target=pyautogui.moveTo, args=(actual_x, actual_y), kwargs={"duration": 0})
+            t.daemon = True
+            t.start()
         elif event == "click":
-            pyautogui.click(actual_x, actual_y)
+            t = threading.Thread(target=pyautogui.click, args=(actual_x, actual_y))
+            t.daemon = True
+            t.start()
         elif event == "scroll":
             direction = request.data.get("direction", "down")
-            pyautogui.scroll(-3 if direction == "down" else 3)
+            delta = -3 if direction == "down" else 3
+            t = threading.Thread(target=pyautogui.scroll, args=(delta,))
+            t.daemon = True
+            t.start()
         elif event == "keypress":
-            pyautogui.press(request.data.get("key", ""))
+            key = request.data.get("key", "")
+            def do_key(k):
+                try:
+                    if len(k) == 1:
+                        pyautogui.typewrite(k, interval=0.02)
+                    else:
+                        pyautogui.press(k)
+                except:
+                    pass
+            t = threading.Thread(target=do_key, args=(key,))
+            t.daemon = True
+            t.start()
 
         return JsonResponse({"success": True})
     except Exception as e:
