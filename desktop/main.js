@@ -8,11 +8,9 @@ const {
   shell,
   ipcMain,
   desktopCapturer,
-  screen,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const robot = require("@jitsi/robotjs");
 
 let mainWindow;
 let tray;
@@ -36,39 +34,6 @@ try {
 
 const SERVER_URL = config.serverUrl;
 const CHAT_URL = SERVER_URL + "/chat/";
-
-// ─── robotjs key map ──────────────────────────────────────────
-const keyMap = {
-  Enter: "enter",
-  Backspace: "backspace",
-  Delete: "delete",
-  ArrowLeft: "left",
-  ArrowRight: "right",
-  ArrowUp: "up",
-  ArrowDown: "down",
-  Tab: "tab",
-  Escape: "escape",
-  " ": "space",
-  Shift: "shift",
-  Control: "control",
-  Alt: "alt",
-  F1: "f1",
-  F2: "f2",
-  F3: "f3",
-  F4: "f4",
-  F5: "f5",
-  F6: "f6",
-  F7: "f7",
-  F8: "f8",
-  F9: "f9",
-  F10: "f10",
-  F11: "f11",
-  F12: "f12",
-  Home: "home",
-  End: "end",
-  PageUp: "pageup",
-  PageDown: "pagedown",
-};
 
 // ─── Icon helper ──────────────────────────────────────────────
 function getIcon(size) {
@@ -98,7 +63,7 @@ if (!gotLock) {
   });
 }
 
-// ─── Create main window ───────────────────────────────────────
+// ─── Create main window ──────────────────────────────────────
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -160,13 +125,15 @@ function createWindow() {
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
-    // mainWindow.webContents.openDevTools(); // production mein comment out rakho
+    mainWindow.webContents.openDevTools();
   });
 
+  // ─── Inject DesktopBridge helpers after every page load ───
   mainWindow.webContents.on("did-finish-load", () => {
     injectDesktopHelpers();
   });
 
+  // ─── Keyboard shortcuts ───
   mainWindow.webContents.on("before-input-event", (ev, input) => {
     if (input.key === "F5" || (input.control && input.key === "r")) {
       mainWindow.webContents.reload();
@@ -178,11 +145,13 @@ function createWindow() {
     }
   });
 
+  // ─── External links in default browser ───
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
   });
 
+  // ─── Minimize to tray ───
   mainWindow.on("close", (ev) => {
     if (!isQuitting) {
       ev.preventDefault();
@@ -221,11 +190,16 @@ function injectDesktopHelpers() {
       if (window._desktopInjected) return;
       window._desktopInjected = true;
       window._isDesktop = true;
+
+      // Listen for call actions from main process (Answer/Decline from notification)
       if (window.DesktopBridge) {
         window.DesktopBridge.onCallAction(function(action) {
           console.log('[Desktop] Call action:', action);
-          if (action === 'answer' && typeof acceptCall === 'function') acceptCall();
-          else if (action === 'decline' && typeof rejectCall === 'function') rejectCall();
+          if (action === 'answer' && typeof acceptCall === 'function') {
+            acceptCall();
+          } else if (action === 'decline' && typeof rejectCall === 'function') {
+            rejectCall();
+          }
         });
       }
     })();
@@ -238,6 +212,7 @@ function injectDesktopHelpers() {
 function createTray() {
   const icon = getIcon(16);
   tray = new Tray(icon);
+
   const contextMenu = Menu.buildFromTemplate([
     {
       label: "Open SkyChat",
@@ -255,6 +230,7 @@ function createTray() {
       },
     },
   ]);
+
   tray.setToolTip("SkyChat");
   tray.setContextMenu(contextMenu);
   tray.on("click", () => {
@@ -268,49 +244,10 @@ function createTray() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// IPC HANDLERS
+// IPC HANDLERS (from preload / renderer)
 // ═══════════════════════════════════════════════════════════════
 
-// ─── Remote Control ───────────────────────────────────────────
-ipcMain.on("rc-event", (event, rawData) => {
-  try {
-    const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
-
-    const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-    const x = Math.round(data.x * width);
-    const y = Math.round(data.y * height);
-
-    console.log(
-      `RC [${data.event}] x=${x} y=${y} key=${data.key || ""} dir=${data.direction || ""}`,
-    );
-
-    if (data.event === "mousemove") {
-      robot.moveMouse(x, y);
-    } else if (data.event === "click") {
-      robot.moveMouse(x, y);
-      setTimeout(() => robot.mouseClick(), 50);
-    } else if (data.event === "scroll") {
-      // robotjs scrollMouse: positive = up, negative = down
-      const delta = Math.max(1, Math.round((data.delta || 120) / 40));
-      const scrollAmt = data.direction === "down" ? -delta : delta;
-      robot.scrollMouse(0, scrollAmt);
-    } else if (data.event === "keypress") {
-      const k = data.key;
-      // Special keys pehle check karo
-      const mapped = keyMap[k] || (k.length === 1 ? k.toLowerCase() : null);
-      if (mapped) {
-        robot.keyTap(mapped);
-        console.log(`RC keyTap: "${mapped}"`);
-      } else {
-        console.log(`RC key not mapped: "${k}"`);
-      }
-    }
-  } catch (e) {
-    console.error("RC error:", e.message);
-  }
-});
-
-// ─── Call notification ────────────────────────────────────────
+// ─── Call notification with Answer/Decline actions ────────────
 ipcMain.on("show-call-notification", (event, data) => {
   if (activeCallNotification) {
     try {
@@ -319,8 +256,10 @@ ipcMain.on("show-call-notification", (event, data) => {
       /* ignore */
     }
   }
+
   const callLabel =
     data.callType === "video" ? "Incoming Video Call" : "Incoming Voice Call";
+
   const notif = new Notification({
     title: data.callerName || "Incoming Call",
     body: callLabel,
@@ -333,22 +272,31 @@ ipcMain.on("show-call-notification", (event, data) => {
       { type: "button", text: "Decline" },
     ],
   });
+
   notif.on("action", (ev, index) => {
     if (index === 0) {
+      // Answer
       mainWindow.show();
       mainWindow.focus();
       mainWindow.webContents.send("call-action", "answer");
     } else {
+      // Decline
       mainWindow.webContents.send("call-action", "decline");
     }
   });
+
   notif.on("click", () => {
     mainWindow.show();
     mainWindow.focus();
   });
+
   notif.show();
   activeCallNotification = notif;
-  if (mainWindow && !mainWindow.isFocused()) mainWindow.flashFrame(true);
+
+  // Flash taskbar
+  if (mainWindow && !mainWindow.isFocused()) {
+    mainWindow.flashFrame(true);
+  }
 });
 
 ipcMain.on("cancel-call-notification", () => {
@@ -365,19 +313,27 @@ ipcMain.on("cancel-call-notification", () => {
 
 // ─── Message notification ─────────────────────────────────────
 ipcMain.on("show-message-notification", (event, data) => {
+  // Don't show if window is focused
   if (mainWindow && mainWindow.isFocused()) return;
+
   const notif = new Notification({
     title: data.senderName || "New Message",
     body: data.message || "",
     icon: getIcon(),
-    silent: true,
+    silent: true, // web app plays its own sound
   });
+
   notif.on("click", () => {
     mainWindow.show();
     mainWindow.focus();
   });
+
   notif.show();
-  if (mainWindow && !mainWindow.isFocused()) mainWindow.flashFrame(true);
+
+  // Flash taskbar
+  if (mainWindow && !mainWindow.isFocused()) {
+    mainWindow.flashFrame(true);
+  }
 });
 
 ipcMain.on("cancel-all-notifications", () => {
@@ -408,17 +364,22 @@ ipcMain.on("set-badge-count", (event, count) => {
 
 // ─── Focus: stop flash ────────────────────────────────────────
 function setupFocusHandlers() {
-  mainWindow.on("focus", () => mainWindow.flashFrame(false));
+  mainWindow.on("focus", () => {
+    mainWindow.flashFrame(false);
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════
 // APP LIFECYCLE
 // ═══════════════════════════════════════════════════════════════
 app.whenReady().then(() => {
+  // Set app user model ID for Windows notifications
   app.setAppUserModelId("com.skychat.desktop");
+
   createWindow();
   createTray();
   setupFocusHandlers();
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
     else {
@@ -432,6 +393,59 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
+const robot = require("@jitsi/robotjs");
+const keyMap = {
+  Enter: "enter",
+  Backspace: "backspace",
+  Delete: "delete",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
+  Tab: "tab",
+  Escape: "escape",
+  " ": "space",
+  Shift: "shift",
+  Control: "control",
+  Alt: "alt",
+};
+ipcMain.on("rc-event", (event, rawData) => {
+  try {
+    const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+    console.log("RC RECEIVED:", data.event, data.x, data.y); // ← ADD KARO
+    console.log("RC coords:", x, y, "screen:", width, height);
+    robot.moveMouse(x, y);
+    console.log("RC moveMouse called");
+
+    const { width, height } =
+      require("electron").screen.getPrimaryDisplay().workAreaSize;
+    const x = Math.round(data.x * width);
+    const y = Math.round(data.y * height);
+    if (data.event === "mousemove") {
+      robot.moveMouse(x, y);
+    } else if (data.event === "click") {
+      robot.moveMouse(x, y);
+      setTimeout(() => {
+        robot.mouseClick();
+      }, 50);
+    } else if (data.event === "scroll") {
+      const amt = data.direction === "down" ? -5 : 5;
+      robot.scrollMouse(0, amt);
+    } else if (data.event === "keypress") {
+      const k = data.key;
+      const mapped = keyMap[k] || (k.length === 1 ? k.toLowerCase() : null);
+      if (mapped) {
+        try {
+          robot.keyTap(mapped);
+        } catch (e) {
+          console.log("key err", e);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("RC:", e);
+  }
+});
 app.on("before-quit", () => {
   isQuitting = true;
 });

@@ -794,6 +794,7 @@ function connectGlobalWS() {
 
   ws.onopen = function () {
     console.log("Global WS Connected for calls");
+    keepAudioContextAlive();
   };
 
   ws.onmessage = function (e) {
@@ -5488,13 +5489,10 @@ function doInitWebRTC(isInitiator, callback) {
         if (remoteScreenVideo) {
           remoteScreenVideo.srcObject = e.streams[0];
         }
+        // Agar toggle pehle aa chuka tha to ab apply karo
         if (CallState._pendingScreenToggle) {
-          CallState._pendingScreenToggle = false;
-          console.log("[ontrack] Pending toggle applying now");
-          handleScreenToggle({
-            sharing: true,
-            surface_type: CallState.remoteSurfaceType || "monitor",
-          });
+          console.log("[ontrack] Pending toggle mil gaya, apply kar raha hun");
+          handleScreenToggle({ sharing: true });
         }
         e.track.onended = function () {
           if (remoteScreenVideo) {
@@ -6021,34 +6019,11 @@ function handleScreenToggle(data) {
   var ongoingAv = $("ongoing-av");
 
   if (data.sharing) {
-    // Surface type store karo (monitor = full screen, browser/window = tab)
-    CallState.remoteSurfaceType = data.surface_type || "monitor";
     // Agar stream abhi ready nahi - wait karo
-    // NAYA CODE (sahi):
     if (!CallState.remoteScreenStream) {
       CallState._pendingScreenToggle = true;
-      CallState.remoteSurfaceType = data.surface_type || "monitor";
-      if (CallState.remoteSurfaceType === "monitor") {
-        showRCButton();
-      }
-      console.log("[ScreenToggle] Stream not yet ready, pending flag set");
-
-      // Poll karo 5 seconds tak - stream late aati hai
-      var attempts = 0;
-      var poll = setInterval(function () {
-        attempts++;
-        if (CallState.remoteScreenStream) {
-          clearInterval(poll);
-          CallState._pendingScreenToggle = false;
-          handleScreenToggle({
-            sharing: true,
-            surface_type: CallState.remoteSurfaceType,
-          });
-        } else if (attempts > 25) {
-          clearInterval(poll);
-          console.warn("[ScreenToggle] Timed out waiting for screen stream");
-        }
-      }, 200);
+      showRCButton(); // ← YEH ADD KARO
+      console.log("[ScreenToggle] please wait for stream...");
       return;
     }
     CallState._pendingScreenToggle = false;
@@ -6110,12 +6085,7 @@ function handleScreenToggle(data) {
       if (callOverlay) callOverlay.appendChild(lbl);
     }
     lbl.style.display = "flex";
-    // RC button sirf tab dikhao jab poori screen (monitor) share ho
-    if (CallState.remoteSurfaceType === "monitor") {
-      showRCButton();
-    } else {
-      hideRCButton();
-    }
+    showRCButton();
   } else {
     // ── Remote stopped sharing ──────────────────────────────
     // Hide screen share video
@@ -6319,6 +6289,7 @@ function startScreenShare() {
     .getDisplayMedia({
       video: true,
       audio: false,
+      selfBrowserSurface: "exclude",
       monitorTypeSurfaces: "include",
     })
     .then(function (screenStream) {
@@ -6343,19 +6314,11 @@ function startScreenShare() {
                 sdp: CallState.pc.localDescription,
               }),
             );
-            // Detect surface type: "monitor" = full screen, "browser"/"window" = tab/window
-            var surfaceType = "unknown";
-            try {
-              var trackSettings = screenTrack.getSettings();
-              surfaceType = trackSettings.displaySurface || "unknown";
-            } catch (e) {}
-            CallState.screenSurfaceType = surfaceType;
             ws.send(
               JSON.stringify({
                 type: "screen_toggle",
                 target_user_id: CallState.remoteUserId,
                 sharing: true,
-                surface_type: surfaceType,
               }),
             );
           }
@@ -6449,7 +6412,6 @@ function stopScreenShare() {
               type: "screen_toggle",
               target_user_id: CallState.remoteUserId,
               sharing: false,
-              surface_type: CallState.screenSurfaceType || "unknown",
             }),
           );
         }
@@ -9141,6 +9103,7 @@ function gcStartScreenShare() {
     .getDisplayMedia({
       video: true,
       audio: false,
+      selfBrowserSurface: "exclude",
       monitorTypeSurfaces: "include",
     })
     .then(function (screenStream) {
@@ -10895,7 +10858,9 @@ function toggleNoiseCancellation() {
 
       updateNoiseCancelBtns();
       toast(
-        NoiseCancelState.enabled ? "Noise cancel ON" : "Noise cancel OFF",
+        NoiseCancelState.enabled
+          ? "Noise cancellation ON"
+          : "Noise cancellation OFF",
         "s",
       );
     })
@@ -10938,7 +10903,9 @@ function restartAudioWithNoiseCancel() {
       });
       updateNoiseCancelBtns();
       toast(
-        NoiseCancelState.enabled ? "🎙️ Noise cancel ON" : "🔇 Noise cancel OFF",
+        NoiseCancelState.enabled
+          ? "Noise cancellation ON"
+          : "Noise cancellation OFF",
         "s",
       );
     })
@@ -11078,7 +11045,7 @@ function _showRemoteControlPicker() {
     '<div id="rc-picker" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#1f2937;color:#fff;padding:20px 24px;border-radius:16px;z-index:10010;min-width:240px;box-shadow:0 20px 60px rgba(0,0,0,0.6);">';
   html +=
     '<div style="font-size:15px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;">';
-  html += "<span>🖱️ Choose participant</span>";
+  html += "<span> Choose participant</span>";
   html +=
     '<button onclick="document.getElementById(\'rc-picker\').remove()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:18px;"><i class="fa-solid fa-xmark"></i></button>';
   html += "</div>";
@@ -11257,7 +11224,7 @@ function handleRemoteControlAccepted(data) {
         setTimeout(tryAttachControl, 500); // 500ms baad phir try
         return;
       } else {
-        toast("Screen share pehle ON karo!", "e");
+        toast("First share your screen!", "e");
         RemoteCtrl.isControlling = false;
         updateRCButton();
         return;
@@ -11405,14 +11372,12 @@ function handleRemoteControlEvent(data) {
 
   // ACTUAL PC CONTROL - Desktop app pe robotjs se
   if (window.DesktopBridge && window.DesktopBridge.sendRCEvent) {
-    // JSON.stringify zaroori hai - Electron IPC string chahta hai
     DesktopBridge.sendRCEvent(
       JSON.stringify({
         event: data.event,
         x: data.x,
         y: data.y,
         key: data.key || "",
-        code: data.code || "",
         direction: data.direction || "down",
         delta: data.delta || 0,
       }),
@@ -11428,12 +11393,12 @@ function stopRemoteControl() {
       JSON.stringify({ type: "remote_control_stop", target_user_id: tid }),
     );
   cleanupRC();
-  toast("Remote control band ho gai", "i");
+  toast("Remote control has been closed", "i");
 }
 
 function handleRemoteControlStopped() {
   cleanupRC();
-  toast("Remote control session khatam", "i");
+  toast("Remote control session Ended", "i");
 }
 
 function cleanupRC() {
@@ -11498,8 +11463,6 @@ function updateRCButton() {
 }
 
 function showRCButton() {
-  // RC button sirf 1:1 call mein dikhao, group call mein nahi
-  if (GC.active) return;
   var btn = document.getElementById("rc-btn");
   if (btn) btn.style.display = "";
 }
@@ -11512,5 +11475,58 @@ function hideRCButton() {
     stopRemoteControl();
   }
 }
+function keepAudioContextAlive() {
+  try {
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    gain.gain.value = 0.001; // almost silent
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    console.log("Audio context alive");
+  } catch (e) {
+    console.log("Audio keepalive skip:", e);
+  }
+}
+
+(function diagnosisTracker() {
+  var badge = document.createElement("div");
+  badge.id = "diag-badge";
+  badge.style.cssText =
+    "position:fixed;bottom:10px;left:10px;z-index:99999;" +
+    "background:#000;color:#0f0;font-size:11px;" +
+    "padding:6px 10px;border-radius:8px;font-family:monospace;" +
+    "pointer-events:none;max-width:200px;";
+  document.body.appendChild(badge);
+
+  setInterval(function () {
+    var micOk = "?",
+      spkOk = "?";
+    if (window.CallState && CallState.localStream) {
+      var at = CallState.localStream.getAudioTracks();
+      micOk = at.length > 0 && at[0].enabled ? "OK" : "DEAD";
+    }
+    var ra = document.getElementById("remote-audio");
+    spkOk = ra && ra.srcObject ? "OK" : "DEAD";
+    var wsOk =
+      window.S && S.globalWs && S.globalWs.readyState === 1 ? "OK" : "DEAD";
+
+    badge.innerHTML =
+      "SCR:" +
+      (document.hidden ? "OFF" : "ON") +
+      "<br>" +
+      "MIC:" +
+      micOk +
+      "<br>" +
+      "SPK:" +
+      spkOk +
+      "<br>" +
+      "WS:" +
+      wsOk +
+      "<br>" +
+      new Date().toLocaleTimeString();
+  }, 1000);
+})();
 
 init();
