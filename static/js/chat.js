@@ -6019,7 +6019,7 @@ function handleScreenToggle(data) {
 
   if (data.sharing) {
     // Surface type store karo (monitor = full screen, browser/window = tab)
-    CallState.remoteSurfaceType = data.surface_type || "unknown";
+    CallState.remoteSurfaceType = data.surface_type || "monitor";
     // Agar stream abhi ready nahi - wait karo
     if (!CallState.remoteScreenStream) {
       CallState._pendingScreenToggle = true;
