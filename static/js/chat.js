@@ -5488,10 +5488,13 @@ function doInitWebRTC(isInitiator, callback) {
         if (remoteScreenVideo) {
           remoteScreenVideo.srcObject = e.streams[0];
         }
-        // Agar toggle pehle aa chuka tha to ab apply karo
         if (CallState._pendingScreenToggle) {
-          console.log("[ontrack] Pending toggle mil gaya, apply kar raha hun");
-          handleScreenToggle({ sharing: true });
+          CallState._pendingScreenToggle = false;
+          console.log("[ontrack] Pending toggle applying now");
+          handleScreenToggle({
+            sharing: true,
+            surface_type: CallState.remoteSurfaceType || "monitor",
+          });
         }
         e.track.onended = function () {
           if (remoteScreenVideo) {
@@ -6021,16 +6024,31 @@ function handleScreenToggle(data) {
     // Surface type store karo (monitor = full screen, browser/window = tab)
     CallState.remoteSurfaceType = data.surface_type || "monitor";
     // Agar stream abhi ready nahi - wait karo
+    // NAYA CODE (sahi):
     if (!CallState.remoteScreenStream) {
       CallState._pendingScreenToggle = true;
-      // RC button sirf monitor (full screen) pe show karo
+      CallState.remoteSurfaceType = data.surface_type || "monitor";
       if (CallState.remoteSurfaceType === "monitor") {
         showRCButton();
       }
-      console.log(
-        "[ScreenToggle] please wait for stream, surface:",
-        CallState.remoteSurfaceType,
-      );
+      console.log("[ScreenToggle] Stream not yet ready, pending flag set");
+
+      // Poll karo 5 seconds tak - stream late aati hai
+      var attempts = 0;
+      var poll = setInterval(function () {
+        attempts++;
+        if (CallState.remoteScreenStream) {
+          clearInterval(poll);
+          CallState._pendingScreenToggle = false;
+          handleScreenToggle({
+            sharing: true,
+            surface_type: CallState.remoteSurfaceType,
+          });
+        } else if (attempts > 25) {
+          clearInterval(poll);
+          console.warn("[ScreenToggle] Timed out waiting for screen stream");
+        }
+      }, 200);
       return;
     }
     CallState._pendingScreenToggle = false;
