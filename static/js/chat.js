@@ -6023,6 +6023,14 @@ function handleScreenToggle(data) {
     if (!CallState.remoteScreenStream) {
       CallState._pendingScreenToggle = true;
       showRCButton(); // ← YEH ADD KARO
+
+      var ssv = document.getElementById("remote-screen-video");
+      var rv = document.getElementById("remote-video");
+      if (ssv && ssv.srcObject) {
+        RemoteCtrl._pendingVideoEl = ssv;
+      } else if (rv && rv.srcObject) {
+        RemoteCtrl._pendingVideoEl = rv;
+      }
       console.log("[ScreenToggle] please wait for stream...");
       return;
     }
@@ -6084,8 +6092,17 @@ function handleScreenToggle(data) {
       var callOverlay = $("ongoing-call");
       if (callOverlay) callOverlay.appendChild(lbl);
     }
-    lbl.style.display = "flex";
+lbl.style.display = "flex";
     showRCButton();
+    RemoteCtrl._pendingVideoEl = remoteScreenVideo;
+
+    var ssv2 = document.getElementById("remote-screen-video");
+    var rv2 = document.getElementById("remote-video");
+    if (ssv2 && ssv2.srcObject) {
+      RemoteCtrl._pendingVideoEl = ssv2;
+    } else if (rv2 && rv2.srcObject) {
+      RemoteCtrl._pendingVideoEl = rv2;
+    }
   } else {
     // ── Remote stopped sharing ──────────────────────────────
     // Hide screen share video
@@ -11184,159 +11201,136 @@ function rejectRemoteControl(fromId) {
 }
 
 function handleRemoteControlAccepted(data) {
-  var el = document.getElementById("rc-wait");
-  if (el) el.remove();
-
+  var waitEl = document.getElementById("rc-wait");
+  if (waitEl) waitEl.remove();
   RemoteCtrl.isControlling = true;
-  toast("Remote control ready! Mouse hilao screen pe.", "s");
 
-  // Video element dhundne ki function
-  function findVideoElement() {
+  function findAndAttach(attempt) {
+    if (attempt > 20) {
+      toast("Screen share not found. Ask user to share screen first.", "e");
+      RemoteCtrl.isControlling = false;
+      updateRCButton();
+      return;
+    }
     var vid = null;
-
-    // 1. Screen share video check
-    var ssVid = $("remote-screen-video");
-    if (ssVid && ssVid.style.display !== "none" && ssVid.srcObject) {
-      vid = ssVid;
+    if (RemoteCtrl._pendingVideoEl &&
+        RemoteCtrl._pendingVideoEl.srcObject &&
+        RemoteCtrl._pendingVideoEl.srcObject.getVideoTracks().length > 0) {
+      vid = RemoteCtrl._pendingVideoEl;
     }
-
-    // 2. Group call main view
     if (!vid) {
-      var mainView = $("gc-main-view");
-      if (mainView) {
-        var v = mainView.querySelector("video");
-        if (v && v.srcObject) vid = v;
+      var ssv = document.getElementById("remote-screen-video");
+      if (ssv && ssv.srcObject && ssv.srcObject.getVideoTracks().length > 0) {
+        vid = ssv;
       }
     }
-
-    // 3. Zoom overlay
     if (!vid) {
-      var zoomOverlay = document.getElementById("gc-screen-zoom-overlay");
-      if (zoomOverlay && zoomOverlay.classList.contains("active")) {
-        var v = zoomOverlay.querySelector("video");
-        if (v) vid = v;
+      var rv = document.getElementById("remote-video");
+      if (rv && rv.srcObject && rv.srcObject.getVideoTracks().length > 0) {
+        vid = rv;
       }
     }
-
-    // 4. Remote video fallback
     if (!vid) {
-      var rv = $("remote-video");
-      if (rv && rv.srcObject) vid = rv;
+      setTimeout(function() { findAndAttach(attempt + 1); }, 500);
+      return;
     }
-
-    return vid;
+    attachRCToVideo(vid);
   }
+  findAndAttach(0);
+}
 
-  // *** Retry karo 10 baar — stream late aati hai ***
-  var attempts = 0;
-  var maxAttempts = 10;
-
-  function tryAttachControl() {
-    attempts++;
-    var vid = findVideoElement();
-
-    if (!vid) {
-      if (attempts < maxAttempts) {
-        console.log("RC: Video not ready, retry " + attempts);
-        setTimeout(tryAttachControl, 500); // 500ms baad phir try
-        return;
-      } else {
-        toast("First share your screen!", "e");
-        RemoteCtrl.isControlling = false;
-        updateRCButton();
-        return;
-      }
-    }
-
-    // Video mil gayi!
-    RemoteCtrl.videoEl = vid;
-    vid.style.cursor = "crosshair";
-    console.log("RC: Attached to video element", vid.id);
-
-    var throttleTimer = null;
-
-    vid._rcMove = function (e) {
-      if (!RemoteCtrl.isControlling) return;
-      if (throttleTimer) return;
-      throttleTimer = setTimeout(function () {
-        throttleTimer = null;
-      }, 16);
-      var r = vid.getBoundingClientRect();
-      var x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-      var y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
-      sendRCEvent("mousemove", x, y);
-    };
-
-    vid._rcClick = function (e) {
-      if (!RemoteCtrl.isControlling) return;
-      var r = vid.getBoundingClientRect();
-      var x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-      var y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
-      sendRCEvent("click", x, y);
-      // Click ripple effect
-      var ripple = document.createElement("div");
-      ripple.style.cssText =
-        "position:fixed;width:20px;height:20px;border:2px solid #3b82f6;" +
-        "border-radius:50%;pointer-events:none;z-index:99999;" +
-        "left:" +
-        (e.clientX - 10) +
-        "px;top:" +
-        (e.clientY - 10) +
-        "px;" +
-        "animation:rcRipple 0.4s ease-out forwards;";
-      document.body.appendChild(ripple);
-      setTimeout(function () {
-        ripple.remove();
-      }, 400);
-    };
-
-    vid.addEventListener("mousemove", vid._rcMove);
-    vid.addEventListener("click", vid._rcClick);
-
-    // Keyboard events
-    vid._rcKeydown = function (e) {
-      // Sirf RC active ho tab, aur input/textarea mein na ho
-      var tag = document.activeElement.tagName.toLowerCase();
-      if (tag === "input" || tag === "textarea") return;
-      e.preventDefault();
-      sendRCEvent("keypress", 0, 0, { key: e.key, code: e.code });
-    };
-    document.addEventListener("keydown", vid._rcKeydown);
-
-    // Scroll events
-    vid._rcScroll = function (e) {
-      e.preventDefault();
-      var dir = e.deltaY > 0 ? "down" : "up";
-      sendRCEvent("scroll", 0, 0, {
-        direction: dir,
-        delta: Math.abs(e.deltaY),
-      });
-    };
-    vid.addEventListener("wheel", vid._rcScroll, { passive: false });
-
-    // RC indicator
-    var overlay = $("ongoing-call") || $("gc-ongoing-call");
-    if (overlay) {
-      var old = document.getElementById("rc-indicator");
-      if (old) old.remove();
-      var ind = document.createElement("div");
-      ind.id = "rc-indicator";
-      ind.style.cssText =
-        "position:absolute;top:12px;right:80px;background:rgba(239,68,68,0.9);" +
-        "color:#fff;padding:5px 12px;border-radius:16px;font-size:12px;" +
-        "font-weight:600;z-index:10010;display:flex;align-items:center;gap:6px;";
-      ind.innerHTML =
-        '<span style="width:7px;height:7px;background:#fff;border-radius:50%;' +
-        'display:inline-block;"></span> Remote Active ' +
-        '<i class="fa-solid fa-xmark" onclick="stopRemoteControl()" ' +
-        'style="cursor:pointer;margin-left:4px;"></i>';
-      overlay.appendChild(ind);
-    }
-    updateRCButton();
+function attachRCToVideo(vid) {
+  if (RemoteCtrl.videoEl && RemoteCtrl.videoEl !== vid) {
+    var old = RemoteCtrl.videoEl;
+    if (old._rcMove) old.removeEventListener("mousemove", old._rcMove);
+    if (old._rcClick) old.removeEventListener("click", old._rcClick);
+    if (old._rcRightClick) old.removeEventListener("contextmenu", old._rcRightClick);
+    if (old._rcScroll) old.removeEventListener("wheel", old._rcScroll);
+    if (old._rcKeydown) document.removeEventListener("keydown", old._rcKeydown);
+    old.style.cursor = "";
   }
+  RemoteCtrl.videoEl = vid;
+  vid.style.display = "block";
+  vid.style.cursor = "crosshair";
+  var throttleTimer = null;
 
-  // Start karo
-  tryAttachControl();
+  vid._rcMove = function(e) {
+    if (!RemoteCtrl.isControlling) return;
+    if (throttleTimer) return;
+    throttleTimer = setTimeout(function() { throttleTimer = null; }, 16);
+    var rect = vid.getBoundingClientRect();
+    sendRCEvent("mousemove",
+      Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+    );
+  };
+
+  vid._rcClick = function(e) {
+    if (!RemoteCtrl.isControlling) return;
+    var rect = vid.getBoundingClientRect();
+    sendRCEvent("click",
+      Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+    );
+    var ripple = document.createElement("div");
+    ripple.style.cssText = "position:fixed;width:20px;height:20px;border:2px solid #3b82f6;border-radius:50%;pointer-events:none;z-index:99999;left:" + (e.clientX - 10) + "px;top:" + (e.clientY - 10) + "px;animation:rcRipple 0.4s ease-out forwards;";
+    document.body.appendChild(ripple);
+    setTimeout(function() { ripple.remove(); }, 400);
+  };
+
+  vid._rcRightClick = function(e) {
+    if (!RemoteCtrl.isControlling) return;
+    e.preventDefault();
+    var rect = vid.getBoundingClientRect();
+    sendRCEvent("rightclick",
+      Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+    );
+  };
+
+  vid._rcScroll = function(e) {
+    if (!RemoteCtrl.isControlling) return;
+    e.preventDefault();
+    sendRCEvent("scroll", 0, 0, {
+      direction: e.deltaY > 0 ? "down" : "up",
+      delta: Math.abs(e.deltaY)
+    });
+  };
+
+  vid._rcKeydown = function(e) {
+    if (!RemoteCtrl.isControlling) return;
+    var activeTag = document.activeElement.tagName.toLowerCase();
+    if (activeTag === "input" || activeTag === "textarea") return;
+    e.preventDefault();
+    sendRCEvent("keypress", 0, 0, {
+      key: e.key,
+      code: e.code,
+      ctrl: e.ctrlKey,
+      shift: e.shiftKey,
+      alt: e.altKey
+    });
+  };
+
+  vid.addEventListener("mousemove", vid._rcMove);
+  vid.addEventListener("click", vid._rcClick);
+  vid.addEventListener("contextmenu", vid._rcRightClick);
+  vid.addEventListener("wheel", vid._rcScroll, { passive: false });
+  document.addEventListener("keydown", vid._rcKeydown);
+  vid.setAttribute("tabindex", "0");
+  vid.focus();
+
+  var overlay = document.getElementById("ongoing-call");
+  if (overlay) {
+    var existing = document.getElementById("rc-indicator");
+    if (existing) existing.remove();
+    var indicator = document.createElement("div");
+    indicator.id = "rc-indicator";
+    indicator.style.cssText = "position:absolute;top:12px;right:80px;background:rgba(239,68,68,0.9);color:#fff;padding:5px 12px;border-radius:16px;font-size:12px;font-weight:600;z-index:10010;display:flex;align-items:center;gap:6px;";
+    indicator.innerHTML = '<span style="width:7px;height:7px;background:#fff;border-radius:50%;display:inline-block;animation:pulse 1s infinite;"></span> Remote Active <i class="fa-solid fa-xmark" onclick="stopRemoteControl()" style="cursor:pointer;margin-left:6px;"></i>';
+    overlay.appendChild(indicator);
+  }
+  updateRCButton();
+  toast("Remote control active. Mouse, keyboard and scroll are synced.", "s");
 }
 function handleRemoteControlRejected() {
   var el = document.getElementById("rc-wait");
