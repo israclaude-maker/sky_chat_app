@@ -9258,7 +9258,7 @@ function handleGcScreenToggle(data) {
   if (sharing) {
     GC.screenSharers[fromId] = true;
     showRCButton();
-    console.log("[GC] Screen toggle ON from", fromId, "peer:", !!peer);
+    console.log("[GC] Screen toggle ON from", fromId);
 
     if (!peer) return;
 
@@ -9270,7 +9270,7 @@ function handleGcScreenToggle(data) {
     }
 
     var attempts = 0;
-    var maxAttempts = 25;
+    var maxAttempts = 40;
     var poll = setInterval(function () {
       attempts++;
       var p = GC.peers[fromId];
@@ -9294,17 +9294,35 @@ function handleGcScreenToggle(data) {
             r.track && r.track.kind === "video" && r.track.readyState === "live"
           );
         });
+
         var camTrackIds = p.stream
           ? p.stream.getVideoTracks().map(function (t) {
               return t.id;
             })
           : [];
-        var screenReceiver = videoReceivers.find(function (r) {
-          return camTrackIds.indexOf(r.track.id) === -1;
-        });
+
+        var screenReceiver = null;
+        for (var i = 0; i < videoReceivers.length; i++) {
+          if (camTrackIds.indexOf(videoReceivers[i].track.id) === -1) {
+            screenReceiver = videoReceivers[i];
+            break;
+          }
+        }
+
         if (screenReceiver) {
           clearInterval(poll);
+          console.log("[GC] Screen track found via receiver for peer", fromId);
           p.screenStream = new MediaStream([screenReceiver.track]);
+          _applyGcScreenShare(fromId, p);
+          return;
+        }
+
+        if (
+          videoReceivers.length === 1 &&
+          (!p.stream || p.stream.getVideoTracks().length === 0)
+        ) {
+          clearInterval(poll);
+          p.screenStream = new MediaStream([videoReceivers[0].track]);
           _applyGcScreenShare(fromId, p);
           return;
         }
@@ -9312,14 +9330,13 @@ function handleGcScreenToggle(data) {
 
       if (attempts >= maxAttempts) {
         clearInterval(poll);
-        console.warn("[GC] Could not get screen stream for", fromId);
+        console.warn("[GC] Screen stream nahi mila peer ke liye:", fromId);
+        toast("Screen share load nahi ho raha, dobara try karo", "e");
       }
-    }, 200);
+    }, 300);
   } else {
     delete GC.screenSharers[fromId];
-    if (Object.keys(GC.screenSharers).length === 0) {
-      hideRCButton();
-    }
+    if (Object.keys(GC.screenSharers).length === 0) hideRCButton();
     if (peer) {
       peer.screenStream = null;
       peer._pendingScreenStream = null;
