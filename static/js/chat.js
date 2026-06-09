@@ -6092,7 +6092,7 @@ function handleScreenToggle(data) {
       var callOverlay = $("ongoing-call");
       if (callOverlay) callOverlay.appendChild(lbl);
     }
-lbl.style.display = "flex";
+    lbl.style.display = "flex";
     showRCButton();
     RemoteCtrl._pendingVideoEl = remoteScreenVideo;
 
@@ -11207,35 +11207,60 @@ function handleRemoteControlAccepted(data) {
 
   function findAndAttach(attempt) {
     if (attempt > 20) {
-      toast("Screen share not found. Ask user to share screen first.", "e");
-      RemoteCtrl.isControlling = false;
+      // Fallback: call overlay pe directly attach karo
+      var overlay = $("ongoing-call") || $("gc-ongoing-call");
+      if (overlay) {
+        attachRCToVideo(overlay);
+      } else {
+        toast("Remote screen not found", "e");
+        RemoteCtrl.isControlling = false;
+      }
       updateRCButton();
       return;
     }
+
     var vid = null;
-    if (RemoteCtrl._pendingVideoEl &&
-        RemoteCtrl._pendingVideoEl.srcObject &&
-        RemoteCtrl._pendingVideoEl.srcObject.getVideoTracks().length > 0) {
+
+    if (
+      RemoteCtrl._pendingVideoEl &&
+      RemoteCtrl._pendingVideoEl.srcObject &&
+      RemoteCtrl._pendingVideoEl.srcObject.getVideoTracks().length > 0
+    ) {
       vid = RemoteCtrl._pendingVideoEl;
     }
+
     if (!vid) {
       var ssv = document.getElementById("remote-screen-video");
       if (ssv && ssv.srcObject && ssv.srcObject.getVideoTracks().length > 0) {
         vid = ssv;
       }
     }
+
     if (!vid) {
       var rv = document.getElementById("remote-video");
       if (rv && rv.srcObject && rv.srcObject.getVideoTracks().length > 0) {
         vid = rv;
       }
     }
+
+    // Fallback: koi video nahi to call overlay use karo
     if (!vid) {
-      setTimeout(function() { findAndAttach(attempt + 1); }, 500);
+      var overlay = $("ongoing-call") || $("gc-ongoing-call");
+      if (overlay && attempt >= 5) {
+        vid = overlay;
+      }
+    }
+
+    if (!vid) {
+      setTimeout(function () {
+        findAndAttach(attempt + 1);
+      }, 500);
       return;
     }
+
     attachRCToVideo(vid);
   }
+
   findAndAttach(0);
 }
 
@@ -11244,60 +11269,73 @@ function attachRCToVideo(vid) {
     var old = RemoteCtrl.videoEl;
     if (old._rcMove) old.removeEventListener("mousemove", old._rcMove);
     if (old._rcClick) old.removeEventListener("click", old._rcClick);
-    if (old._rcRightClick) old.removeEventListener("contextmenu", old._rcRightClick);
+    if (old._rcRightClick)
+      old.removeEventListener("contextmenu", old._rcRightClick);
     if (old._rcScroll) old.removeEventListener("wheel", old._rcScroll);
     if (old._rcKeydown) document.removeEventListener("keydown", old._rcKeydown);
     old.style.cursor = "";
   }
   RemoteCtrl.videoEl = vid;
-  vid.style.display = "block";
+  if (vid.tagName === "VIDEO") vid.style.display = "block";
   vid.style.cursor = "crosshair";
   var throttleTimer = null;
 
-  vid._rcMove = function(e) {
+  vid._rcMove = function (e) {
     if (!RemoteCtrl.isControlling) return;
     if (throttleTimer) return;
-    throttleTimer = setTimeout(function() { throttleTimer = null; }, 16);
+    throttleTimer = setTimeout(function () {
+      throttleTimer = null;
+    }, 16);
     var rect = vid.getBoundingClientRect();
-    sendRCEvent("mousemove",
+    sendRCEvent(
+      "mousemove",
       Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
     );
   };
 
-  vid._rcClick = function(e) {
+  vid._rcClick = function (e) {
     if (!RemoteCtrl.isControlling) return;
     var rect = vid.getBoundingClientRect();
-    sendRCEvent("click",
+    sendRCEvent(
+      "click",
       Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
     );
     var ripple = document.createElement("div");
-    ripple.style.cssText = "position:fixed;width:20px;height:20px;border:2px solid #3b82f6;border-radius:50%;pointer-events:none;z-index:99999;left:" + (e.clientX - 10) + "px;top:" + (e.clientY - 10) + "px;animation:rcRipple 0.4s ease-out forwards;";
+    ripple.style.cssText =
+      "position:fixed;width:20px;height:20px;border:2px solid #3b82f6;border-radius:50%;pointer-events:none;z-index:99999;left:" +
+      (e.clientX - 10) +
+      "px;top:" +
+      (e.clientY - 10) +
+      "px;animation:rcRipple 0.4s ease-out forwards;";
     document.body.appendChild(ripple);
-    setTimeout(function() { ripple.remove(); }, 400);
+    setTimeout(function () {
+      ripple.remove();
+    }, 400);
   };
 
-  vid._rcRightClick = function(e) {
+  vid._rcRightClick = function (e) {
     if (!RemoteCtrl.isControlling) return;
     e.preventDefault();
     var rect = vid.getBoundingClientRect();
-    sendRCEvent("rightclick",
+    sendRCEvent(
+      "rightclick",
       Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
     );
   };
 
-  vid._rcScroll = function(e) {
+  vid._rcScroll = function (e) {
     if (!RemoteCtrl.isControlling) return;
     e.preventDefault();
     sendRCEvent("scroll", 0, 0, {
       direction: e.deltaY > 0 ? "down" : "up",
-      delta: Math.abs(e.deltaY)
+      delta: Math.abs(e.deltaY),
     });
   };
 
-  vid._rcKeydown = function(e) {
+  vid._rcKeydown = function (e) {
     if (!RemoteCtrl.isControlling) return;
     var activeTag = document.activeElement.tagName.toLowerCase();
     if (activeTag === "input" || activeTag === "textarea") return;
@@ -11307,7 +11345,7 @@ function attachRCToVideo(vid) {
       code: e.code,
       ctrl: e.ctrlKey,
       shift: e.shiftKey,
-      alt: e.altKey
+      alt: e.altKey,
     });
   };
 
@@ -11325,8 +11363,10 @@ function attachRCToVideo(vid) {
     if (existing) existing.remove();
     var indicator = document.createElement("div");
     indicator.id = "rc-indicator";
-    indicator.style.cssText = "position:absolute;top:12px;right:80px;background:rgba(239,68,68,0.9);color:#fff;padding:5px 12px;border-radius:16px;font-size:12px;font-weight:600;z-index:10010;display:flex;align-items:center;gap:6px;";
-    indicator.innerHTML = '<span style="width:7px;height:7px;background:#fff;border-radius:50%;display:inline-block;animation:pulse 1s infinite;"></span> Remote Active <i class="fa-solid fa-xmark" onclick="stopRemoteControl()" style="cursor:pointer;margin-left:6px;"></i>';
+    indicator.style.cssText =
+      "position:absolute;top:12px;right:80px;background:rgba(239,68,68,0.9);color:#fff;padding:5px 12px;border-radius:16px;font-size:12px;font-weight:600;z-index:10010;display:flex;align-items:center;gap:6px;";
+    indicator.innerHTML =
+      '<span style="width:7px;height:7px;background:#fff;border-radius:50%;display:inline-block;animation:pulse 1s infinite;"></span> Remote Active <i class="fa-solid fa-xmark" onclick="stopRemoteControl()" style="cursor:pointer;margin-left:6px;"></i>';
     overlay.appendChild(indicator);
   }
   updateRCButton();
