@@ -11507,15 +11507,7 @@ function keepAudioContextAlive() {
   }
 }
 
-(function diagnosisTracker() {
-  var badge = document.createElement("div");
-  badge.id = "diag-badge";
-  badge.style.cssText =
-    "position:fixed;bottom:10px;left:10px;z-index:99999;" +
-    "background:#000;color:#0f0;font-size:11px;" +
-    "padding:6px 10px;border-radius:8px;font-family:monospace;" +
-    "pointer-events:none;max-width:200px;";
-  document.body.appendChild(badge);
+
 
   setInterval(function () {
     var micOk = "?",
