@@ -11507,35 +11507,4 @@ function keepAudioContextAlive() {
   }
 }
 
-
-
-  setInterval(function () {
-    var micOk = "?",
-      spkOk = "?";
-    if (window.CallState && CallState.localStream) {
-      var at = CallState.localStream.getAudioTracks();
-      micOk = at.length > 0 && at[0].enabled ? "OK" : "DEAD";
-    }
-    var ra = document.getElementById("remote-audio");
-    spkOk = ra && ra.srcObject ? "OK" : "DEAD";
-    var wsOk =
-      window.S && S.globalWs && S.globalWs.readyState === 1 ? "OK" : "DEAD";
-
-    badge.innerHTML =
-      "SCR:" +
-      (document.hidden ? "OFF" : "ON") +
-      "<br>" +
-      "MIC:" +
-      micOk +
-      "<br>" +
-      "SPK:" +
-      spkOk +
-      "<br>" +
-      "WS:" +
-      wsOk +
-      "<br>" +
-      new Date().toLocaleTimeString();
-  }, 1000);
-})();
-
 init();
