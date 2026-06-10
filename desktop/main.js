@@ -413,7 +413,7 @@ ipcMain.on("rc-event", (event, rawData) => {
   try {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
     const { width, height } =
-      require("electron").screen.getPrimaryDisplay().workAreaSize;
+      require("electron").screen.getPrimaryDisplay().size;
     const x = Math.round(data.x * width);
     const y = Math.round(data.y * height);
 
