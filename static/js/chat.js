@@ -9118,10 +9118,18 @@ function gcStartScreenShare() {
   }
   navigator.mediaDevices
     .getDisplayMedia({
-      video: true,
+      video: {
+        displaySurface: "monitor",
+        width: { ideal: window.screen.width },
+        height: { ideal: window.screen.height },
+        frameRate: { ideal: 30 },
+        cursor: "always",
+        logicalSurface: true,
+      },
       audio: false,
       selfBrowserSurface: "exclude",
       monitorTypeSurfaces: "include",
+      systemAudio: "exclude",
     })
     .then(function (screenStream) {
       GC.screenStream = screenStream;
@@ -11286,25 +11294,93 @@ function attachRCToVideo(vid) {
     throttleTimer = setTimeout(function () {
       throttleTimer = null;
     }, 16);
+
     var rect = vid.getBoundingClientRect();
-    sendRCEvent(
-      "mousemove",
-      Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
-    );
+
+    // Video letterbox correction (object-fit: contain ki wajah se)
+    var normX, normY;
+
+    if (vid.tagName === "VIDEO" && vid.videoWidth && vid.videoHeight) {
+      var videoAspect = vid.videoWidth / vid.videoHeight;
+      var boxAspect = rect.width / rect.height;
+      var contentW, contentH, offsetX, offsetY;
+
+      if (videoAspect > boxAspect) {
+        // Letterbox upar/neeche
+        contentW = rect.width;
+        contentH = rect.width / videoAspect;
+        offsetX = 0;
+        offsetY = (rect.height - contentH) / 2;
+      } else {
+        // Pillarbox left/right
+        contentH = rect.height;
+        contentW = rect.height * videoAspect;
+        offsetX = (rect.width - contentW) / 2;
+        offsetY = 0;
+      }
+
+      normX = Math.max(
+        0,
+        Math.min(1, (e.clientX - rect.left - offsetX) / contentW),
+      );
+      normY = Math.max(
+        0,
+        Math.min(1, (e.clientY - rect.top - offsetY) / contentH),
+      );
+    } else {
+      // Fallback (overlay pe attach hai)
+      normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    }
+
+    sendRCEvent("mousemove", normX, normY);
   };
 
   vid._rcClick = function (e) {
     if (!RemoteCtrl.isControlling) return;
+    e.preventDefault();
+    e.stopPropagation();
+
     var rect = vid.getBoundingClientRect();
-    sendRCEvent(
-      "click",
-      Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
-    );
+    var normX, normY;
+
+    if (vid.tagName === "VIDEO" && vid.videoWidth && vid.videoHeight) {
+      var videoAspect = vid.videoWidth / vid.videoHeight;
+      var boxAspect = rect.width / rect.height;
+      var contentW, contentH, offsetX, offsetY;
+
+      if (videoAspect > boxAspect) {
+        contentW = rect.width;
+        contentH = rect.width / videoAspect;
+        offsetX = 0;
+        offsetY = (rect.height - contentH) / 2;
+      } else {
+        contentH = rect.height;
+        contentW = rect.height * videoAspect;
+        offsetX = (rect.width - contentW) / 2;
+        offsetY = 0;
+      }
+
+      normX = Math.max(
+        0,
+        Math.min(1, (e.clientX - rect.left - offsetX) / contentW),
+      );
+      normY = Math.max(
+        0,
+        Math.min(1, (e.clientY - rect.top - offsetY) / contentH),
+      );
+    } else {
+      normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    }
+
+    sendRCEvent("click", normX, normY);
+
+    // Ripple effect
     var ripple = document.createElement("div");
     ripple.style.cssText =
-      "position:fixed;width:20px;height:20px;border:2px solid #3b82f6;border-radius:50%;pointer-events:none;z-index:99999;left:" +
+      "position:fixed;width:20px;height:20px;border:2px solid #3b82f6;" +
+      "border-radius:50%;pointer-events:none;z-index:99999;left:" +
       (e.clientX - 10) +
       "px;top:" +
       (e.clientY - 10) +
@@ -11337,9 +11413,13 @@ function attachRCToVideo(vid) {
 
   vid._rcKeydown = function (e) {
     if (!RemoteCtrl.isControlling) return;
-    var activeTag = document.activeElement.tagName.toLowerCase();
-    if (activeTag === "input" || activeTag === "textarea") return;
+    var activeEl = document.activeElement;
+    var activeTag = activeEl ? activeEl.tagName.toLowerCase() : "";
+    // Sirf apna message box block karo, baaki sab allow
+    if ((activeTag === "input" || activeTag === "textarea") && activeEl !== vid)
+      return;
     e.preventDefault();
+    e.stopPropagation();
     sendRCEvent("keypress", 0, 0, {
       key: e.key,
       code: e.code,
