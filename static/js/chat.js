@@ -6007,6 +6007,21 @@ function handleScreenAnswer(data) {
   console.log("Received screen_answer");
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
+    .then(function () {
+      // screen_toggle tab bhejo jab SDP set ho jaye — stream ready hogi
+      if (CallState.isScreenSharing) {
+        var ws = S.globalWs || S.ws;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: "screen_toggle",
+              target_user_id: CallState.remoteUserId,
+              sharing: true,
+            }),
+          );
+        }
+      }
+    })
     .catch(function (err) {
       console.error("Screen answer error:", err);
     });
@@ -6019,121 +6034,45 @@ function handleScreenToggle(data) {
   var ongoingAv = $("ongoing-av");
 
   if (data.sharing) {
-    // Agar stream abhi ready nahi - wait karo
-    if (!CallState.remoteScreenStream) {
-      CallState._pendingScreenToggle = true;
-      showRCButton(); // ← YEH ADD KARO
-
-      var ssv = document.getElementById("remote-screen-video");
-      var rv = document.getElementById("remote-video");
-      if (ssv && ssv.srcObject) {
-        RemoteCtrl._pendingVideoEl = ssv;
-      } else if (rv && rv.srcObject) {
-        RemoteCtrl._pendingVideoEl = rv;
+    var attempts = 0;
+    function waitForStream() {
+      if (CallState.remoteScreenStream) {
+        CallState._pendingScreenToggle = false;
+        _applyScreenToggleOn(
+          remoteVideo,
+          remoteScreenVideo,
+          localVid,
+          ongoingAv,
+        );
+      } else if (attempts++ < 25) {
+        setTimeout(waitForStream, 200);
+      } else {
+        console.warn("[ScreenToggle] stream 5s baad bhi nahi aya");
       }
-      console.log("[ScreenToggle] please wait for stream...");
-      return;
     }
-    CallState._pendingScreenToggle = false;
-
-    // ── Remote started sharing screen ───────────────────────
-    if (remoteScreenVideo) {
-      remoteScreenVideo.style.display = "block";
-      remoteScreenVideo.srcObject = CallState.remoteScreenStream;
-      remoteScreenVideo.play().catch(function (e) {});
-    }
-
-    // Remote camera becomes small PIP (bottom-left)
-    var hasRemoteCam =
-      remoteVideo &&
-      CallState.remoteStream &&
-      CallState.remoteStream.getVideoTracks().length > 0 &&
-      CallState.remoteStream.getVideoTracks().some(function (t) {
-        return t.readyState === "live";
-      });
-    if (hasRemoteCam) {
-      remoteVideo.classList.add("screen-pip");
-      remoteVideo.style.display = "block";
-    } else if (remoteVideo) {
-      remoteVideo.style.display = "none";
-    }
-
-    // Local camera PIP (bottom-right)
-    var hasLocalCam =
-      localVid &&
-      CallState.localStream &&
-      CallState.localStream.getVideoTracks().length > 0 &&
-      CallState.localStream.getVideoTracks().some(function (t) {
-        return t.readyState === "live";
-      });
-    if (hasLocalCam) {
-      localVid.srcObject = CallState.localStream;
-      localVid.style.cssText =
-        "display:block;width:100px;height:140px;position:absolute;bottom:80px;right:16px;" +
-        "border-radius:10px;z-index:10;object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
-    }
-
-    // Hide avatar overlay during screen share
-    if (ongoingAv) ongoingAv.style.display = "none";
-
-    // Show a small "Screen share" label
-    var lbl = document.getElementById("remote-screen-label");
-    if (!lbl) {
-      lbl = document.createElement("div");
-      lbl.id = "remote-screen-label";
-      lbl.style.cssText =
-        "position:absolute;top:12px;left:50%;transform:translateX(-50%);" +
-        "background:rgba(0,0,0,0.6);color:#fff;font-size:12px;padding:4px 12px;" +
-        "border-radius:20px;z-index:20;pointer-events:none;display:flex;align-items:center;gap:6px;";
-      lbl.innerHTML =
-        '<i class="fa-solid fa-display" style="color:#4fc3f7;"></i>' +
-        esc(CallState.remoteUserName) +
-        " is sharing screen";
-      var callOverlay = $("ongoing-call");
-      if (callOverlay) callOverlay.appendChild(lbl);
-    }
-    lbl.style.display = "flex";
-    showRCButton();
-    RemoteCtrl._pendingVideoEl = remoteScreenVideo;
-
-    var ssv2 = document.getElementById("remote-screen-video");
-    var rv2 = document.getElementById("remote-video");
-    if (ssv2 && ssv2.srcObject) {
-      RemoteCtrl._pendingVideoEl = ssv2;
-    } else if (rv2 && rv2.srcObject) {
-      RemoteCtrl._pendingVideoEl = rv2;
-    }
+    waitForStream();
   } else {
-    // ── Remote stopped sharing ──────────────────────────────
-    // Hide screen share video
     if (remoteScreenVideo) {
       remoteScreenVideo.style.display = "none";
       remoteScreenVideo.srcObject = null;
     }
     CallState.remoteScreenStream = null;
+    CallState._pendingScreenToggle = false;
 
-    // Restore remote camera to full view
     if (remoteVideo) {
       remoteVideo.classList.remove("screen-pip");
       remoteVideo.style.cssText = "";
       var hasRemoteCam =
         CallState.remoteStream &&
-        CallState.remoteStream.getVideoTracks().length > 0 &&
         CallState.remoteStream.getVideoTracks().some(function (t) {
           return t.readyState === "live";
         });
-      if (hasRemoteCam) {
-        remoteVideo.style.display = "block";
-      } else {
-        remoteVideo.style.display = "none";
-      }
+      remoteVideo.style.display = hasRemoteCam ? "block" : "none";
     }
 
-    // Restore local video to normal PIP
     var hadLocalCam =
       localVid &&
       CallState.localStream &&
-      CallState.localStream.getVideoTracks().length > 0 &&
       CallState.localStream.getVideoTracks().some(function (t) {
         return t.readyState === "live";
       });
@@ -6145,18 +6084,80 @@ function handleScreenToggle(data) {
       localVid.style.display = "none";
     }
 
-    // Restore avatar only if no active camera
-    if (ongoingAv && !hadLocalCam) {
-      ongoingAv.style.display = "block";
-    }
+    if (ongoingAv && !hadLocalCam) ongoingAv.style.display = "block";
 
-    // Remove screen label
     var lbl = document.getElementById("remote-screen-label");
     if (lbl) lbl.style.display = "none";
     hideRCButton();
   }
 }
 
+function _applyScreenToggleOn(
+  remoteVideo,
+  remoteScreenVideo,
+  localVid,
+  ongoingAv,
+) {
+  if (remoteScreenVideo) {
+    remoteScreenVideo.style.display = "block";
+    remoteScreenVideo.srcObject = CallState.remoteScreenStream;
+    remoteScreenVideo.play().catch(function (e) {});
+  }
+
+  var hasRemoteCam =
+    remoteVideo &&
+    CallState.remoteStream &&
+    CallState.remoteStream.getVideoTracks().some(function (t) {
+      return t.readyState === "live";
+    });
+  if (hasRemoteCam) {
+    remoteVideo.classList.add("screen-pip");
+    remoteVideo.style.display = "block";
+  } else if (remoteVideo) {
+    remoteVideo.style.display = "none";
+  }
+
+  var hasLocalCam =
+    localVid &&
+    CallState.localStream &&
+    CallState.localStream.getVideoTracks().some(function (t) {
+      return t.readyState === "live";
+    });
+  if (hasLocalCam) {
+    localVid.srcObject = CallState.localStream;
+    localVid.style.cssText =
+      "display:block;width:100px;height:140px;position:absolute;bottom:80px;right:16px;" +
+      "border-radius:10px;z-index:10;object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
+  }
+
+  if (ongoingAv) ongoingAv.style.display = "none";
+
+  var lbl = document.getElementById("remote-screen-label");
+  if (!lbl) {
+    lbl = document.createElement("div");
+    lbl.id = "remote-screen-label";
+    lbl.style.cssText =
+      "position:absolute;top:12px;left:50%;transform:translateX(-50%);" +
+      "background:rgba(0,0,0,0.6);color:#fff;font-size:12px;padding:4px 12px;" +
+      "border-radius:20px;z-index:20;pointer-events:none;display:flex;align-items:center;gap:6px;";
+    lbl.innerHTML =
+      '<i class="fa-solid fa-display" style="color:#4fc3f7;"></i>' +
+      esc(CallState.remoteUserName) +
+      " is sharing screen";
+    var callOverlay = $("ongoing-call");
+    if (callOverlay) callOverlay.appendChild(lbl);
+  }
+  lbl.style.display = "flex";
+  showRCButton();
+
+  var ssv2 = document.getElementById("remote-screen-video");
+  var rv2 = document.getElementById("remote-video");
+  if (ssv2 && ssv2.srcObject) {
+    RemoteCtrl._pendingVideoEl = ssv2;
+  } else if (rv2 && rv2.srcObject) {
+    RemoteCtrl._pendingVideoEl = rv2;
+  }
+}
 function showOngoingCall() {
   if (callMinimized && minimizedOverlayId === "outgoing-call") {
     minimizedOverlayId = "ongoing-call";
@@ -6324,20 +6325,6 @@ function startScreenShare() {
         .then(function () {
           var ws = S.globalWs || S.ws;
           if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(
-              JSON.stringify({
-                type: "screen_offer",
-                target_user_id: CallState.remoteUserId,
-                sdp: CallState.pc.localDescription,
-              }),
-            );
-            ws.send(
-              JSON.stringify({
-                type: "screen_toggle",
-                target_user_id: CallState.remoteUserId,
-                sharing: true,
-              }),
-            );
           }
         })
         .catch(function (err) {

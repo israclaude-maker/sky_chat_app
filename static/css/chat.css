@@ -879,7 +879,7 @@ body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 6%;
+  padding: 16px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -911,6 +911,7 @@ body {
 .msg-row.out {
   align-self: flex-end;
   flex-direction: row-reverse;
+  padding-right: 10px; /* ← yeh add karo */
 }
 
 .msg-row.consec {
