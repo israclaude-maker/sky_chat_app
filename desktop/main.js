@@ -89,13 +89,55 @@ function createWindow() {
 
   // ─── Screen sharing: auto-pick entire screen ───
   mainWindow.webContents.session.setDisplayMediaRequestHandler(
-    (request, callback) => {
-      desktopCapturer
-        .getSources({ types: ["screen", "window"] })
-        .then((sources) => {
-          callback(sources.length > 0 ? { video: sources[0] } : {});
-        })
-        .catch(() => callback({}));
+    async (request, callback) => {
+      try {
+        const sources = await desktopCapturer.getSources({
+          types: ["screen", "window"],
+          thumbnailSize: { width: 150, height: 100 },
+        });
+
+        if (sources.length === 0) {
+          callback({});
+          return;
+        }
+
+        // Ek simple dialog show karo user ko choose karne ke liye
+        const choices = sources.map((s) => s.name.substring(0, 40));
+        choices.push("Cancel");
+
+        const { dialog } = require("electron");
+        const result = await dialog.showMessageBox(mainWindow, {
+          type: "question",
+          title: "Screen Share",
+          message: "Kya share karna chahte ho?",
+          buttons: choices,
+          cancelId: sources.length,
+          noLink: true,
+        });
+
+        if (result.response === sources.length) {
+          // User ne Cancel kiya
+          callback({});
+          return;
+        }
+
+        callback({ video: sources[result.response], audio: false });
+      } catch (err) {
+        console.error("[ScreenShare] Picker error:", err);
+        // Fallback: pehla screen automatically use karo
+        try {
+          const fallback = await desktopCapturer.getSources({
+            types: ["screen"],
+          });
+          if (fallback.length > 0) {
+            callback({ video: fallback[0], audio: false });
+          } else {
+            callback({});
+          }
+        } catch (e2) {
+          callback({});
+        }
+      }
     },
   );
 
@@ -397,6 +439,7 @@ const robot = require("@jitsi/robotjs");
 
 // ─── Key name mapping for robotjs ────────────────────────────
 const keyMap = {
+  // Navigation keys
   Enter: "enter",
   Backspace: "backspace",
   Delete: "delete",
@@ -407,10 +450,12 @@ const keyMap = {
   Tab: "tab",
   Escape: "escape",
   " ": "space",
+  // Modifiers
   Shift: "shift",
   Control: "control",
   Alt: "alt",
-  // ─── Added: function keys ───
+  Meta: "command",
+  // Function keys
   F1: "f1",
   F2: "f2",
   F3: "f3",
@@ -423,7 +468,7 @@ const keyMap = {
   F10: "f10",
   F11: "f11",
   F12: "f12",
-  // ─── Added: navigation keys ───
+  // Special keys
   Home: "home",
   End: "end",
   PageUp: "page_up",
@@ -432,16 +477,17 @@ const keyMap = {
   CapsLock: "caps_lock",
 };
 
-// ─── Remote Control event handler ────────────────────────────
 ipcMain.on("rc-event", (event, rawData) => {
   try {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
     const { width, height } =
       require("electron").screen.getPrimaryDisplay().size;
-    const x = Math.round(data.x * width);
-    const y = Math.round(data.y * height);
 
-    console.log("RC EVENT:", data.event, "coords:", x, y, "key:", data.key);
+    // Normalized coordinates ko pixels mein convert karo
+    const x = Math.round(Math.max(0, Math.min(1, data.x || 0)) * width);
+    const y = Math.round(Math.max(0, Math.min(1, data.y || 0)) * height);
+
+    console.log("[RC] Event:", data.event, "x:", x, "y:", y, "key:", data.key);
 
     if (data.event === "mousemove") {
       robot.moveMouse(x, y);
@@ -452,26 +498,60 @@ ipcMain.on("rc-event", (event, rawData) => {
       robot.moveMouse(x, y);
       setTimeout(() => robot.mouseClick("right"), 30);
     } else if (data.event === "scroll") {
-      // FIX: scrollMouse requires x, y position arguments
+      // FIX: scrollMouse ko x, y ZAROORI hain
+      // Purana galat tha: robot.scrollMouse(amt)
+      // Sahi: robot.scrollMouse(x, y, amt)
       const curPos = robot.getMousePos();
-      const amt = data.direction === "down" ? -5 : 5;
-      robot.scrollMouse(curPos.x, curPos.y, amt);
+      const scrollAmt = Math.max(1, Math.floor((data.delta || 120) / 40));
+      if (data.direction === "down") {
+        robot.scrollMouse(curPos.x, curPos.y, scrollAmt);
+      } else {
+        robot.scrollMouse(curPos.x, curPos.y, -scrollAmt);
+      }
     } else if (data.event === "keypress") {
       const k = data.key;
-      const mapped = keyMap[k] || (k.length === 1 ? k.toLowerCase() : null);
-      if (mapped) {
+
+      if (k && k.length === 1) {
+        // Single printable character (a, b, c, 1, 2, !, @, etc.)
+        const mapped = k.toLowerCase();
+        const modifiers = [];
+        if (data.ctrl) modifiers.push("control");
+        if (data.alt) modifiers.push("alt");
+        if (data.shift && k !== k.toLowerCase()) {
+          modifiers.push("shift");
+        }
+        try {
+          robot.keyTap(mapped, modifiers);
+        } catch (e) {
+          console.warn("[RC] keyTap failed for:", mapped, e.message);
+          // Fallback: typeString try karo
+          try {
+            robot.typeString(k);
+          } catch (e2) {}
+        }
+      } else if (k && keyMap[k]) {
+        // Special key (Enter, Backspace, Arrow, F1, etc.)
+        const mapped = keyMap[k];
         const modifiers = [];
         if (data.ctrl) modifiers.push("control");
         if (data.shift) modifiers.push("shift");
         if (data.alt) modifiers.push("alt");
-        // FIX: pass empty array [] instead of undefined — robotjs crashes on undefined
-        robot.keyTap(mapped, modifiers);
-      } else {
-        console.log("RC: unmapped key received:", k);
+        try {
+          robot.keyTap(mapped, modifiers);
+        } catch (e) {
+          console.warn("[RC] keyTap failed for:", mapped, e.message);
+        }
+      } else if (k) {
+        // Unknown key — typeString try karo
+        try {
+          robot.typeString(k);
+        } catch (e) {
+          console.warn("[RC] typeString failed:", k, e.message);
+        }
       }
     }
   } catch (e) {
-    console.error("RC error:", e);
+    console.error("[RC] Error processing event:", e.message);
   }
 });
 
