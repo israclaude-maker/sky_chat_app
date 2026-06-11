@@ -19,7 +19,7 @@ let activeCallNotification = null;
 
 // ─── Config ───────────────────────────────────────────────────
 let config = {
-  serverUrl: "https://sky-chat.duckdns.org",
+  serverUrl: "https://skyfinancia.com",
   appName: "SkyChat",
   mode: "remote",
 };
@@ -394,6 +394,8 @@ app.on("window-all-closed", () => {
 });
 
 const robot = require("@jitsi/robotjs");
+
+// ─── Key name mapping for robotjs ────────────────────────────
 const keyMap = {
   Enter: "enter",
   Backspace: "backspace",
@@ -408,7 +410,29 @@ const keyMap = {
   Shift: "shift",
   Control: "control",
   Alt: "alt",
+  // ─── Added: function keys ───
+  F1: "f1",
+  F2: "f2",
+  F3: "f3",
+  F4: "f4",
+  F5: "f5",
+  F6: "f6",
+  F7: "f7",
+  F8: "f8",
+  F9: "f9",
+  F10: "f10",
+  F11: "f11",
+  F12: "f12",
+  // ─── Added: navigation keys ───
+  Home: "home",
+  End: "end",
+  PageUp: "page_up",
+  PageDown: "page_down",
+  Insert: "insert",
+  CapsLock: "caps_lock",
 };
+
+// ─── Remote Control event handler ────────────────────────────
 ipcMain.on("rc-event", (event, rawData) => {
   try {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
@@ -417,7 +441,7 @@ ipcMain.on("rc-event", (event, rawData) => {
     const x = Math.round(data.x * width);
     const y = Math.round(data.y * height);
 
-    console.log("RC EVENT:", data.event, "coords:", x, y);
+    console.log("RC EVENT:", data.event, "coords:", x, y, "key:", data.key);
 
     if (data.event === "mousemove") {
       robot.moveMouse(x, y);
@@ -428,8 +452,10 @@ ipcMain.on("rc-event", (event, rawData) => {
       robot.moveMouse(x, y);
       setTimeout(() => robot.mouseClick("right"), 30);
     } else if (data.event === "scroll") {
+      // FIX: scrollMouse requires x, y position arguments
+      const curPos = robot.getMousePos();
       const amt = data.direction === "down" ? -5 : 5;
-      robot.scrollMouse(0, amt);
+      robot.scrollMouse(curPos.x, curPos.y, amt);
     } else if (data.event === "keypress") {
       const k = data.key;
       const mapped = keyMap[k] || (k.length === 1 ? k.toLowerCase() : null);
@@ -438,13 +464,17 @@ ipcMain.on("rc-event", (event, rawData) => {
         if (data.ctrl) modifiers.push("control");
         if (data.shift) modifiers.push("shift");
         if (data.alt) modifiers.push("alt");
-        robot.keyTap(mapped, modifiers.length ? modifiers : undefined);
+        // FIX: pass empty array [] instead of undefined — robotjs crashes on undefined
+        robot.keyTap(mapped, modifiers);
+      } else {
+        console.log("RC: unmapped key received:", k);
       }
     }
   } catch (e) {
     console.error("RC error:", e);
   }
 });
+
 app.on("before-quit", () => {
   isQuitting = true;
 });

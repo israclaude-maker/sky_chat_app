@@ -6325,6 +6325,25 @@ function startScreenShare() {
         .then(function () {
           var ws = S.globalWs || S.ws;
           if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: "screen_offer",
+                target_user_id: CallState.remoteUserId,
+                sdp: CallState.pc.localDescription,
+              }),
+            );
+            ws.send(
+              JSON.stringify({
+                type: "screen_toggle",
+                target_user_id: CallState.remoteUserId,
+                sharing: true,
+                surface_type:
+                  (CallState.screenStream &&
+                    CallState.screenStream.getVideoTracks()[0].getSettings()
+                      .displaySurface) ||
+                  "monitor",
+              }),
+            );
           }
         })
         .catch(function (err) {
