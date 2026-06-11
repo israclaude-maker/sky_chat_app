@@ -5977,6 +5977,7 @@ function flushPendingIceCandidates() {
 function handleScreenOffer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
   console.log("Received screen_offer, renegotiating...");
+  CallState._pendingScreenToggle = true; // ← YEH ADD KARO
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
