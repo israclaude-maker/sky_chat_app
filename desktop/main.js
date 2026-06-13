@@ -92,53 +92,20 @@ function createWindow() {
     async (request, callback) => {
       try {
         const sources = await desktopCapturer.getSources({
-          types: ["screen", "window"],
+          types: ["screen"],
           thumbnailSize: { width: 150, height: 100 },
         });
-
-        if (sources.length === 0) {
+        if (sources.length > 0) {
+          callback({ video: sources[0], audio: false });
+        } else {
           callback({});
-          return;
         }
-
-        // Ek simple dialog show karo user ko choose karne ke liye
-        const choices = sources.map((s) => s.name.substring(0, 40));
-        choices.push("Cancel");
-
-        const { dialog } = require("electron");
-        const result = await dialog.showMessageBox(mainWindow, {
-          type: "question",
-          title: "Screen Share",
-          message: "Kya share karna chahte ho?",
-          buttons: choices,
-          cancelId: sources.length,
-          noLink: true,
-        });
-
-        if (result.response === sources.length) {
-          // User ne Cancel kiya
-          callback({});
-          return;
-        }
-
-        callback({ video: sources[result.response], audio: false });
       } catch (err) {
-        console.error("[ScreenShare] Picker error:", err);
-        // Fallback: pehla screen automatically use karo
-        try {
-          const fallback = await desktopCapturer.getSources({
-            types: ["screen"],
-          });
-          if (fallback.length > 0) {
-            callback({ video: fallback[0], audio: false });
-          } else {
-            callback({});
-          }
-        } catch (e2) {
-          callback({});
-        }
+        console.error("[ScreenShare] error:", err);
+        callback({});
       }
     },
+    { useSystemPicker: false },
   );
 
   // ─── Permission grants ───

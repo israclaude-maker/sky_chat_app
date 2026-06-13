@@ -6219,9 +6219,6 @@ function showOngoingCall() {
 
   showCallOverlay("ongoing-call");
 
-  var rcBtn = $("rc-btn");
-  if (rcBtn) rcBtn.style.display = "flex";
-
   CallState.callStartTime = Date.now();
   CallState.timerInterval = setInterval(updateCallTimer, 1000);
   updateCallTimer();
@@ -11356,84 +11353,30 @@ function attachRCToVideo(vid) {
       throttleTimer = null;
     }, 16);
 
-    var rect = vid.getBoundingClientRect();
-
-    // Video letterbox correction (object-fit: contain ki wajah se)
-    var normX, normY;
-
-    if (vid.tagName === "VIDEO" && vid.videoWidth && vid.videoHeight) {
-      var videoAspect = vid.videoWidth / vid.videoHeight;
-      var boxAspect = rect.width / rect.height;
-      var contentW, contentH, offsetX, offsetY;
-
-      if (videoAspect > boxAspect) {
-        // Letterbox upar/neeche
-        contentW = rect.width;
-        contentH = rect.width / videoAspect;
-        offsetX = 0;
-        offsetY = (rect.height - contentH) / 2;
-      } else {
-        // Pillarbox left/right
-        contentH = rect.height;
-        contentW = rect.height * videoAspect;
-        offsetX = (rect.width - contentW) / 2;
-        offsetY = 0;
-      }
-
-      normX = Math.max(
-        0,
-        Math.min(1, (e.clientX - rect.left - offsetX) / contentW),
-      );
-      normY = Math.max(
-        0,
-        Math.min(1, (e.clientY - rect.top - offsetY) / contentH),
-      );
-    } else {
-      // Fallback (overlay pe attach hai)
-      normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    }
+    var normX = Math.max(
+      0,
+      Math.min(1, (e.clientX - window.screenX) / window.screen.width),
+    );
+    var normY = Math.max(
+      0,
+      Math.min(1, (e.clientY - window.screenY) / window.screen.height),
+    );
 
     sendRCEvent("mousemove", normX, normY);
   };
-
   vid._rcClick = function (e) {
     if (!RemoteCtrl.isControlling) return;
     e.preventDefault();
     e.stopPropagation();
 
-    var rect = vid.getBoundingClientRect();
-    var normX, normY;
-
-    if (vid.tagName === "VIDEO" && vid.videoWidth && vid.videoHeight) {
-      var videoAspect = vid.videoWidth / vid.videoHeight;
-      var boxAspect = rect.width / rect.height;
-      var contentW, contentH, offsetX, offsetY;
-
-      if (videoAspect > boxAspect) {
-        contentW = rect.width;
-        contentH = rect.width / videoAspect;
-        offsetX = 0;
-        offsetY = (rect.height - contentH) / 2;
-      } else {
-        contentH = rect.height;
-        contentW = rect.height * videoAspect;
-        offsetX = (rect.width - contentW) / 2;
-        offsetY = 0;
-      }
-
-      normX = Math.max(
-        0,
-        Math.min(1, (e.clientX - rect.left - offsetX) / contentW),
-      );
-      normY = Math.max(
-        0,
-        Math.min(1, (e.clientY - rect.top - offsetY) / contentH),
-      );
-    } else {
-      normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    }
+    var normX = Math.max(
+      0,
+      Math.min(1, (e.clientX - window.screenX) / window.screen.width),
+    );
+    var normY = Math.max(
+      0,
+      Math.min(1, (e.clientY - window.screenY) / window.screen.height),
+    );
 
     sendRCEvent("click", normX, normY);
 
