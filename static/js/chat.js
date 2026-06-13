@@ -6005,11 +6005,20 @@ function handleScreenOffer(data) {
 
 function handleScreenAnswer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
+  // Duplicate screen_answer block karo
+  if (CallState._screenAnswerHandled) {
+    console.log("Duplicate screen_answer ignore kar raha hun");
+    return;
+  }
+  CallState._screenAnswerHandled = true;
+  setTimeout(function () {
+    CallState._screenAnswerHandled = false;
+  }, 3000);
+
   console.log("Received screen_answer");
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
-      // screen_toggle tab bhejo jab SDP set ho jaye — stream ready hogi
       if (CallState.isScreenSharing) {
         var ws = S.globalWs || S.ws;
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -6018,6 +6027,11 @@ function handleScreenAnswer(data) {
               type: "screen_toggle",
               target_user_id: CallState.remoteUserId,
               sharing: true,
+              surface_type:
+                (CallState.screenStream &&
+                  CallState.screenStream.getVideoTracks()[0].getSettings()
+                    .displaySurface) ||
+                "monitor",
             }),
           );
         }
@@ -7853,21 +7867,23 @@ function handleGroupCallUserJoined(data) {
 function handleGroupCallOffer(data) {
   var fromId = data.from_user_id;
   var existingPeer = GC.peers[fromId];
- 
-  var peerConnectionState = existingPeer && existingPeer.pc
-    ? existingPeer.pc.connectionState
-    : null;
-  var peerSignalingState = existingPeer && existingPeer.pc
-    ? existingPeer.pc.signalingState
-    : null;
- 
+
+  var peerConnectionState =
+    existingPeer && existingPeer.pc ? existingPeer.pc.connectionState : null;
+  var peerSignalingState =
+    existingPeer && existingPeer.pc ? existingPeer.pc.signalingState : null;
+
   console.log(
-    "[GC] handleGroupCallOffer from " + fromId +
-    " existing: " + !!existingPeer +
-    " connState: " + peerConnectionState +
-    " sigState: " + peerSignalingState
+    "[GC] handleGroupCallOffer from " +
+      fromId +
+      " existing: " +
+      !!existingPeer +
+      " connState: " +
+      peerConnectionState +
+      " sigState: " +
+      peerSignalingState,
   );
- 
+
   // Renegotiation sirf tab — jab peer already connected ho
   // "new" ya "disconnected" state pe nahi
   var isRenegotiation =
@@ -7877,22 +7893,28 @@ function handleGroupCallOffer(data) {
     existingPeer.pc.connectionState !== "failed" &&
     existingPeer.pc.connectionState !== "new" &&
     existingPeer.pc.connectionState !== "disconnected";
- 
+
   if (isRenegotiation) {
     console.log("[GC] handleGroupCallOffer: RENEGOTIATION for peer " + fromId);
     var pc = existingPeer.pc;
- 
+
     pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
-      .then(function () { return pc.createAnswer(); })
-      .then(function (answer) { return pc.setLocalDescription(answer); })
+      .then(function () {
+        return pc.createAnswer();
+      })
+      .then(function (answer) {
+        return pc.setLocalDescription(answer);
+      })
       .then(function () {
         if (S.globalWs && S.globalWs.readyState === 1) {
-          S.globalWs.send(JSON.stringify({
-            type: "group_call_answer",
-            group_call_id: GC.groupCallId,
-            target_user_id: fromId,
-            sdp: pc.localDescription,
-          }));
+          S.globalWs.send(
+            JSON.stringify({
+              type: "group_call_answer",
+              group_call_id: GC.groupCallId,
+              target_user_id: fromId,
+              sdp: pc.localDescription,
+            }),
+          );
         }
         if (existingPeer.pendingIce && existingPeer.pendingIce.length) {
           existingPeer.pendingIce.forEach(function (c) {
@@ -7908,11 +7930,13 @@ function handleGroupCallOffer(data) {
       });
     return;
   }
- 
+
   // Naya peer banao
   if (existingPeer) {
     console.log("[GC] handleGroupCallOffer: replacing old peer for " + fromId);
-    try { existingPeer.pc.close(); } catch (e) {}
+    try {
+      existingPeer.pc.close();
+    } catch (e) {}
     var oldThumb = document.getElementById("gc-thumb-" + fromId);
     if (oldThumb) oldThumb.remove();
     var oldSThumb = document.getElementById("gc-thumb-" + fromId + "_screen");
@@ -7920,30 +7944,36 @@ function handleGroupCallOffer(data) {
     delete GC.peers[fromId];
     delete GC.screenSharers[fromId];
   }
- 
+
   _gcCreateFreshPeer(fromId, data);
 }
- 
+
 function _gcCreateFreshPeer(fromId, data) {
   var peer = createGroupPeerConnection(fromId);
   GC.peers[fromId] = peer;
   if (data.from_user_name) peer.name = data.from_user_name;
   if (data.from_user_pic) peer.pic = data.from_user_pic;
   var pc = peer.pc;
- 
+
   console.log("[GC] Fresh peer for " + fromId + " - setting remote desc");
- 
+
   pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
-    .then(function () { return pc.createAnswer(); })
-    .then(function (answer) { return pc.setLocalDescription(answer); })
+    .then(function () {
+      return pc.createAnswer();
+    })
+    .then(function (answer) {
+      return pc.setLocalDescription(answer);
+    })
     .then(function () {
       if (S.globalWs && S.globalWs.readyState === 1) {
-        S.globalWs.send(JSON.stringify({
-          type: "group_call_answer",
-          group_call_id: GC.groupCallId,
-          target_user_id: fromId,
-          sdp: pc.localDescription,
-        }));
+        S.globalWs.send(
+          JSON.stringify({
+            type: "group_call_answer",
+            group_call_id: GC.groupCallId,
+            target_user_id: fromId,
+            sdp: pc.localDescription,
+          }),
+        );
       }
       if (peer.pendingIce) {
         peer.pendingIce.forEach(function (c) {
@@ -7952,8 +7982,12 @@ function _gcCreateFreshPeer(fromId, data) {
         peer.pendingIce = [];
       }
       console.log("[GC] Answer sent to " + fromId);
-      setTimeout(function () { renderGroupCallPeer(fromId, peer); }, 500);
-      setTimeout(function () { renderGroupCallPeer(fromId, peer); }, 2000);
+      setTimeout(function () {
+        renderGroupCallPeer(fromId, peer);
+      }, 500);
+      setTimeout(function () {
+        renderGroupCallPeer(fromId, peer);
+      }, 2000);
     })
     .catch(function (err) {
       console.error("[GC] Group offer handle error:", err);
@@ -9126,87 +9160,96 @@ function gcToggleScreenShare() {
 
 function gcStartScreenShare() {
   if (!GC.active) return;
- 
+
   var currentSharers = Object.keys(GC.screenSharers).length;
   if (currentSharers >= 2) {
-    toast("Maximum 2 screen shares allowed. Someone must stop sharing first.", "e");
+    toast(
+      "Maximum 2 screen shares allowed. Someone must stop sharing first.",
+      "e",
+    );
     return;
   }
- 
-  navigator.mediaDevices.getDisplayMedia({
-    video: {
-      displaySurface: "monitor",
-      width: { ideal: window.screen.width },
-      height: { ideal: window.screen.height },
-      frameRate: { ideal: 30 },
-      cursor: "always",
-      logicalSurface: true,
-    },
-    audio: false,
-    selfBrowserSurface: "exclude",
-    monitorTypeSurfaces: "include",
-    systemAudio: "exclude",
-  })
-  .then(function (screenStream) {
-    GC.screenStream = screenStream;
-    GC.isScreenSharing = true;
-    var screenTrack = screenStream.getVideoTracks()[0];
-    GC.screenSenders = {};
- 
-    // Screen track ko ALAG stream ke saath add karo
-    // Isse receiver side pe stream IDs alag rahengi:
-    //   stream1 = camera (GC.localStream)
-    //   stream2 = screen (GC.screenStream)
-    Object.keys(GC.peers).forEach(function (pid) {
-      var pc = GC.peers[pid].pc;
-      GC.screenSenders[pid] = pc.addTrack(screenTrack, GC.screenStream);
+
+  navigator.mediaDevices
+    .getDisplayMedia({
+      video: {
+        displaySurface: "monitor",
+        width: { ideal: window.screen.width },
+        height: { ideal: window.screen.height },
+        frameRate: { ideal: 30 },
+        cursor: "always",
+        logicalSurface: true,
+      },
+      audio: false,
+      selfBrowserSurface: "exclude",
+      monitorTypeSurfaces: "include",
+      systemAudio: "exclude",
+    })
+    .then(function (screenStream) {
+      GC.screenStream = screenStream;
+      GC.isScreenSharing = true;
+      var screenTrack = screenStream.getVideoTracks()[0];
+      GC.screenSenders = {};
+
+      // Screen track ko ALAG stream ke saath add karo
+      // Isse receiver side pe stream IDs alag rahengi:
+      //   stream1 = camera (GC.localStream)
+      //   stream2 = screen (GC.screenStream)
+      Object.keys(GC.peers).forEach(function (pid) {
+        var pc = GC.peers[pid].pc;
+        GC.screenSenders[pid] = pc.addTrack(screenTrack, GC.screenStream);
+      });
+
+      // Saare peers ke saath renegotiate karo
+      Object.keys(GC.peers).forEach(function (pid) {
+        var pc = GC.peers[pid].pc;
+        pc.createOffer()
+          .then(function (offer) {
+            return pc.setLocalDescription(offer);
+          })
+          .then(function () {
+            if (S.globalWs && S.globalWs.readyState === 1) {
+              S.globalWs.send(
+                JSON.stringify({
+                  type: "group_call_offer",
+                  group_call_id: GC.groupCallId,
+                  target_user_id: parseInt(pid),
+                  sdp: pc.localDescription,
+                }),
+              );
+            }
+          })
+          .catch(function (err) {
+            console.error("GC screen share renegotiation error:", err);
+          });
+      });
+
+      // Saare peers ko batao ke screen share shuru ho gayi
+      gcSendScreenToggle(true);
+
+      // UI update
+      updateGcWaiting();
+      buildLocalThumb();
+      buildLocalScreenThumb();
+      refreshDualScreenView();
+      if (Object.keys(GC.screenSharers).length === 0) {
+        focusGcParticipant("local_screen");
+      }
+
+      var btn = document.getElementById("gc-screen-btn");
+      if (btn) {
+        btn.classList.add("screen-active");
+        btn.innerHTML =
+          '<i class="fa-solid fa-display"></i><span class="screen-dot"></span>';
+      }
+
+      screenTrack.onended = function () {
+        gcStopScreenShare();
+      };
+    })
+    .catch(function (err) {
+      console.log("Screen share cancelled:", err);
     });
- 
-    // Saare peers ke saath renegotiate karo
-    Object.keys(GC.peers).forEach(function (pid) {
-      var pc = GC.peers[pid].pc;
-      pc.createOffer()
-        .then(function (offer) { return pc.setLocalDescription(offer); })
-        .then(function () {
-          if (S.globalWs && S.globalWs.readyState === 1) {
-            S.globalWs.send(JSON.stringify({
-              type: "group_call_offer",
-              group_call_id: GC.groupCallId,
-              target_user_id: parseInt(pid),
-              sdp: pc.localDescription,
-            }));
-          }
-        })
-        .catch(function (err) {
-          console.error("GC screen share renegotiation error:", err);
-        });
-    });
- 
-    // Saare peers ko batao ke screen share shuru ho gayi
-    gcSendScreenToggle(true);
- 
-    // UI update
-    updateGcWaiting();
-    buildLocalThumb();
-    buildLocalScreenThumb();
-    refreshDualScreenView();
-    if (Object.keys(GC.screenSharers).length === 0) {
-      focusGcParticipant("local_screen");
-    }
- 
-    var btn = document.getElementById("gc-screen-btn");
-    if (btn) {
-      btn.classList.add("screen-active");
-      btn.innerHTML = '<i class="fa-solid fa-display"></i><span class="screen-dot"></span>';
-    }
- 
-    screenTrack.onended = function () {
-      gcStopScreenShare();
-    };
-  })
-  .catch(function (err) {
-    console.log("Screen share cancelled:", err);
-  });
 }
 
 function gcStopScreenShare() {
