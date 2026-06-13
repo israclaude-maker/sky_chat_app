@@ -11353,14 +11353,9 @@ function attachRCToVideo(vid) {
       throttleTimer = null;
     }, 16);
 
-    var normX = Math.max(
-      0,
-      Math.min(1, (e.clientX - window.screenX) / window.screen.width),
-    );
-    var normY = Math.max(
-      0,
-      Math.min(1, (e.clientY - window.screenY) / window.screen.height),
-    );
+    // Poori screen ke basis par normalize karo
+    var normX = Math.max(0, Math.min(1, e.screenX / window.screen.width));
+    var normY = Math.max(0, Math.min(1, e.screenY / window.screen.height));
 
     sendRCEvent("mousemove", normX, normY);
   };
@@ -11369,14 +11364,8 @@ function attachRCToVideo(vid) {
     e.preventDefault();
     e.stopPropagation();
 
-    var normX = Math.max(
-      0,
-      Math.min(1, (e.clientX - window.screenX) / window.screen.width),
-    );
-    var normY = Math.max(
-      0,
-      Math.min(1, (e.clientY - window.screenY) / window.screen.height),
-    );
+    var normX = Math.max(0, Math.min(1, e.screenX / window.screen.width));
+    var normY = Math.max(0, Math.min(1, e.screenY / window.screen.height));
 
     sendRCEvent("click", normX, normY);
 
@@ -11512,6 +11501,8 @@ function handleRemoteControlEvent(data) {
         event: data.event,
         x: data.x,
         y: data.y,
+        remoteScreenW: window.screen.width,
+        remoteScreenH: window.screen.height,
         key: data.key || "",
         direction: data.direction || "down",
         delta: data.delta || 0,
@@ -11579,6 +11570,9 @@ function sendRCEvent(ev, x, y, extra) {
             event: ev,
             x: x,
             y: y,
+            // Apni screen ka size bhi bhejo
+            myScreenW: window.screen.width,
+            myScreenH: window.screen.height,
           },
           extra || {},
         ),

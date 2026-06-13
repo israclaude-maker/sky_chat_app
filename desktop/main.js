@@ -447,14 +447,16 @@ const keyMap = {
 ipcMain.on("rc-event", (event, rawData) => {
   try {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
-    const { width, height } =
-      require("electron").screen.getPrimaryDisplay().size;
 
-    // Normalized coordinates ko pixels mein convert karo
-    const x = Math.round(Math.max(0, Math.min(1, data.x || 0)) * width);
-    const y = Math.round(Math.max(0, Math.min(1, data.y || 0)) * height);
-
-    console.log("[RC] Event:", data.event, "x:", x, "y:", y, "key:", data.key);
+    // Remote ki actual screen size use karo (jo unhone bheja)
+    const { screen } = require("electron");
+    const myScreen = screen.getPrimaryDisplay().size;
+    const x = Math.round(
+      Math.max(0, Math.min(1, data.x || 0)) * myScreen.width,
+    );
+    const y = Math.round(
+      Math.max(0, Math.min(1, data.y || 0)) * myScreen.height,
+    );
 
     if (data.event === "mousemove") {
       robot.moveMouse(x, y);
@@ -465,9 +467,6 @@ ipcMain.on("rc-event", (event, rawData) => {
       robot.moveMouse(x, y);
       setTimeout(() => robot.mouseClick("right"), 30);
     } else if (data.event === "scroll") {
-      // FIX: scrollMouse ko x, y ZAROORI hain
-      // Purana galat tha: robot.scrollMouse(amt)
-      // Sahi: robot.scrollMouse(x, y, amt)
       const curPos = robot.getMousePos();
       const scrollAmt = Math.max(1, Math.floor((data.delta || 120) / 40));
       if (data.direction === "down") {
@@ -477,48 +476,30 @@ ipcMain.on("rc-event", (event, rawData) => {
       }
     } else if (data.event === "keypress") {
       const k = data.key;
-
       if (k && k.length === 1) {
-        // Single printable character (a, b, c, 1, 2, !, @, etc.)
-        const mapped = k.toLowerCase();
         const modifiers = [];
         if (data.ctrl) modifiers.push("control");
         if (data.alt) modifiers.push("alt");
-        if (data.shift && k !== k.toLowerCase()) {
-          modifiers.push("shift");
-        }
+        if (data.shift && k !== k.toLowerCase()) modifiers.push("shift");
         try {
-          robot.keyTap(mapped, modifiers);
+          robot.keyTap(k.toLowerCase(), modifiers);
         } catch (e) {
-          console.warn("[RC] keyTap failed for:", mapped, e.message);
-          // Fallback: typeString try karo
           try {
             robot.typeString(k);
           } catch (e2) {}
         }
       } else if (k && keyMap[k]) {
-        // Special key (Enter, Backspace, Arrow, F1, etc.)
-        const mapped = keyMap[k];
         const modifiers = [];
         if (data.ctrl) modifiers.push("control");
         if (data.shift) modifiers.push("shift");
         if (data.alt) modifiers.push("alt");
         try {
-          robot.keyTap(mapped, modifiers);
-        } catch (e) {
-          console.warn("[RC] keyTap failed for:", mapped, e.message);
-        }
-      } else if (k) {
-        // Unknown key — typeString try karo
-        try {
-          robot.typeString(k);
-        } catch (e) {
-          console.warn("[RC] typeString failed:", k, e.message);
-        }
+          robot.keyTap(keyMap[k], modifiers);
+        } catch (e) {}
       }
     }
   } catch (e) {
-    console.error("[RC] Error processing event:", e.message);
+    console.error("[RC] Error:", e.message);
   }
 });
 
