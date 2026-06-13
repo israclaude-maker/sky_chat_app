@@ -6208,6 +6208,7 @@ function showOngoingCall() {
   if (lbl) lbl.remove();
 
   // ── Set avatar & name ───────────────────────────────────────
+
   var ongoingAv = $("ongoing-av");
   if (ongoingAv) {
     ongoingAv.src = CallState.remoteProfilePic || seed("User");
@@ -6217,6 +6218,9 @@ function showOngoingCall() {
   if (ongoingName) ongoingName.textContent = CallState.remoteUserName;
 
   showCallOverlay("ongoing-call");
+
+  var rcBtn = $("rc-btn");
+  if (rcBtn) rcBtn.style.display = "flex";
 
   CallState.callStartTime = Date.now();
   CallState.timerInterval = setInterval(updateCallTimer, 1000);
