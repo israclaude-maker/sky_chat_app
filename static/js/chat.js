@@ -5468,7 +5468,6 @@ function doInitWebRTC(isInitiator, callback) {
         }
       }
     }
-
     if (e.track.kind === "video") {
       // Check if we already have a camera video element assigned
       var existingRemoteVideo = $("remote-video");
@@ -5480,7 +5479,12 @@ function doInitWebRTC(isInitiator, callback) {
           return t.readyState !== "ended";
         });
 
-      if (hasExistingCamera) {
+      // Agar remote ne camera off rakha hai aur screen_toggle pehle aa gaya hai,
+      // to ye track screen samjho (camera na ho to bhi)
+      var expectingScreenShare =
+        CallState._pendingScreenToggle && !CallState.remoteScreenStream;
+
+      if (hasExistingCamera || expectingScreenShare) {
         // Second video track = screen share
         // Second video track = screen share
         console.log("Routing second video track to remote-screen-video");
@@ -6036,7 +6040,7 @@ function handleScreenAnswer(data) {
           console.log("[ScreenAnswer] Screen track ended, skip toggle");
           return;
         }
-        var surfaceType = screenTrack.getSettings().displaySurface || "monitor";
+        var surfaceType = "monitor"; // Electron mein getSettings() kaam nahi karta
         console.log(
           "[ScreenAnswer] Sending screen_toggle, surface:",
           surfaceType,
@@ -6365,18 +6369,25 @@ function startScreenShare() {
                 sdp: CallState.pc.localDescription,
               }),
             );
-            ws.send(
-              JSON.stringify({
-                type: "screen_toggle",
-                target_user_id: CallState.remoteUserId,
-                sharing: true,
-                surface_type:
-                  (CallState.screenStream &&
-                    CallState.screenStream.getVideoTracks()[0].getSettings()
-                      .displaySurface) ||
-                  "monitor",
-              }),
-            );
+            // screen_toggle screen_answer ke baad bhejna better hai
+            // lekin yahan bhi bhejo backup ke tor par
+            console.log("[ScreenShare] Sending screen_toggle after offer");
+            setTimeout(function () {
+              if (CallState.isScreenSharing && CallState.screenStream) {
+                var ws2 = S.globalWs || S.ws;
+                if (ws2 && ws2.readyState === WebSocket.OPEN) {
+                  ws2.send(
+                    JSON.stringify({
+                      type: "screen_toggle",
+                      target_user_id: CallState.remoteUserId,
+                      sharing: true,
+                      surface_type: "monitor",
+                    }),
+                  );
+                  console.log("[ScreenShare] screen_toggle sent (backup)");
+                }
+              }
+            }, 1000);
           }
         })
         .catch(function (err) {
