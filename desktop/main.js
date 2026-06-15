@@ -158,7 +158,7 @@ function createWindow() {
         callback({});
       }
     },
-    { useSystemPicker: false },
+    { useSystemPicker: true },
   );
 
   // ─── Permission grants ───

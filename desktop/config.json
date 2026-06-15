@@ -1,1 +1,5 @@
-{"serverUrl": "https://skyfinancia.com", "appName": "SkyChat", "mode": "remote"} 
+{
+  "serverUrl": "https://skyfinancia.com",
+  "appName": "SkyChat",
+  "mode": "remote"
+}
