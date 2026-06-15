@@ -11353,9 +11353,9 @@ function attachRCToVideo(vid) {
       throttleTimer = null;
     }, 16);
 
-    // Poori screen ke basis par normalize karo
-    var normX = Math.max(0, Math.min(1, e.screenX / window.screen.width));
-    var normY = Math.max(0, Math.min(1, e.screenY / window.screen.height));
+    var rect = vid.getBoundingClientRect();
+    var normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    var normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
 
     sendRCEvent("mousemove", normX, normY);
   };
@@ -11364,8 +11364,9 @@ function attachRCToVideo(vid) {
     e.preventDefault();
     e.stopPropagation();
 
-    var normX = Math.max(0, Math.min(1, e.screenX / window.screen.width));
-    var normY = Math.max(0, Math.min(1, e.screenY / window.screen.height));
+    var rect = vid.getBoundingClientRect();
+    var normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    var normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
 
     sendRCEvent("click", normX, normY);
 
