@@ -91,12 +91,65 @@ function createWindow() {
   mainWindow.webContents.session.setDisplayMediaRequestHandler(
     async (request, callback) => {
       try {
+        const { screen } = require("electron");
+        const primaryDisplay = screen.getPrimaryDisplay();
+        const scaleFactor = primaryDisplay.scaleFactor || 1;
+
         const sources = await desktopCapturer.getSources({
           types: ["screen"],
-          thumbnailSize: { width: 150, height: 100 },
+          thumbnailSize: {
+            width: Math.floor(primaryDisplay.size.width * scaleFactor),
+            height: Math.floor(primaryDisplay.size.height * scaleFactor),
+          },
+          fetchWindowIcons: false,
         });
-        if (sources.length > 0) {
-          callback({ video: sources[0], audio: false });
+
+        console.log(
+          "[ScreenShare] Available sources:",
+          sources.map((s) => ({ id: s.id, name: s.name })),
+        );
+
+        // Sab se pehle "screen:" wala source dhundo (primary screen)
+        let bestSource = null;
+
+        for (const source of sources) {
+          // Electron mein primary screen ka id "screen:0:0" hota hai
+          if (source.id === "screen:0:0" || source.id.startsWith("screen:0")) {
+            bestSource = source;
+            console.log("[ScreenShare] Found primary by ID:", source.id);
+            break;
+          }
+        }
+
+        // Agar ID se nahi mila to name se dhundo
+        if (!bestSource) {
+          for (const source of sources) {
+            const name = source.name.toLowerCase();
+            if (
+              name.includes("entire screen") ||
+              name.includes("screen 1") ||
+              name.includes("display 1") ||
+              name === "screen 0" ||
+              name.includes("your entire screen")
+            ) {
+              bestSource = source;
+              console.log("[ScreenShare] Found primary by name:", source.name);
+              break;
+            }
+          }
+        }
+
+        // Fallback: pehla source
+        if (!bestSource && sources.length > 0) {
+          bestSource = sources[0];
+          console.log("[ScreenShare] Using first source:", bestSource.name);
+        }
+
+        if (bestSource) {
+          callback({
+            video: bestSource, // Poora source object do — id aur display_id sab
+            audio: false,
+          });
         } else {
           callback({});
         }

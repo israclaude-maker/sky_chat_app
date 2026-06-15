@@ -5977,7 +5977,17 @@ function flushPendingIceCandidates() {
 function handleScreenOffer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
   console.log("Received screen_offer, renegotiating...");
-  CallState._pendingScreenToggle = true; // ← YEH ADD KARO
+
+  // Pehle se koi renegotiation chal rahi hai to wait karo
+  if (CallState.pc.signalingState !== "stable") {
+    console.log("[ScreenOffer] Signaling not stable, queuing...");
+    setTimeout(function () {
+      handleScreenOffer(data);
+    }, 500);
+    return;
+  }
+
+  CallState._pendingScreenToggle = true;
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
@@ -6005,7 +6015,6 @@ function handleScreenOffer(data) {
 
 function handleScreenAnswer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
-  // Duplicate screen_answer block karo
   if (CallState._screenAnswerHandled) {
     console.log("Duplicate screen_answer ignore kar raha hun");
     return;
@@ -6019,7 +6028,19 @@ function handleScreenAnswer(data) {
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
-      if (CallState.isScreenSharing) {
+      // Screen toggle sirf tab bhejo jab screen share actually chal rahi ho
+      // aur track ready ho — camera toggle se confusion na ho
+      if (CallState.isScreenSharing && CallState.screenStream) {
+        var screenTrack = CallState.screenStream.getVideoTracks()[0];
+        if (!screenTrack || screenTrack.readyState === "ended") {
+          console.log("[ScreenAnswer] Screen track ended, skip toggle");
+          return;
+        }
+        var surfaceType = screenTrack.getSettings().displaySurface || "monitor";
+        console.log(
+          "[ScreenAnswer] Sending screen_toggle, surface:",
+          surfaceType,
+        );
         var ws = S.globalWs || S.ws;
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(
@@ -6027,11 +6048,7 @@ function handleScreenAnswer(data) {
               type: "screen_toggle",
               target_user_id: CallState.remoteUserId,
               sharing: true,
-              surface_type:
-                (CallState.screenStream &&
-                  CallState.screenStream.getVideoTracks()[0].getSettings()
-                    .displaySurface) ||
-                "monitor",
+              surface_type: surfaceType,
             }),
           );
         }
