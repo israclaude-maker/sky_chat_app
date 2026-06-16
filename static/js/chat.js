@@ -6387,7 +6387,13 @@ function startScreenShare() {
           }
         })
         .catch(function (err) {
-          console.error("Screen renegotiate error:", err);
+          console.error(
+            "Screen renegotiate error:",
+            err,
+            "signalingState:",
+            CallState.pc?.signalingState,
+          );
+          toast("Screen share renegotiate failed: " + err.message, "e");
         });
 
       // ── local video: keep camera visible as small PIP ────────
