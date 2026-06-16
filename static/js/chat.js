@@ -5469,26 +5469,22 @@ function doInitWebRTC(isInitiator, callback) {
       }
     }
     if (e.track.kind === "video") {
-      // Track counter se pata karo — pehla video = camera, doosra = screen
-      var videoReceiverCount = 0;
-      if (CallState.pc) {
-        CallState.pc.getReceivers().forEach(function (r) {
-          if (r.track && r.track.kind === "video") videoReceiverCount++;
-        });
-      }
-      // Agar screen_toggle pending hai ya pehle se camera track aa chuka hai
-      var expectingScreenShare = CallState._pendingScreenToggle;
+      // Check if we already have a camera video element assigned
+      var existingRemoteVideo = $("remote-video");
       var hasExistingCamera =
-        CallState.remoteStream &&
-        CallState.remoteStream.getVideoTracks().some(function (t) {
+        existingRemoteVideo &&
+        existingRemoteVideo.srcObject &&
+        existingRemoteVideo.srcObject.getVideoTracks().length > 0 &&
+        existingRemoteVideo.srcObject.getVideoTracks().some(function (t) {
           return t.readyState !== "ended";
         });
 
-      if (
-        hasExistingCamera ||
-        expectingScreenShare ||
-        videoReceiverCount >= 2
-      ) {
+      // Agar remote ne camera off rakha hai aur screen_toggle pehle aa gaya hai,
+      // to ye track screen samjho (camera na ho to bhi)
+      var expectingScreenShare =
+        CallState._pendingScreenToggle && !CallState.remoteScreenStream;
+
+      if (hasExistingCamera || expectingScreenShare) {
         // Second video track = screen share
         // Second video track = screen share
         console.log("Routing second video track to remote-screen-video");
@@ -6023,24 +6019,43 @@ function handleScreenOffer(data) {
 
 function handleScreenAnswer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
+  if (CallState._screenAnswerHandled) {
+    console.log("Duplicate screen_answer ignore kar raha hun");
+    return;
+  }
+  CallState._screenAnswerHandled = true;
+  setTimeout(function () {
+    CallState._screenAnswerHandled = false;
+  }, 3000);
+
   console.log("Received screen_answer");
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
-      var ws = S.globalWs || S.ws;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            type: "screen_toggle",
-            target_user_id: CallState.remoteUserId,
-            sharing: !!CallState.isScreenSharing,
-            surface_type: "monitor",
-          }),
-        );
+      // Screen toggle sirf tab bhejo jab screen share actually chal rahi ho
+      // aur track ready ho — camera toggle se confusion na ho
+      if (CallState.isScreenSharing && CallState.screenStream) {
+        var screenTrack = CallState.screenStream.getVideoTracks()[0];
+        if (!screenTrack || screenTrack.readyState === "ended") {
+          console.log("[ScreenAnswer] Screen track ended, skip toggle");
+          return;
+        }
+        var surfaceType = "monitor"; // Electron mein getSettings() kaam nahi karta
         console.log(
-          "[ScreenAnswer] screen_toggle sent, sharing:",
-          CallState.isScreenSharing,
+          "[ScreenAnswer] Sending screen_toggle, surface:",
+          surfaceType,
         );
+        var ws = S.globalWs || S.ws;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: "screen_toggle",
+              target_user_id: CallState.remoteUserId,
+              sharing: true,
+              surface_type: surfaceType,
+            }),
+          );
+        }
       }
     })
     .catch(function (err) {
@@ -6057,18 +6072,7 @@ function handleScreenToggle(data) {
   if (data.sharing) {
     var attempts = 0;
     function waitForStream() {
-      var screenStream = CallState.remoteScreenStream;
-      // Fallback: agar remoteScreenStream nahi to remoteStream ko screen samjho
-      if (!screenStream && CallState.remoteStream) {
-        var remoteTracks = CallState.remoteStream.getVideoTracks();
-        if (remoteTracks.length > 0 && remoteTracks[0].readyState === "live") {
-          screenStream = CallState.remoteStream;
-          CallState.remoteScreenStream = screenStream;
-          var rsv = $("remote-screen-video");
-          if (rsv) rsv.srcObject = screenStream;
-        }
-      }
-      if (screenStream) {
+      if (CallState.remoteScreenStream) {
         CallState._pendingScreenToggle = false;
         _applyScreenToggleOn(
           remoteVideo,
@@ -6076,10 +6080,10 @@ function handleScreenToggle(data) {
           localVid,
           ongoingAv,
         );
-      } else if (attempts++ < 60) {
+      } else if (attempts++ < 25) {
         setTimeout(waitForStream, 200);
       } else {
-        console.warn("[ScreenToggle] stream 12s baad bhi nahi aya");
+        console.warn("[ScreenToggle] stream 5s baad bhi nahi aya");
       }
     }
     waitForStream();
@@ -6351,7 +6355,7 @@ function startScreenShare() {
       // Add screen track as new sender + renegotiate
       CallState.screenSender = CallState.pc.addTrack(screenTrack, screenStream);
       CallState.pc
-        .createOffer({ iceRestart: true })
+        .createOffer()
         .then(function (offer) {
           return CallState.pc.setLocalDescription(offer);
         })
@@ -6387,13 +6391,7 @@ function startScreenShare() {
           }
         })
         .catch(function (err) {
-          console.error(
-            "Screen renegotiate error:",
-            err,
-            "signalingState:",
-            CallState.pc?.signalingState,
-          );
-          toast("Screen share renegotiate failed: " + err.message, "e");
+          console.error("Screen renegotiate error:", err);
         });
 
       // ── local video: keep camera visible as small PIP ────────
@@ -9081,6 +9079,12 @@ function gcToggleMic() {
 function toggleCam() {
   if (!CallState.isInCall || !CallState.localStream) return;
 
+  // If screen sharing is active, warn user first
+  if (CallState.isScreenSharing) {
+    toast("Stop screen sharing before toggling camera", "e");
+    return;
+  }
+
   var videoTracks = CallState.localStream.getVideoTracks();
 
   if (videoTracks.length > 0 && !CallState.isCamOff) {
@@ -9216,6 +9220,8 @@ function gcStartScreenShare() {
       var screenTrack = screenStream.getVideoTracks()[0];
       GC.screenSenders = {};
 
+      // Screen track ko ALAG stream ke saath add karo
+      // Isse receiver side pe stream IDs alag rahengi:
       //   stream1 = camera (GC.localStream)
       //   stream2 = screen (GC.screenStream)
       Object.keys(GC.peers).forEach(function (pid) {
