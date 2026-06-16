@@ -879,7 +879,7 @@ body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 12px;
+  padding: 16px 8px 16px 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -887,7 +887,7 @@ body {
 
 .msg-row {
   display: flex;
-  max-width: 65%;
+  max-width: 75%;
   position: relative;
   animation: msgIn 0.2s ease-out;
 }
@@ -911,7 +911,7 @@ body {
 .msg-row.out {
   align-self: flex-end;
   flex-direction: row-reverse;
-  padding-right: 10px; /* ← yeh add karo */
+  padding-right: 4px; /* ← yeh add karo */
 }
 
 .msg-row.consec {
@@ -1099,7 +1099,7 @@ body {
 }
 
 .msg-row.out .msg-dropdown-btn {
-  left: -36px;
+  left: -32px;
 }
 
 .msg-dropdown-btn:hover {
@@ -5180,5 +5180,18 @@ body {
   }
   50% {
     opacity: 0.75;
+  }
+}
+
+@media (max-width: 768px) {
+  .msg-row {
+    max-width: 82%;
+  }
+  .msg-row.out {
+    padding-right: 2px;
+    margin-right: 1px;
+  }
+  .out:not(.consec) .bubble::before {
+    right: -6px;
   }
 }
