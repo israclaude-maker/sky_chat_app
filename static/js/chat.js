@@ -5469,22 +5469,26 @@ function doInitWebRTC(isInitiator, callback) {
       }
     }
     if (e.track.kind === "video") {
-      // Check if we already have a camera video element assigned
-      var existingRemoteVideo = $("remote-video");
+      // Track counter se pata karo — pehla video = camera, doosra = screen
+      var videoReceiverCount = 0;
+      if (CallState.pc) {
+        CallState.pc.getReceivers().forEach(function (r) {
+          if (r.track && r.track.kind === "video") videoReceiverCount++;
+        });
+      }
+      // Agar screen_toggle pending hai ya pehle se camera track aa chuka hai
+      var expectingScreenShare = CallState._pendingScreenToggle;
       var hasExistingCamera =
-        existingRemoteVideo &&
-        existingRemoteVideo.srcObject &&
-        existingRemoteVideo.srcObject.getVideoTracks().length > 0 &&
-        existingRemoteVideo.srcObject.getVideoTracks().some(function (t) {
+        CallState.remoteStream &&
+        CallState.remoteStream.getVideoTracks().some(function (t) {
           return t.readyState !== "ended";
         });
 
-      // Agar remote ne camera off rakha hai aur screen_toggle pehle aa gaya hai,
-      // to ye track screen samjho (camera na ho to bhi)
-      var expectingScreenShare =
-        CallState._pendingScreenToggle && !CallState.remoteScreenStream;
-
-      if (hasExistingCamera || expectingScreenShare) {
+      if (
+        hasExistingCamera ||
+        expectingScreenShare ||
+        videoReceiverCount >= 2
+      ) {
         // Second video track = screen share
         // Second video track = screen share
         console.log("Routing second video track to remote-screen-video");
@@ -6347,7 +6351,7 @@ function startScreenShare() {
       // Add screen track as new sender + renegotiate
       CallState.screenSender = CallState.pc.addTrack(screenTrack, screenStream);
       CallState.pc
-        .createOffer()
+        .createOffer({ iceRestart: true })
         .then(function (offer) {
           return CallState.pc.setLocalDescription(offer);
         })
@@ -9206,8 +9210,6 @@ function gcStartScreenShare() {
       var screenTrack = screenStream.getVideoTracks()[0];
       GC.screenSenders = {};
 
-      // Screen track ko ALAG stream ke saath add karo
-      // Isse receiver side pe stream IDs alag rahengi:
       //   stream1 = camera (GC.localStream)
       //   stream2 = screen (GC.screenStream)
       Object.keys(GC.peers).forEach(function (pid) {
