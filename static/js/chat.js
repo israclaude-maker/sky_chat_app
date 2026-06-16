@@ -6083,7 +6083,7 @@ function handleScreenToggle(data) {
           localVid,
           ongoingAv,
         );
-      } else if (attempts++ < 25) {
+      } else if (attempts++ < 50) {
         setTimeout(waitForStream, 200);
       } else {
         console.warn("[ScreenToggle] stream 5s baad bhi nahi aya");
@@ -6358,7 +6358,7 @@ function startScreenShare() {
       // Add screen track as new sender + renegotiate
       CallState.screenSender = CallState.pc.addTrack(screenTrack, screenStream);
       CallState.pc
-        .createOffer()
+        .createOffer({ iceRestart: true })
         .then(function (offer) {
           return CallState.pc.setLocalDescription(offer);
         })
@@ -9081,13 +9081,6 @@ function gcToggleMic() {
 
 function toggleCam() {
   if (!CallState.isInCall || !CallState.localStream) return;
-
-  // If screen sharing is active, warn user first
-  if (CallState.isScreenSharing) {
-    toast("Stop screen sharing before toggling camera", "e");
-    return;
-  }
-
   var videoTracks = CallState.localStream.getVideoTracks();
 
   if (videoTracks.length > 0 && !CallState.isCamOff) {
