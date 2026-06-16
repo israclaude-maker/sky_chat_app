@@ -5469,33 +5469,28 @@ function doInitWebRTC(isInitiator, callback) {
       }
     }
     if (e.track.kind === "video") {
-      // Check if we already have a camera video element assigned
-      var existingRemoteVideo = $("remote-video");
-      var hasExistingCamera =
-        existingRemoteVideo &&
-        existingRemoteVideo.srcObject &&
-        existingRemoteVideo.srcObject.getVideoTracks().length > 0 &&
-        existingRemoteVideo.srcObject.getVideoTracks().some(function (t) {
-          return t.readyState !== "ended";
+      // Count karo kitne video senders remote side pe hain
+      var videoTrackCount = 0;
+      if (CallState.pc) {
+        CallState.pc.getReceivers().forEach(function (r) {
+          if (r.track && r.track.kind === "video") videoTrackCount++;
         });
+      }
 
-      // Agar remote ne camera off rakha hai aur screen_toggle pehle aa gaya hai,
-      // to ye track screen samjho (camera na ho to bhi)
-      var expectingScreenShare =
-        CallState._pendingScreenToggle && !CallState.remoteScreenStream;
+      var isScreenTrack =
+        videoTrackCount >= 2 || CallState._pendingScreenToggle;
 
-      if (hasExistingCamera || expectingScreenShare) {
-        // Second video track = screen share
-        // Second video track = screen share
-        console.log("Routing second video track to remote-screen-video");
+      if (isScreenTrack) {
+        console.log(
+          "Routing to remote-screen-video, track count:",
+          videoTrackCount,
+        );
         CallState.remoteScreenStream = e.streams[0];
         var remoteScreenVideo = $("remote-screen-video");
         if (remoteScreenVideo) {
           remoteScreenVideo.srcObject = e.streams[0];
         }
-        // Agar toggle pehle aa chuka tha to ab apply karo
         if (CallState._pendingScreenToggle) {
-          console.log("[ontrack] Pending toggle mil gaya, apply kar raha hun");
           handleScreenToggle({ sharing: true });
         }
         e.track.onended = function () {
@@ -5511,7 +5506,7 @@ function doInitWebRTC(isInitiator, callback) {
           }
         };
       } else {
-        // First video track = camera → remote-video
+        console.log("Routing to remote-video (camera)");
         var remoteVideo = $("remote-video");
         if (remoteVideo) {
           remoteVideo.srcObject = e.streams[0];
@@ -6072,7 +6067,15 @@ function handleScreenToggle(data) {
   if (data.sharing) {
     var attempts = 0;
     function waitForStream() {
-      if (CallState.remoteScreenStream) {
+      // remoteScreenStream nahi mila to remoteStream ko screen samjho
+      var screenStream = CallState.remoteScreenStream || CallState.remoteStream;
+      if (screenStream) {
+        // Ensure remoteScreenStream set hai
+        if (!CallState.remoteScreenStream && CallState.remoteStream) {
+          CallState.remoteScreenStream = CallState.remoteStream;
+          var rsv = $("remote-screen-video");
+          if (rsv) rsv.srcObject = CallState.remoteStream;
+        }
         CallState._pendingScreenToggle = false;
         _applyScreenToggleOn(
           remoteVideo,
