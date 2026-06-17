@@ -5481,8 +5481,8 @@ function doInitWebRTC(isInitiator, callback) {
 
       // Agar remote ne camera off rakha hai aur screen_toggle pehle aa gaya hai,
       // to ye track screen samjho (camera na ho to bhi)
-      var expectingScreenShare =
-        CallState._pendingScreenToggle && !CallState.remoteScreenStream;
+var expectingScreenShare =
+        (CallState._pendingScreenToggle || CallState._screenOfferInProgress) && !CallState.remoteScreenStream;
 
       if (hasExistingCamera || expectingScreenShare) {
         // Second video track = screen share
@@ -5991,7 +5991,8 @@ function handleScreenOffer(data) {
     return;
   }
 
-  CallState._pendingScreenToggle = true;
+CallState._pendingScreenToggle = true;
+  CallState._screenOfferInProgress = true;
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
@@ -6001,7 +6002,7 @@ function handleScreenOffer(data) {
       return CallState.pc.setLocalDescription(answer);
     })
     .then(function () {
-      var ws = S.globalWs || S.ws;
+var ws = S.globalWs || S.ws;
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(
           JSON.stringify({
@@ -6011,6 +6012,8 @@ function handleScreenOffer(data) {
           }),
         );
       }
+      // Receiver side: screen_toggle expect karo — flag set karo
+      console.log("[ScreenOffer] Answer sent, waiting for ontrack + toggle");
     })
     .catch(function (err) {
       console.error("Screen offer handling error:", err);
@@ -6040,6 +6043,7 @@ function handleScreenAnswer(data) {
           console.log("[ScreenAnswer] Screen track ended, skip toggle");
           return;
         }
+        CallState._screenOfferInProgress = false;
         var surfaceType = "monitor"; // Electron mein getSettings() kaam nahi karta
         console.log(
           "[ScreenAnswer] Sending screen_toggle, surface:",
