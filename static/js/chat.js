@@ -8233,46 +8233,52 @@ function setupGroupPeerHandlers(pc, peer, peerId) {
   };
 
   pc.ontrack = function (event) {
-    var incomingStream = event.streams && event.streams[0];
+    var track = event.track;
+    var incomingStream = (event.streams && event.streams[0]) || null;
 
-    // Agar koi stream nahi mila
-    if (!incomingStream) {
-      if (!peer.stream) {
-        peer.stream = new MediaStream();
+    console.log(
+      "[GC] ontrack from",
+      peerId,
+      "kind:",
+      track.kind,
+      "streamId:",
+      incomingStream ? incomingStream.id : "none",
+      "existing camera stream:",
+      peer.stream ? peer.stream.id : "none",
+    );
+
+    if (track.kind === "audio") {
+      // Audio track — camera stream mein add karo ya naya banao
+      if (!peer.stream) peer.stream = incomingStream || new MediaStream();
+      if (incomingStream && !peer.stream.getAudioTracks().length) {
+        // already in stream via incomingStream ref
       }
-      peer.stream.addTrack(event.track);
       renderGroupCallPeer(peerId, peer);
       return;
     }
 
-    var streamId = incomingStream.id;
-
-    // Agar yeh stream pehle se track ki gayi hai — sirf render karo
-    if (peer.stream && peer.stream.id === streamId) {
-      renderGroupCallPeer(peerId, peer);
-      return;
-    }
-
-    // Agar yeh screen stream ka update hai
-    if (peer.screenStream && peer.screenStream.id === streamId) {
-      renderGroupCallPeer(peerId, peer);
-      return;
-    }
-
-    // Bilkul naya stream
+    // Video track handling
     if (!peer.stream) {
-      // Pehla stream = camera
-      peer.stream = incomingStream;
-      console.log("[GC] peer " + peerId + " camera stream set: " + streamId);
+      // Pehla video track = camera stream
+      peer.stream = incomingStream || new MediaStream([track]);
+      console.log(
+        "[GC] peer " + peerId + " CAMERA stream set:",
+        peer.stream.id,
+      );
+      renderGroupCallPeer(peerId, peer);
+    } else if (incomingStream && peer.stream.id === incomingStream.id) {
+      // Same stream — camera update
       renderGroupCallPeer(peerId, peer);
     } else {
-      // Doosra stream = screen share
+      // Alag stream = screen share
+      var screenStream = incomingStream || new MediaStream([track]);
       console.log(
-        "[GC] peer " + peerId + " screen stream received: " + streamId,
+        "[GC] peer " + peerId + " SCREEN stream received:",
+        screenStream.id,
       );
-      peer._pendingScreenStream = incomingStream;
+      peer._pendingScreenStream = screenStream;
 
-      // Agar screen toggle pehle aa gaya tha to turant apply karo
+      // Agar screen toggle already aa chuka hai toh turant apply karo
       if (GC.screenSharers[peerId]) {
         peer.screenStream = peer._pendingScreenStream;
         peer._pendingScreenStream = null;
@@ -8283,12 +8289,13 @@ function setupGroupPeerHandlers(pc, peer, peerId) {
       }
     }
 
-    event.track.onunmute = function () {
+    track.onunmute = function () {
       renderGroupCallPeer(peerId, peer);
     };
 
-    event.track.onended = function () {
-      if (peer.screenStream && peer.screenStream.id === streamId) {
+    track.onended = function () {
+      var streamId = incomingStream ? incomingStream.id : null;
+      if (peer.screenStream && streamId && peer.screenStream.id === streamId) {
         peer.screenStream = null;
         delete GC.screenSharers[peerId];
         var sThumb = document.getElementById("gc-thumb-" + peerId + "_screen");
@@ -9254,7 +9261,9 @@ function gcStartScreenShare() {
       });
 
       // Saare peers ko batao ke screen share shuru ho gayi
-      gcSendScreenToggle(true);
+      setTimeout(function () {
+        gcSendScreenToggle(true);
+      }, 2000);
 
       // UI update
       updateGcWaiting();
@@ -9412,6 +9421,7 @@ function handleGcScreenToggle(data) {
             })
           : [];
 
+        // Explicitly woh track dhundo jo camera stream mein nahi hai
         var screenReceiver = null;
         for (var i = 0; i < videoReceivers.length; i++) {
           if (camTrackIds.indexOf(videoReceivers[i].track.id) === -1) {
@@ -9422,20 +9432,43 @@ function handleGcScreenToggle(data) {
 
         if (screenReceiver) {
           clearInterval(poll);
-          console.log("[GC] Screen track found via receiver for peer", fromId);
+          console.log(
+            "[GC] Screen track found via receiver for peer",
+            fromId,
+            "track:",
+            screenReceiver.track.id,
+          );
           p.screenStream = new MediaStream([screenReceiver.track]);
+          p._pendingScreenStream = null;
           _applyGcScreenShare(fromId, p);
           return;
         }
 
-        if (
-          videoReceivers.length === 1 &&
-          (!p.stream || p.stream.getVideoTracks().length === 0)
-        ) {
+        // Agar sirf ek video track hai aur camera nahi — yeh screen hai
+        if (videoReceivers.length === 1 && camTrackIds.length === 0) {
           clearInterval(poll);
+          console.log(
+            "[GC] Only one video track, treating as screen for peer",
+            fromId,
+          );
           p.screenStream = new MediaStream([videoReceivers[0].track]);
+          p._pendingScreenStream = null;
           _applyGcScreenShare(fromId, p);
           return;
+        }
+
+        // 2 video tracks hain — doosra screen hai
+        if (videoReceivers.length >= 2) {
+          clearInterval(poll);
+          // Doosra track screen hai
+          for (var j = 0; j < videoReceivers.length; j++) {
+            if (camTrackIds.indexOf(videoReceivers[j].track.id) === -1) {
+              p.screenStream = new MediaStream([videoReceivers[j].track]);
+              p._pendingScreenStream = null;
+              _applyGcScreenShare(fromId, p);
+              return;
+            }
+          }
         }
       }
 
