@@ -4654,6 +4654,9 @@ var CallState = {
   screenSender: null,
   originalVideoTrack: null,
   expectedScreenTrackId: null, // NAYA
+  negotiating: false, // NAYA — renegotiation glare-guard
+  processingRemoteOffer: false, // NAYA
+  pendingNegotiation: null, // NAYA
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -5959,11 +5962,69 @@ function flushPendingIceCandidates() {
   pendingIceCandidates = [];
 }
 
+// ── Renegotiation serializer (camera-toggle / screen-share offers collide na karein) ──
+function send1on1Offer(extraFields, retryCount) {
+  retryCount = retryCount || 0;
+  if (!CallState.pc || !CallState.isInCall) return;
+
+  // Doosri taraf ka offer process ho raha hai, ya hum khud pehle se offer bhej rahe hain
+  // to thori dair wait karo, phir dobara try karo
+  if (CallState.negotiating || CallState.processingRemoteOffer) {
+    if (retryCount > 25) {
+      console.warn("[Renegotiate] gave up after waiting too long");
+      return;
+    }
+    CallState.pendingNegotiation = extraFields || {};
+    setTimeout(function () {
+      send1on1Offer(CallState.pendingNegotiation, retryCount + 1);
+    }, 200);
+    return;
+  }
+
+  CallState.negotiating = true;
+  CallState.pc
+    .createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
+    .then(function (offer) {
+      return CallState.pc.setLocalDescription(offer);
+    })
+    .then(function () {
+      var ws = S.globalWs || S.ws;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify(
+            Object.assign(
+              {
+                type: "screen_offer",
+                target_user_id: CallState.remoteUserId,
+                sdp: CallState.pc.localDescription,
+              },
+              extraFields || {},
+            ),
+          ),
+        );
+      }
+    })
+    .catch(function (err) {
+      console.error("[Renegotiate] offer error:", err);
+      toast("Connection update failed, retrying...", "e");
+    })
+    .finally(function () {
+      CallState.negotiating = false;
+      if (CallState.pendingNegotiation) {
+        var next = CallState.pendingNegotiation;
+        CallState.pendingNegotiation = null;
+        setTimeout(function () {
+          send1on1Offer(next, 0);
+        }, 250);
+      }
+    });
+}
+
 // Screen share renegotiation handlers
 function handleScreenOffer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
 
-  if (CallState.pc.signalingState !== "stable") {
+  if (CallState.pc.signalingState !== "stable" || CallState.negotiating) {
     setTimeout(function () {
       handleScreenOffer(data);
     }, 500);
@@ -5975,6 +6036,7 @@ function handleScreenOffer(data) {
     CallState.expectedScreenTrackId = data.screen_track_id;
   }
 
+  CallState.processingRemoteOffer = true;
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
@@ -5997,6 +6059,9 @@ function handleScreenOffer(data) {
     })
     .catch(function (err) {
       console.error("Screen offer handling error:", err);
+    })
+    .finally(function () {
+      CallState.processingRemoteOffer = false;
     });
 }
 
@@ -6440,47 +6505,23 @@ function stopScreenShare() {
   var localVid = $("local-video");
 
   if (CallState.screenSender && CallState.pc) {
-    // Remove screen sender + renegotiate
+    // Remove screen sender + renegotiate (sirf ek offer, glare-safe)
     try {
       CallState.pc.removeTrack(CallState.screenSender);
     } catch (e) {}
     CallState.screenSender = null;
-    CallState.pc
-      .createOffer()
-      .then(function (offer) {
-        return CallState.pc.setLocalDescription(offer);
-      })
-      .then(function () {
-        var ws = S.globalWs || S.ws;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(
-            JSON.stringify({
-              type: "screen_offer",
-              target_user_id: CallState.remoteUserId,
-              sdp: CallState.pc.localDescription,
-            }),
-          );
-          ws.send(
-            JSON.stringify({
-              type: "screen_toggle",
-              target_user_id: CallState.remoteUserId,
-              sharing: false,
-            }),
-          );
+    send1on1Offer({ screen_share: false });
 
-          ws.send(
-            JSON.stringify({
-              type: "screen_offer",
-              target_user_id: CallState.remoteUserId,
-              sdp: CallState.pc.localDescription,
-              screen_share: false, // NAYA
-            }),
-          );
-        }
-      })
-      .catch(function (err) {
-        console.error("Screen stop error:", err);
-      });
+    var wsStop = S.globalWs || S.ws;
+    if (wsStop && wsStop.readyState === WebSocket.OPEN) {
+      wsStop.send(
+        JSON.stringify({
+          type: "screen_toggle",
+          target_user_id: CallState.remoteUserId,
+          sharing: false,
+        }),
+      );
+    }
   }
 
   // Restore local video if camera is on
@@ -6708,6 +6749,9 @@ function resetCallState() {
   CallState.screenSender = null;
   CallState.originalVideoTrack = null;
   CallState.expectedScreenTrackId = null; // NAYA
+  CallState.negotiating = false; // NAYA
+  CallState.processingRemoteOffer = false; // NAYA
+  CallState.pendingNegotiation = null; // NAYA
   if (CallState.ringTimeout) {
     clearTimeout(CallState.ringTimeout);
     CallState.ringTimeout = null;
@@ -9093,25 +9137,9 @@ function toggleCam() {
         }
       }
     });
-    // Renegotiate
+    // Renegotiate (glare-safe)
     if (CallState.pc) {
-      CallState.pc
-        .createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
-        .then(function (offer) {
-          return CallState.pc.setLocalDescription(offer);
-        })
-        .then(function () {
-          var ws = S.globalWs || S.ws;
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(
-              JSON.stringify({
-                type: "screen_offer",
-                target_user_id: CallState.remoteUserId,
-                sdp: CallState.pc.localDescription,
-              }),
-            );
-          }
-        });
+      send1on1Offer({});
     }
     updateCamButton();
     updateVideoDisplay();
@@ -9131,27 +9159,7 @@ function toggleCam() {
         CallState.localStream.addTrack(videoTrack);
         if (CallState.pc) {
           CallState.pc.addTrack(videoTrack, CallState.localStream);
-          CallState.pc
-            .createOffer({
-              offerToReceiveAudio: true,
-              offerToReceiveVideo: true,
-            })
-            .then(function (offer) {
-              return CallState.pc.setLocalDescription(offer);
-            })
-            .then(function () {
-              var ws = S.globalWs || S.ws;
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(
-                  JSON.stringify({
-                    type: "screen_offer",
-                    target_user_id: CallState.remoteUserId,
-                    sdp: CallState.pc.localDescription,
-                    screen_share: false, // NAYA
-                  }),
-                );
-              }
-            });
+          send1on1Offer({ screen_share: false });
         }
         CallState.isCamOff = false;
         updateCamButton();
