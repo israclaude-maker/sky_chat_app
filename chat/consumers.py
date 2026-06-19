@@ -294,8 +294,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     "timestamp": djtz.now().isoformat(),
                 },
             )
-            
+
             # handle_remote_control_event — replace karo
+
     async def handle_remote_control_event(self, data):
         target_id = data.get("target_user_id")
         await self.channel_layer.group_send(
@@ -1237,9 +1238,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
     # Group call DB helpers
-    
+
     @database_sync_to_async
-    
     def create_group_call(self, group_id, call_type):
         try:
             group = Group.objects.get(id=group_id)

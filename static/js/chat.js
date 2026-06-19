@@ -5505,6 +5505,31 @@ function doInitWebRTC(isInitiator, callback) {
             rv.style.cssText = "";
           }
         };
+      } else if (CallState._pendingScreenToggle) {
+        // Screen share arriving as first video track (audio/voice call)
+        // Route to remote-screen-video (object-fit:contain = no crop)
+        console.log(
+          "[ontrack] _pendingScreenToggle is true → routing to remote-screen-video",
+        );
+        CallState.remoteScreenStream = e.streams[0];
+        var remoteScreenVideo = $("remote-screen-video");
+        if (remoteScreenVideo) {
+          remoteScreenVideo.srcObject = e.streams[0];
+        }
+        // Apply screen toggle UI
+        handleScreenToggle({ sharing: true });
+        e.track.onended = function () {
+          if (remoteScreenVideo) {
+            remoteScreenVideo.style.display = "none";
+            remoteScreenVideo.srcObject = null;
+          }
+          CallState.remoteScreenStream = null;
+          var rv = $("remote-video");
+          if (rv) {
+            rv.classList.remove("screen-pip");
+            rv.style.cssText = "";
+          }
+        };
       } else {
         // First video track = camera → remote-video
         var remoteVideo = $("remote-video");
@@ -6063,8 +6088,7 @@ function handleScreenToggle(data) {
         remoteVideo.srcObject &&
         remoteVideo.srcObject.getVideoTracks().length > 0
       ) {
-        // Audio-only call: screen share went to remote-video as first track
-        // Move it to remote-screen-video
+        // Fallback: screen share went to remote-video, move it
         console.log(
           "[ScreenToggle] Moving screen share from remote-video to remote-screen-video",
         );
@@ -6072,6 +6096,7 @@ function handleScreenToggle(data) {
         if (remoteScreenVideo) {
           remoteScreenVideo.srcObject = remoteVideo.srcObject;
         }
+        remoteVideo.style.display = "none";
         CallState._pendingScreenToggle = false;
         _applyScreenToggleOn(
           remoteVideo,
@@ -11418,7 +11443,6 @@ function attachRCToVideo(vid) {
   vid.style.cursor = "crosshair";
   var throttleTimer = null;
 
-  // Helper: get actual video content rect (accounts for object-fit:contain letterboxing)
   function getVideoContentRect(videoEl) {
     var rect = videoEl.getBoundingClientRect();
     if (
