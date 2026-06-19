@@ -295,6 +295,46 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 },
             )
 
+            # handle_remote_control_event — replace karo
+
+    async def handle_remote_control_event(self, data):
+        target_id = data.get("target_user_id")
+        await self.channel_layer.group_send(
+            f"user_{target_id}",
+            {
+                "type": "remote_control_event_relay",
+                "event": data.get("event"),
+                "x": data.get("x", 0),
+                "y": data.get("y", 0),
+                "key": data.get("key"),
+                "ctrl": data.get("ctrl", False),
+                "shift": data.get("shift", False),
+                "alt": data.get("alt", False),
+                "meta": data.get("meta", False),
+                "delta": data.get("delta", 0),
+                "direction": data.get("direction"),
+            },
+        )
+
+    async def remote_control_event_relay(self, event):
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "remote_control_event",
+                    "event": event["event"],
+                    "x": event["x"],
+                    "y": event["y"],
+                    "key": event.get("key"),
+                    "ctrl": event.get("ctrl", False),
+                    "shift": event.get("shift", False),
+                    "alt": event.get("alt", False),
+                    "meta": event.get("meta", False),
+                    "delta": event.get("delta", 0),
+                    "direction": event.get("direction"),
+                }
+            )
+        )
+
     async def handle_message_edit(self, data):
         """Broadcast message edit to all users in the room"""
         message_id = data.get("message_id")
@@ -1198,6 +1238,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
     # Group call DB helpers
+
     @database_sync_to_async
     def create_group_call(self, group_id, call_type):
         try:
@@ -1666,12 +1707,25 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def handle_remote_control_event(self, data):
         target_id = data.get("target_user_id")
-        if not target_id:
-            return
-        # Poora data forward karo — key, ctrl, shift, alt, direction, delta sab
-        forward = {k: v for k, v in data.items()}
-        forward["type"] = "remote_control_event_relay"
-        await self.channel_layer.group_send(f"user_{target_id}", forward)
+        await self.channel_layer.group_send(
+            f"user_{target_id}",
+            {
+                "type": "remote_control_event_relay",
+                "event": data.get("event"),
+                "x": data.get("x", 0),
+                "y": data.get("y", 0),
+                # Scroll fields
+                "direction": data.get("direction", ""),
+                "delta": data.get("delta", 0),
+                # Keyboard fields
+                "key": data.get("key", ""),
+                "code": data.get("code", ""),
+                "ctrl": data.get("ctrl", False),
+                "shift": data.get("shift", False),
+                "alt": data.get("alt", False),
+                "meta": data.get("meta", False),
+            },
+        )
 
     async def handle_remote_control_stop(self, data):
         target_id = data.get("target_user_id")
@@ -1709,10 +1763,24 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
     async def remote_control_event_relay(self, event):
-        # type field hata do (channel layer ka internal field hai)
-        payload = {k: v for k, v in event.items() if k != "type"}
-        payload["type"] = "remote_control_event"
-        await self.send(text_data=json.dumps(payload))
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "remote_control_event",
+                    "event": event["event"],
+                    "x": event["x"],
+                    "y": event["y"],
+                    "direction": event.get("direction", ""),
+                    "delta": event.get("delta", 0),
+                    "key": event.get("key", ""),
+                    "code": event.get("code", ""),
+                    "ctrl": event.get("ctrl", False),
+                    "shift": event.get("shift", False),
+                    "alt": event.get("alt", False),
+                    "meta": event.get("meta", False),
+                }
+            )
+        )
 
     async def remote_control_stopped(self, event):
         await self.send(

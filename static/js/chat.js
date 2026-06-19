@@ -6374,8 +6374,9 @@ function startScreenShare() {
         if (hasCam) {
           localVid.srcObject = CallState.localStream;
           localVid.style.cssText =
-            "display:block;width:100px;height:140px;position:absolute;bottom:80px;right:16px;" +
-            "border-radius:10px;z-index:12;object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
+            "display:block;width:100px;height:140px;position:absolute;" +
+            "bottom:80px;right:16px;border-radius:10px;z-index:12;" +
+            "object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
         }
       }
 
@@ -6409,6 +6410,7 @@ function startScreenShare() {
 function stopScreenShare() {
   if (!CallState.isScreenSharing) return;
   CallState.isScreenSharing = false;
+  CallState._screenTrackId = null;
 
   if (CallState.screenStream) {
     CallState.screenStream.getTracks().forEach(function (t) {
@@ -6481,6 +6483,45 @@ function stopScreenShare() {
   updateScreenBtn(false);
 }
 
+// ────────────────────────────────────────────────────────────────
+// FIX 5: REPLACE resetCallState() — clear new state vars
+// ────────────────────────────────────────────────────────────────
+function resetCallState() {
+  CallState.isInCall = false;
+  var ra = document.getElementById("remote-audio");
+  if (ra) {
+    ra.srcObject = null;
+    ra.muted = true;
+  }
+  CallState.callType = null;
+  CallState.callId = null;
+  CallState.remoteUserId = null;
+  CallState.remoteUserName = "";
+  CallState.pc = null;
+  CallState.localStream = null;
+  CallState.remoteStream = null;
+  CallState.remoteScreenStream = null;
+  CallState.timerInterval = null;
+  CallState.callStartTime = null;
+  CallState.remoteSdp = null;
+  CallState.isMuted = false;
+  CallState.isCamOff = false;
+  CallState.isSpeakerOff = false;
+  CallState.remoteProfilePic = null;
+  CallState.isScreenSharing = false;
+  CallState.screenStream = null;
+  CallState.screenSender = null;
+  CallState.originalVideoTrack = null;
+  CallState._streamRoles = {};
+  CallState._screenTrackId = null;
+  CallState._pendingScreenToggle = false;
+  CallState._pendingScreenOffers = [];
+  CallState._screenAnswerHandled = false;
+  if (CallState.ringTimeout) {
+    clearTimeout(CallState.ringTimeout);
+    CallState.ringTimeout = null;
+  }
+}
 function updateScreenBtn(active) {
   var btn = $("screen-btn");
   if (btn) {
@@ -11342,6 +11383,40 @@ function attachRCToVideo(vid) {
   vid.style.cursor = "crosshair";
   var throttleTimer = null;
 
+  // Helper: get actual video content area inside the element (accounts for letterboxing)
+  function getVideoContentRect(videoEl) {
+    var rect = videoEl.getBoundingClientRect();
+    if (
+      videoEl.tagName !== "VIDEO" ||
+      !videoEl.videoWidth ||
+      !videoEl.videoHeight
+    ) {
+      return rect; // fallback for non-video elements
+    }
+    var vidAR = videoEl.videoWidth / videoEl.videoHeight;
+    var elAR = rect.width / rect.height;
+    var contentW, contentH, offsetX, offsetY;
+    if (vidAR > elAR) {
+      // Video wider than container → black bars top/bottom
+      contentW = rect.width;
+      contentH = rect.width / vidAR;
+      offsetX = 0;
+      offsetY = (rect.height - contentH) / 2;
+    } else {
+      // Video taller than container → black bars left/right
+      contentH = rect.height;
+      contentW = rect.height * vidAR;
+      offsetX = (rect.width - contentW) / 2;
+      offsetY = 0;
+    }
+    return {
+      left: rect.left + offsetX,
+      top: rect.top + offsetY,
+      width: contentW,
+      height: contentH,
+    };
+  }
+
   vid._rcMove = function (e) {
     if (!RemoteCtrl.isControlling) return;
     if (throttleTimer) return;
@@ -11349,9 +11424,11 @@ function attachRCToVideo(vid) {
       throttleTimer = null;
     }, 16);
 
-    var rect = vid.getBoundingClientRect();
-    var normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    var normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    var cRect = getVideoContentRect(vid);
+    var normX = (e.clientX - cRect.left) / cRect.width;
+    var normY = (e.clientY - cRect.top) / cRect.height;
+    normX = Math.max(0, Math.min(1, normX));
+    normY = Math.max(0, Math.min(1, normY));
 
     sendRCEvent("mousemove", normX, normY);
   };
@@ -11361,9 +11438,15 @@ function attachRCToVideo(vid) {
     e.stopPropagation();
     vid.focus();
 
-    var rect = vid.getBoundingClientRect();
-    var normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    var normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    var cRect = getVideoContentRect(vid);
+    var normX = Math.max(
+      0,
+      Math.min(1, (e.clientX - cRect.left) / cRect.width),
+    );
+    var normY = Math.max(
+      0,
+      Math.min(1, (e.clientY - cRect.top) / cRect.height),
+    );
 
     sendRCEvent("click", normX, normY);
 
@@ -11385,11 +11468,11 @@ function attachRCToVideo(vid) {
   vid._rcRightClick = function (e) {
     if (!RemoteCtrl.isControlling) return;
     e.preventDefault();
-    var rect = vid.getBoundingClientRect();
+    var cRect = getVideoContentRect(vid);
     sendRCEvent(
       "rightclick",
-      Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
+      Math.max(0, Math.min(1, (e.clientX - cRect.left) / cRect.width)),
+      Math.max(0, Math.min(1, (e.clientY - cRect.top) / cRect.height)),
     );
   };
 
