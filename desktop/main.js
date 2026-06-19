@@ -444,62 +444,40 @@ const keyMap = {
   CapsLock: "caps_lock",
 };
 
-ipcMain.on("rc-event", async (event, rawData) => {
+ipcMain.on("rc-event", (event, rawData) => {
+  console.log("[RC] Raw data received:", rawData);
   try {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
-    const { screen } = require("electron");
-    const { width, height } = screen.getPrimaryDisplay().bounds; // taskbar sahi hogi
 
-    // Normalized 0-1 se actual screen coordinates
-    const x = Math.round(data.x * width);
-    const y = Math.round(data.y * height);
+    // Remote ki actual screen size use karo (jo unhone bheja)
+    const { screen } = require("electron");
+    const myScreen = screen.getPrimaryDisplay().size;
+    const x = Math.round(
+      Math.max(0, Math.min(1, data.x || 0)) * myScreen.width,
+    );
+    const y = Math.round(
+      Math.max(0, Math.min(1, data.y || 0)) * myScreen.height,
+    );
 
     if (data.event === "mousemove") {
       robot.moveMouse(x, y);
     } else if (data.event === "click") {
       robot.moveMouse(x, y);
-      robot.mouseClick("left");
+      setTimeout(() => robot.mouseClick("left"), 30);
     } else if (data.event === "rightclick") {
       robot.moveMouse(x, y);
-      robot.mouseClick("right");
+      setTimeout(() => robot.mouseClick("right"), 30);
     } else if (data.event === "scroll") {
-      robot.moveMouse(x, y);
+      const curPos = robot.getMousePos();
       const scrollAmt = Math.max(1, Math.floor((data.delta || 120) / 40));
-      robot.scrollMouse(0, data.direction === "down" ? scrollAmt : -scrollAmt);
+      if (data.direction === "down") {
+        robot.scrollMouse(curPos.x, curPos.y, scrollAmt);
+      } else {
+        robot.scrollMouse(curPos.x, curPos.y, -scrollAmt);
+      }
     } else if (data.event === "keypress") {
       const k = data.key;
       if (!k) return;
-
-      const keyMap = {
-        Enter: "return",
-        Backspace: "backspace",
-        Delete: "delete",
-        ArrowLeft: "left",
-        ArrowRight: "right",
-        ArrowUp: "up",
-        ArrowDown: "down",
-        Tab: "tab",
-        Escape: "escape",
-        " ": "space",
-        Home: "home",
-        End: "end",
-        PageUp: "pageup",
-        PageDown: "pagedown",
-        Insert: "insert",
-        CapsLock: "caps_lock",
-        F1: "f1",
-        F2: "f2",
-        F3: "f3",
-        F4: "f4",
-        F5: "f5",
-        F6: "f6",
-        F7: "f7",
-        F8: "f8",
-        F9: "f9",
-        F10: "f10",
-        F11: "f11",
-        F12: "f12",
-      };
 
       const modifiers = [];
       if (data.ctrl) modifiers.push("control");
@@ -507,14 +485,32 @@ ipcMain.on("rc-event", async (event, rawData) => {
       if (data.shift) modifiers.push("shift");
       if (data.meta) modifiers.push("command");
 
-      if (keyMap[k]) {
-        robot.keyTap(keyMap[k], modifiers);
-      } else if (k.length === 1) {
-        if (modifiers.length > 0) {
-          robot.keyTap(k.toLowerCase(), modifiers);
+      if (k.length === 1) {
+        // Ctrl/Alt shortcuts (Ctrl+C, Ctrl+V, Alt+F4, etc.)
+        if (data.ctrl || data.alt) {
+          try {
+            robot.keyTap(k.toLowerCase(), modifiers);
+          } catch (e) {}
         } else {
-          robot.typeString(k);
+          // Normal characters — clipboard method use karo
+          // (yeh symbols, capitals, sab handle karta hai)
+          try {
+            const { clipboard } = require("electron");
+            const prev = clipboard.readText();
+            clipboard.writeText(k);
+            robot.keyTap("v", ["control"]);
+            setTimeout(() => clipboard.writeText(prev), 300);
+          } catch (e) {
+            try {
+              robot.typeString(k);
+            } catch (e2) {}
+          }
         }
+      } else if (keyMap[k]) {
+        // Special keys: Enter, Backspace, ArrowLeft, Tab, etc.
+        try {
+          robot.keyTap(keyMap[k], modifiers);
+        } catch (e) {}
       }
     }
   } catch (e) {
