@@ -468,12 +468,11 @@ ipcMain.on("rc-event", (event, rawData) => {
       robot.moveMouse(x, y);
       setTimeout(() => robot.mouseClick("right"), 30);
     } else if (data.event === "scroll") {
-      const curPos = robot.getMousePos();
       const scrollAmt = Math.max(1, Math.floor((data.delta || 120) / 40));
-      if (data.direction === "down") {
-        robot.scrollMouse(curPos.x, curPos.y, scrollAmt);
+      if (data.direction === "up") {
+        robot.scrollMouse(0, -scrollAmt);
       } else {
-        robot.scrollMouse(curPos.x, curPos.y, -scrollAmt);
+        robot.scrollMouse(0, scrollAmt);
       }
     } else if (data.event === "keypress") {
       const k = data.key;

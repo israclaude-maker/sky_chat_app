@@ -1714,10 +1714,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "event": data.get("event"),
                 "x": data.get("x", 0),
                 "y": data.get("y", 0),
-                # Scroll fields
                 "direction": data.get("direction", ""),
                 "delta": data.get("delta", 0),
-                # Keyboard fields
                 "key": data.get("key", ""),
                 "code": data.get("code", ""),
                 "ctrl": data.get("ctrl", False),

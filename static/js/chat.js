@@ -6320,7 +6320,11 @@ function startScreenShare() {
 
   navigator.mediaDevices
     .getDisplayMedia({
-      video: true,
+      video: {
+        width: { ideal: screen.width },
+        height: { ideal: screen.height },
+        frameRate: { ideal: 15, max: 30 },
+      },
       audio: false,
       selfBrowserSurface: "exclude",
       monitorTypeSurfaces: "include",
@@ -11383,7 +11387,7 @@ function attachRCToVideo(vid) {
   vid.style.cursor = "crosshair";
   var throttleTimer = null;
 
-  // Helper: get actual video content area inside the element (accounts for letterboxing)
+  // Helper: get actual video content rect (accounts for object-fit:contain letterboxing)
   function getVideoContentRect(videoEl) {
     var rect = videoEl.getBoundingClientRect();
     if (
@@ -11391,19 +11395,17 @@ function attachRCToVideo(vid) {
       !videoEl.videoWidth ||
       !videoEl.videoHeight
     ) {
-      return rect; // fallback for non-video elements
+      return rect;
     }
     var vidAR = videoEl.videoWidth / videoEl.videoHeight;
     var elAR = rect.width / rect.height;
     var contentW, contentH, offsetX, offsetY;
     if (vidAR > elAR) {
-      // Video wider than container → black bars top/bottom
       contentW = rect.width;
       contentH = rect.width / vidAR;
       offsetX = 0;
       offsetY = (rect.height - contentH) / 2;
     } else {
-      // Video taller than container → black bars left/right
       contentH = rect.height;
       contentW = rect.height * vidAR;
       offsetX = (rect.width - contentW) / 2;
@@ -11425,10 +11427,14 @@ function attachRCToVideo(vid) {
     }, 16);
 
     var cRect = getVideoContentRect(vid);
-    var normX = (e.clientX - cRect.left) / cRect.width;
-    var normY = (e.clientY - cRect.top) / cRect.height;
-    normX = Math.max(0, Math.min(1, normX));
-    normY = Math.max(0, Math.min(1, normY));
+    var normX = Math.max(
+      0,
+      Math.min(1, (e.clientX - cRect.left) / cRect.width),
+    );
+    var normY = Math.max(
+      0,
+      Math.min(1, (e.clientY - cRect.top) / cRect.height),
+    );
 
     sendRCEvent("mousemove", normX, normY);
   };
