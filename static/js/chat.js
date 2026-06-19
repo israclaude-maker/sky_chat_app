@@ -630,7 +630,6 @@ function init() {
       toast("Failed to initialize chat. Please refresh once.", "e");
     });
 }
-
 // Initialize paste handler for images
 function initPasteHandler() {
   document.addEventListener("paste", function (e) {
@@ -5404,12 +5403,11 @@ function initWebRTC(isInitiator, callback) {
 
 function doInitWebRTC(isInitiator, callback) {
   CallState.pc = new RTCPeerConnection(rtcConfig);
-  CallState._streamRoles = {};
-  CallState._pendingScreenOffers = [];
 
   CallState.pc.oniceconnectionstatechange = function () {
     console.log("ICE State:", CallState.pc.iceConnectionState);
     if (CallState.pc.iceConnectionState === "failed") {
+      console.log("ICE Failed! Restarting...");
       CallState.pc.restartIce();
     }
   };
@@ -5423,6 +5421,7 @@ function doInitWebRTC(isInitiator, callback) {
       console.log("Adding local track:", track.kind);
       CallState.pc.addTrack(track, CallState.localStream);
     });
+    // Boost video bitrate for HD quality
     boostVideoBitrate(CallState.pc);
   }
 
@@ -5442,153 +5441,99 @@ function doInitWebRTC(isInitiator, callback) {
     }
   };
 
-  CallState.pc.onsignalingstatechange = function () {
-    console.log("[SigState]", CallState.pc.signalingState);
-    // Process queued screen offers when stable
-    if (
-      CallState.pc.signalingState === "stable" &&
-      CallState._pendingScreenOffers &&
-      CallState._pendingScreenOffers.length
-    ) {
-      var next = CallState._pendingScreenOffers.shift();
-      setTimeout(function () {
-        handleScreenOffer(next);
-      }, 100);
-    }
-  };
-
   CallState.pc.ontrack = function (e) {
-    var incomingStream = e.streams && e.streams[0];
-    if (!incomingStream) {
-      console.log("[ontrack] No stream attached, skipping");
-      return;
-    }
+    console.log("Remote track received:", e.track.kind);
 
-    var streamId = incomingStream.id;
-    console.log(
-      "[ontrack] kind:",
-      e.track.kind,
-      "streamId:",
-      streamId.substring(0, 8),
-      "existing role:",
-      CallState._streamRoles[streamId],
-    );
-
-    // ── AUDIO ──
     if (e.track.kind === "audio") {
-      console.log("Remote track received: audio");
+      CallState.remoteStream = e.streams[0];
       var remoteAudio = $("remote-audio");
       if (remoteAudio) {
-        remoteAudio.srcObject = incomingStream;
+        remoteAudio.srcObject = e.streams[0];
         remoteAudio.muted = false;
         remoteAudio.volume = 1.0;
-        remoteAudio.play().catch(function (err) {
-          document.addEventListener(
-            "click",
-            function retry() {
-              remoteAudio.play().catch(console.error);
-              document.removeEventListener("click", retry);
-            },
-            { once: true },
-          );
-        });
+        var playPromise = remoteAudio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(function (err) {
+            console.warn("Autoplay blocked, retrying...", err);
+            document.addEventListener(
+              "click",
+              function retry() {
+                remoteAudio.play().catch(console.error);
+                document.removeEventListener("click", retry);
+              },
+              { once: true },
+            );
+          });
+        }
       }
-      return;
     }
 
-    // ── VIDEO - identify by stream ID not track order ──
-    // This is the core fix: we don't assume "first video = camera"
-    // Instead we check: is localStream's ID different from this stream's ID?
-    // If yes AND camera role already taken → this is screen share
-    if (!CallState._streamRoles[streamId]) {
-      var hasCameraRole =
-        Object.values(CallState._streamRoles).indexOf("camera") !== -1;
-      // Also check: if sharer has no camera (voice call + screen share),
-      // the FIRST video stream is STILL the screen, not camera
-      // We detect this by checking if localStream had video tracks when call started
-      var localHadVideo =
-        CallState.localStream &&
-        CallState.localStream.getVideoTracks().length > 0;
-
-      // If local has video AND no camera role yet → this is camera
-      // If local has no video (voice call) → first video must be screen share
-      if (!hasCameraRole && localHadVideo) {
-        CallState._streamRoles[streamId] = "camera";
-      } else if (!hasCameraRole && !localHadVideo) {
-        // Voice call: first video from remote = screen share
-        CallState._streamRoles[streamId] = "screen";
-      } else {
-        // Camera already taken → screen
-        CallState._streamRoles[streamId] = "screen";
-      }
-      console.log(
-        "[ontrack] Assigned",
-        streamId.substring(0, 8),
-        "as",
-        CallState._streamRoles[streamId],
-      );
-    }
-
-    var role = CallState._streamRoles[streamId];
-    console.log("Remote track received: video [" + role + "]");
-
-    if (role === "camera") {
-      CallState.remoteStream = incomingStream;
-      var remoteVideo = $("remote-video");
-      if (remoteVideo) {
-        remoteVideo.srcObject = incomingStream;
-        remoteVideo.style.display = "block";
-        remoteVideo.play().catch(function (err) {
-          console.log("Video play error:", err);
+    if (e.track.kind === "video") {
+      // Check if we already have a camera video element assigned
+      var existingRemoteVideo = $("remote-video");
+      var hasExistingCamera =
+        existingRemoteVideo &&
+        existingRemoteVideo.srcObject &&
+        existingRemoteVideo.srcObject.getVideoTracks().length > 0 &&
+        existingRemoteVideo.srcObject.getVideoTracks().some(function (t) {
+          return t.readyState !== "ended";
         });
-        var ongoingAv = $("ongoing-av");
-        if (ongoingAv) ongoingAv.style.display = "none";
-      }
-      e.track.onmute = function () {
-        if (remoteVideo) remoteVideo.style.display = "none";
-        var av = $("ongoing-av");
-        if (av) av.style.display = "block";
-      };
-      e.track.onunmute = function () {
-        if (remoteVideo) remoteVideo.style.display = "block";
-        var av = $("ongoing-av");
-        if (av) av.style.display = "none";
-      };
-      e.track.onended = function () {
-        delete CallState._streamRoles[streamId];
-        if (remoteVideo) remoteVideo.style.display = "none";
-        var av = $("ongoing-av");
-        if (av) av.style.display = "block";
-      };
-    } else {
-      // SCREEN SHARE
-      CallState.remoteScreenStream = incomingStream;
-      var remoteScreenVideo = $("remote-screen-video");
-      if (remoteScreenVideo) {
-        remoteScreenVideo.srcObject = incomingStream;
-      }
-      console.log(
-        "[ontrack] Screen stream set. pendingToggle:",
-        CallState._pendingScreenToggle,
-      );
-      // If screen_toggle already arrived, apply now
-      if (CallState._pendingScreenToggle) {
-        console.log("[ontrack] Applying pending screen toggle");
-        handleScreenToggle({ sharing: true });
-      }
-      e.track.onended = function () {
-        delete CallState._streamRoles[streamId];
+
+      if (hasExistingCamera) {
+        // Second video track = screen share
+        // Second video track = screen share
+        console.log("Routing second video track to remote-screen-video");
+        CallState.remoteScreenStream = e.streams[0];
+        var remoteScreenVideo = $("remote-screen-video");
         if (remoteScreenVideo) {
-          remoteScreenVideo.style.display = "none";
-          remoteScreenVideo.srcObject = null;
+          remoteScreenVideo.srcObject = e.streams[0];
         }
-        CallState.remoteScreenStream = null;
-        var rv = $("remote-video");
-        if (rv) {
-          rv.classList.remove("screen-pip");
-          rv.style.cssText = "";
+        // Agar toggle pehle aa chuka tha to ab apply karo
+        if (CallState._pendingScreenToggle) {
+          console.log("[ontrack] Pending toggle mil gaya, apply kar raha hun");
+          handleScreenToggle({ sharing: true });
         }
-      };
+        e.track.onended = function () {
+          if (remoteScreenVideo) {
+            remoteScreenVideo.style.display = "none";
+            remoteScreenVideo.srcObject = null;
+          }
+          CallState.remoteScreenStream = null;
+          var rv = $("remote-video");
+          if (rv) {
+            rv.classList.remove("screen-pip");
+            rv.style.cssText = "";
+          }
+        };
+      } else {
+        // First video track = camera → remote-video
+        var remoteVideo = $("remote-video");
+        if (remoteVideo) {
+          remoteVideo.srcObject = e.streams[0];
+          remoteVideo.style.display = "block";
+          remoteVideo.play().catch(function (err) {
+            console.log("Video play error:", err);
+          });
+          var ongoingAv = $("ongoing-av");
+          if (ongoingAv) ongoingAv.style.display = "none";
+        }
+        CallState.remoteStream = e.streams[0];
+        e.track.onended = function () {
+          if (remoteVideo) remoteVideo.style.display = "none";
+          var ongoingAv = $("ongoing-av");
+          if (ongoingAv) ongoingAv.style.display = "block";
+        };
+        e.track.onmute = function () {
+          if (remoteVideo) remoteVideo.style.display = "none";
+          var ongoingAv = $("ongoing-av");
+          if (ongoingAv) ongoingAv.style.display = "block";
+        };
+        e.track.onunmute = function () {
+          if (remoteVideo) remoteVideo.style.display = "block";
+          var ongoingAv = $("ongoing-av");
+          if (ongoingAv) ongoingAv.style.display = "none";
+        };
+      }
     }
   };
 
@@ -6030,21 +5975,8 @@ function flushPendingIceCandidates() {
 // Screen share renegotiation handlers
 function handleScreenOffer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
-  console.log(
-    "[ScreenOffer] received, signalingState:",
-    CallState.pc.signalingState,
-  );
-
-  // Queue if not stable
-  if (CallState.pc.signalingState !== "stable") {
-    console.log("[ScreenOffer] Not stable, queuing...");
-    if (!CallState._pendingScreenOffers) CallState._pendingScreenOffers = [];
-    CallState._pendingScreenOffers.push(data);
-    return;
-  }
-
-  CallState._pendingScreenToggle = true;
-
+  console.log("Received screen_offer, renegotiating...");
+  CallState._pendingScreenToggle = true; // ← YEH ADD KARO
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
@@ -6064,27 +5996,17 @@ function handleScreenOffer(data) {
           }),
         );
       }
-      console.log("[ScreenOffer] Answer sent, waiting for ontrack...");
-      // Process queued offers
-      if (
-        CallState._pendingScreenOffers &&
-        CallState._pendingScreenOffers.length
-      ) {
-        var next = CallState._pendingScreenOffers.shift();
-        setTimeout(function () {
-          handleScreenOffer(next);
-        }, 300);
-      }
     })
     .catch(function (err) {
-      console.error("[ScreenOffer] Error:", err);
+      console.error("Screen offer handling error:", err);
     });
 }
 
 function handleScreenAnswer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
+  // Duplicate screen_answer block karo
   if (CallState._screenAnswerHandled) {
-    console.log("[ScreenAnswer] Duplicate, ignoring");
+    console.log("Duplicate screen_answer ignore kar raha hun");
     return;
   }
   CallState._screenAnswerHandled = true;
@@ -6092,36 +6014,30 @@ function handleScreenAnswer(data) {
     CallState._screenAnswerHandled = false;
   }, 3000);
 
-  console.log("[ScreenAnswer] received");
-
+  console.log("Received screen_answer");
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
-      console.log("[ScreenAnswer] Remote desc set OK");
-      // Flush pending ICE
-      flushPendingIceCandidates();
-
-      // Send screen_toggle if screen sharing is active
-      if (CallState.isScreenSharing && CallState.screenStream) {
-        var screenTrack = CallState.screenStream.getVideoTracks()[0];
-        if (screenTrack && screenTrack.readyState === "live") {
-          var ws = S.globalWs || S.ws;
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(
-              JSON.stringify({
-                type: "screen_toggle",
-                target_user_id: CallState.remoteUserId,
-                sharing: true,
-                surface_type: "monitor",
-              }),
-            );
-            console.log("[ScreenAnswer] screen_toggle sent");
-          }
+      if (CallState.isScreenSharing) {
+        var ws = S.globalWs || S.ws;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: "screen_toggle",
+              target_user_id: CallState.remoteUserId,
+              sharing: true,
+              surface_type:
+                (CallState.screenStream &&
+                  CallState.screenStream.getVideoTracks()[0].getSettings()
+                    .displaySurface) ||
+                "monitor",
+            }),
+          );
         }
       }
     })
     .catch(function (err) {
-      console.error("[ScreenAnswer] Error:", err);
+      console.error("Screen answer error:", err);
     });
 }
 
@@ -6131,20 +6047,10 @@ function handleScreenToggle(data) {
   var localVid = $("local-video");
   var ongoingAv = $("ongoing-av");
 
-  console.log(
-    "[ScreenToggle] sharing:",
-    data.sharing,
-    "remoteScreenStream:",
-    !!CallState.remoteScreenStream,
-  );
-
   if (data.sharing) {
-    CallState._pendingScreenToggle = true;
-
     var attempts = 0;
     function waitForStream() {
       if (CallState.remoteScreenStream) {
-        console.log("[ScreenToggle] Stream found after", attempts, "attempts");
         CallState._pendingScreenToggle = false;
         _applyScreenToggleOn(
           remoteVideo,
@@ -6152,26 +6058,20 @@ function handleScreenToggle(data) {
           localVid,
           ongoingAv,
         );
-      } else if (attempts++ < 40) {
-        setTimeout(waitForStream, 250);
+      } else if (attempts++ < 25) {
+        setTimeout(waitForStream, 200);
       } else {
-        console.warn("[ScreenToggle] Stream never arrived after 10s");
-        CallState._pendingScreenToggle = false;
+        console.warn("[ScreenToggle] stream 5s baad bhi nahi aya");
       }
     }
     waitForStream();
   } else {
-    CallState._pendingScreenToggle = false;
-
     if (remoteScreenVideo) {
       remoteScreenVideo.style.display = "none";
       remoteScreenVideo.srcObject = null;
     }
-    // Clear screen stream role
-    if (CallState.remoteScreenStream && CallState._streamRoles) {
-      delete CallState._streamRoles[CallState.remoteScreenStream.id];
-    }
     CallState.remoteScreenStream = null;
+    CallState._pendingScreenToggle = false;
 
     if (remoteVideo) {
       remoteVideo.classList.remove("screen-pip");
@@ -6184,22 +6084,21 @@ function handleScreenToggle(data) {
       remoteVideo.style.display = hasRemoteCam ? "block" : "none";
     }
 
-    if (localVid && CallState.localStream) {
-      var hasCam = CallState.localStream.getVideoTracks().some(function (t) {
-        return (
-          t.readyState === "live" &&
-          t.enabled &&
-          (!CallState._screenTrackId || t.id !== CallState._screenTrackId)
-        );
+    var hadLocalCam =
+      localVid &&
+      CallState.localStream &&
+      CallState.localStream.getVideoTracks().some(function (t) {
+        return t.readyState === "live";
       });
-      if (hasCam) {
-        localVid.style.cssText = "";
-        localVid.style.display = "block";
-        localVid.srcObject = CallState.localStream;
-      } else {
-        localVid.style.display = "none";
-      }
+    if (hadLocalCam) {
+      localVid.style.cssText = "";
+      localVid.style.display = "block";
+      localVid.srcObject = CallState.localStream;
+    } else if (localVid) {
+      localVid.style.display = "none";
     }
+
+    if (ongoingAv && !hadLocalCam) ongoingAv.style.display = "block";
 
     var lbl = document.getElementById("remote-screen-label");
     if (lbl) lbl.style.display = "none";
@@ -6430,17 +6329,9 @@ function startScreenShare() {
       CallState.screenStream = screenStream;
       CallState.isScreenSharing = true;
       var screenTrack = screenStream.getVideoTracks()[0];
-      CallState._screenTrackId = screenTrack.id;
 
-      console.log(
-        "[ScreenShare] Starting, adding screen track on separate stream",
-      );
-
-      // CRITICAL: add track with screenStream (NOT localStream)
-      // This gives the screen track a DIFFERENT stream ID than the camera
-      // Receiver then identifies: localStream.id = camera, screenStream.id = screen
+      // Add screen track as new sender + renegotiate
       CallState.screenSender = CallState.pc.addTrack(screenTrack, screenStream);
-
       CallState.pc
         .createOffer()
         .then(function (offer) {
@@ -6456,48 +6347,39 @@ function startScreenShare() {
                 sdp: CallState.pc.localDescription,
               }),
             );
-            console.log("[ScreenShare] screen_offer sent");
-
-            // screen_toggle sent from handleScreenAnswer after renegotiation
-            // But also send as backup after 2s in case answer handler misses it
-            setTimeout(function () {
-              if (CallState.isScreenSharing && CallState.screenStream) {
-                var ws2 = S.globalWs || S.ws;
-                if (ws2 && ws2.readyState === WebSocket.OPEN) {
-                  ws2.send(
-                    JSON.stringify({
-                      type: "screen_toggle",
-                      target_user_id: CallState.remoteUserId,
-                      sharing: true,
-                      surface_type: "monitor",
-                    }),
-                  );
-                  console.log("[ScreenShare] screen_toggle backup sent");
-                }
-              }
-            }, 2000);
+            ws.send(
+              JSON.stringify({
+                type: "screen_toggle",
+                target_user_id: CallState.remoteUserId,
+                sharing: true,
+                surface_type:
+                  (CallState.screenStream &&
+                    CallState.screenStream.getVideoTracks()[0].getSettings()
+                      .displaySurface) ||
+                  "monitor",
+              }),
+            );
           }
         })
         .catch(function (err) {
           console.error("Screen renegotiate error:", err);
         });
 
-      // Show camera as PIP (camera stays on during screen share)
+      // ── local video: keep camera visible as small PIP ────────
       var localVid = $("local-video");
       if (localVid && CallState.localStream && !CallState.isCamOff) {
         var hasCam = CallState.localStream.getVideoTracks().some(function (t) {
-          return t.enabled && t.readyState === "live";
+          return t.readyState === "live";
         });
         if (hasCam) {
           localVid.srcObject = CallState.localStream;
           localVid.style.cssText =
-            "display:block;width:100px;height:140px;position:absolute;" +
-            "bottom:80px;right:16px;border-radius:10px;z-index:12;" +
-            "object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
+            "display:block;width:100px;height:140px;position:absolute;bottom:80px;right:16px;" +
+            "border-radius:10px;z-index:12;object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
         }
       }
 
-      // Show indicator
+      // ── Show "Sharing screen" indicator overlay on screen ────
       var old = document.getElementById("local-screen-indicator");
       if (old) old.remove();
       var callScreen = $("ongoing-call");
@@ -6509,25 +6391,24 @@ function startScreenShare() {
           "background:rgba(0,0,0,0.6);color:#fff;font-size:12px;padding:6px 14px;" +
           "border-radius:20px;z-index:20;pointer-events:none;";
         ind.innerHTML =
-          '<i class="fa-solid fa-display" style="color:#4fc3f7;"></i><span>Sharing screen</span>';
+          '<i class="fa-solid fa-display" style="color:#4fc3f7;"></i>' +
+          "<span>Sharing screen</span>";
         callScreen.appendChild(ind);
       }
 
       updateScreenBtn(true);
       screenTrack.onended = function () {
-        CallState._screenTrackId = null;
         stopScreenShare();
       };
     })
     .catch(function (err) {
-      console.log("Screen share cancelled:", err);
+      console.log("Screen share cancelled or denied:", err);
     });
 }
 
 function stopScreenShare() {
   if (!CallState.isScreenSharing) return;
   CallState.isScreenSharing = false;
-  CallState._screenTrackId = null;
 
   if (CallState.screenStream) {
     CallState.screenStream.getTracks().forEach(function (t) {
@@ -6536,15 +6417,19 @@ function stopScreenShare() {
     CallState.screenStream = null;
   }
 
+  // Remove screen indicator
   var ind = document.getElementById("local-screen-indicator");
   if (ind) ind.remove();
 
+  // Restore local video element
+  var localVid = $("local-video");
+
   if (CallState.screenSender && CallState.pc) {
+    // Remove screen sender + renegotiate
     try {
       CallState.pc.removeTrack(CallState.screenSender);
     } catch (e) {}
     CallState.screenSender = null;
-
     CallState.pc
       .createOffer()
       .then(function (offer) {
@@ -6574,14 +6459,14 @@ function stopScreenShare() {
       });
   }
 
-  var localVid = $("local-video");
+  // Restore local video if camera is on
   if (localVid && CallState.localStream && !CallState.isCamOff) {
     var hasCam = CallState.localStream.getVideoTracks().some(function (t) {
-      return t.enabled && t.readyState === "live";
+      return t.readyState === "live";
     });
     if (hasCam) {
       localVid.srcObject = CallState.localStream;
-      localVid.style.cssText = "";
+      localVid.style.cssText = ""; // reset to default CSS position
       localVid.style.display = "block";
     } else {
       localVid.style.cssText = "";
@@ -6594,46 +6479,6 @@ function stopScreenShare() {
 
   CallState.originalVideoTrack = null;
   updateScreenBtn(false);
-}
-
-// ────────────────────────────────────────────────────────────────
-// FIX 5: REPLACE resetCallState() — clear new state vars
-// ────────────────────────────────────────────────────────────────
-function resetCallState() {
-  CallState.isInCall = false;
-  var ra = document.getElementById("remote-audio");
-  if (ra) {
-    ra.srcObject = null;
-    ra.muted = true;
-  }
-  CallState.callType = null;
-  CallState.callId = null;
-  CallState.remoteUserId = null;
-  CallState.remoteUserName = "";
-  CallState.pc = null;
-  CallState.localStream = null;
-  CallState.remoteStream = null;
-  CallState.remoteScreenStream = null;
-  CallState.timerInterval = null;
-  CallState.callStartTime = null;
-  CallState.remoteSdp = null;
-  CallState.isMuted = false;
-  CallState.isCamOff = false;
-  CallState.isSpeakerOff = false;
-  CallState.remoteProfilePic = null;
-  CallState.isScreenSharing = false;
-  CallState.screenStream = null;
-  CallState.screenSender = null;
-  CallState.originalVideoTrack = null;
-  CallState._streamRoles = {};
-  CallState._screenTrackId = null;
-  CallState._pendingScreenToggle = false;
-  CallState._pendingScreenOffers = [];
-  CallState._screenAnswerHandled = false;
-  if (CallState.ringTimeout) {
-    clearTimeout(CallState.ringTimeout);
-    CallState.ringTimeout = null;
-  }
 }
 
 function updateScreenBtn(active) {
@@ -9205,29 +9050,54 @@ function gcToggleMic() {
 function toggleCam() {
   if (!CallState.isInCall || !CallState.localStream) return;
 
-  // Only touch camera tracks, not screen share track
-  var camTracks = CallState.localStream.getVideoTracks().filter(function (t) {
-    return !CallState._screenTrackId || t.id !== CallState._screenTrackId;
-  });
+  // If screen sharing is active, warn user first
+  if (CallState.isScreenSharing) {
+    toast("Stop screen sharing before toggling camera", "e");
+    return;
+  }
 
-  if (camTracks.length > 0 && !CallState.isCamOff) {
-    // Disable camera - just mute the track, no renegotiation
+  var videoTracks = CallState.localStream.getVideoTracks();
+
+  if (videoTracks.length > 0 && !CallState.isCamOff) {
+    // Turn camera OFF
     CallState.isCamOff = true;
-    camTracks.forEach(function (t) {
-      t.enabled = false;
+    videoTracks.forEach(function (t) {
+      t.stop();
+      CallState.localStream.removeTrack(t);
+      if (CallState.pc) {
+        var senders = CallState.pc.getSenders();
+        for (var i = 0; i < senders.length; i++) {
+          if (senders[i].track === t) {
+            CallState.pc.removeTrack(senders[i]);
+            break;
+          }
+        }
+      }
     });
-    updateCamButton();
-    updateVideoDisplay();
-  } else if (camTracks.length > 0 && CallState.isCamOff) {
-    // Re-enable existing camera track
-    CallState.isCamOff = false;
-    camTracks.forEach(function (t) {
-      t.enabled = true;
-    });
+    // Renegotiate
+    if (CallState.pc) {
+      CallState.pc
+        .createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
+        .then(function (offer) {
+          return CallState.pc.setLocalDescription(offer);
+        })
+        .then(function () {
+          var ws = S.globalWs || S.ws;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: "screen_offer",
+                target_user_id: CallState.remoteUserId,
+                sdp: CallState.pc.localDescription,
+              }),
+            );
+          }
+        });
+    }
     updateCamButton();
     updateVideoDisplay();
   } else {
-    // No camera track - acquire new one
+    // Turn camera ON
     navigator.mediaDevices
       .getUserMedia({
         video: {
@@ -9240,62 +9110,40 @@ function toggleCam() {
       .then(function (camStream) {
         var videoTrack = camStream.getVideoTracks()[0];
         CallState.localStream.addTrack(videoTrack);
-
         if (CallState.pc) {
-          var senders = CallState.pc.getSenders();
-          var camSender = null;
-          for (var i = 0; i < senders.length; i++) {
-            var t = senders[i].track;
-            if (
-              t &&
-              t.kind === "video" &&
-              (!CallState._screenTrackId || t.id !== CallState._screenTrackId)
-            ) {
-              camSender = senders[i];
-              break;
-            }
-          }
-          var p = camSender
-            ? camSender.replaceTrack(videoTrack)
-            : (function () {
-                CallState.pc.addTrack(videoTrack, CallState.localStream);
-                return CallState.pc
-                  .createOffer({
-                    offerToReceiveAudio: true,
-                    offerToReceiveVideo: true,
-                  })
-                  .then(function (o) {
-                    return CallState.pc.setLocalDescription(o);
-                  })
-                  .then(function () {
-                    var ws = S.globalWs || S.ws;
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                      ws.send(
-                        JSON.stringify({
-                          type: "screen_offer",
-                          target_user_id: CallState.remoteUserId,
-                          sdp: CallState.pc.localDescription,
-                        }),
-                      );
-                    }
-                  });
-              })();
-          (p || Promise.resolve()).catch(function (e) {
-            console.error("cam error:", e);
-          });
+          CallState.pc.addTrack(videoTrack, CallState.localStream);
+          CallState.pc
+            .createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: true,
+            })
+            .then(function (offer) {
+              return CallState.pc.setLocalDescription(offer);
+            })
+            .then(function () {
+              var ws = S.globalWs || S.ws;
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(
+                  JSON.stringify({
+                    type: "screen_offer",
+                    target_user_id: CallState.remoteUserId,
+                    sdp: CallState.pc.localDescription,
+                  }),
+                );
+              }
+            });
         }
-
         CallState.isCamOff = false;
         updateCamButton();
         var lv = $("local-video");
         if (lv) {
           lv.srcObject = CallState.localStream;
-          lv.style.cssText = "";
+          lv.style.cssText = ""; // clear any leftover overrides
           lv.style.display = "block";
         }
       })
       .catch(function (err) {
-        console.error("Camera error:", err);
+        console.error("Camera access error:", err);
         toast("Could not access camera", "e");
       });
   }
@@ -11421,10 +11269,11 @@ function handleRemoteControlAccepted(data) {
   var waitEl = document.getElementById("rc-wait");
   if (waitEl) waitEl.remove();
   RemoteCtrl.isControlling = true;
+  enableRCKeyboard();
 
+  // ✅ Fix — screen share ke liye dedicated overlay banana
   function findAndAttach(attempt) {
     if (attempt > 20) {
-      // Fallback: call overlay pe directly attach karo
       var overlay = $("ongoing-call") || $("gc-ongoing-call");
       if (overlay) {
         attachRCToVideo(overlay);
@@ -11438,34 +11287,27 @@ function handleRemoteControlAccepted(data) {
 
     var vid = null;
 
-    if (
-      RemoteCtrl._pendingVideoEl &&
-      RemoteCtrl._pendingVideoEl.srcObject &&
-      RemoteCtrl._pendingVideoEl.srcObject.getVideoTracks().length > 0
-    ) {
+    // 1. Pehle screen share video dhundo (sirf srcObject check, tracks nahi)
+    if (RemoteCtrl._pendingVideoEl && RemoteCtrl._pendingVideoEl.srcObject) {
       vid = RemoteCtrl._pendingVideoEl;
     }
 
+    // 2. Phir remote-screen-video (sirf srcObject check)
     if (!vid) {
       var ssv = document.getElementById("remote-screen-video");
-      if (ssv && ssv.srcObject && ssv.srcObject.getVideoTracks().length > 0) {
-        vid = ssv;
-      }
+      if (ssv && ssv.srcObject) vid = ssv;
     }
 
+    // 3. Phir remote-video (sirf srcObject check)
     if (!vid) {
       var rv = document.getElementById("remote-video");
-      if (rv && rv.srcObject && rv.srcObject.getVideoTracks().length > 0) {
-        vid = rv;
-      }
+      if (rv && rv.srcObject) vid = rv;
     }
 
-    // Fallback: koi video nahi to call overlay use karo
-    if (!vid) {
+    // 4. Attempt 5 ke baad overlay fallback
+    if (!vid && attempt >= 5) {
       var overlay = $("ongoing-call") || $("gc-ongoing-call");
-      if (overlay && attempt >= 5) {
-        vid = overlay;
-      }
+      if (overlay) vid = overlay;
     }
 
     if (!vid) {
@@ -11493,7 +11335,10 @@ function attachRCToVideo(vid) {
     old.style.cursor = "";
   }
   RemoteCtrl.videoEl = vid;
-  if (vid.tagName === "VIDEO") vid.style.display = "block";
+  if (vid.tagName === "VIDEO") {
+    vid.style.display = "block";
+    vid.play().catch(function () {});
+  }
   vid.style.cursor = "crosshair";
   var throttleTimer = null;
 
@@ -11514,6 +11359,7 @@ function attachRCToVideo(vid) {
     if (!RemoteCtrl.isControlling) return;
     e.preventDefault();
     e.stopPropagation();
+    vid.focus();
 
     var rect = vid.getBoundingClientRect();
     var normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
@@ -11560,11 +11406,25 @@ function attachRCToVideo(vid) {
     if (!RemoteCtrl.isControlling) return;
     var activeEl = document.activeElement;
     var activeTag = activeEl ? activeEl.tagName.toLowerCase() : "";
+    console.log(
+      "[RC DEBUG] keydown fired:",
+      e.key,
+      "activeTag:",
+      activeTag,
+      "isVid:",
+      activeEl === vid,
+    );
     // Sirf apna message box block karo, baaki sab allow
-    if ((activeTag === "input" || activeTag === "textarea") && activeEl !== vid)
+    if (
+      (activeTag === "input" || activeTag === "textarea") &&
+      activeEl !== vid
+    ) {
+      console.log("[RC DEBUG] BLOCKED - local input focused");
       return;
+    }
     e.preventDefault();
     e.stopPropagation();
+    console.log("[RC DEBUG] sending keypress to remote:", e.key);
     sendRCEvent("keypress", 0, 0, {
       key: e.key,
       code: e.code,
@@ -11581,6 +11441,16 @@ function attachRCToVideo(vid) {
   document.addEventListener("keydown", vid._rcKeydown);
   vid.setAttribute("tabindex", "0");
   vid.focus();
+  setTimeout(function () {
+    // Agar user ne meanwhile apna msg-ta ya koi input focus kar liya ho,
+    // to usay disturb mat karo
+    var activeTag = document.activeElement && document.activeElement.tagName;
+    if (activeTag === "INPUT" || activeTag === "TEXTAREA") return;
+    if (document.activeElement !== vid) {
+      document.body.setAttribute("tabindex", "0");
+      document.body.focus();
+    }
+  }, 100);
 
   var overlay = document.getElementById("ongoing-call");
   if (overlay) {
@@ -11605,6 +11475,14 @@ function handleRemoteControlRejected() {
 
 function handleRemoteControlEvent(data) {
   if (!RemoteCtrl.isBeingControlled) return;
+  console.log(
+    "[RC DEBUG] received event:",
+    data.event,
+    "key:",
+    data.key,
+    "DesktopBridge exists:",
+    !!window.DesktopBridge,
+  );
 
   // Cursor dikhao screen pe
   var targetVid = null;
@@ -11656,6 +11534,11 @@ function handleRemoteControlEvent(data) {
         remoteScreenW: window.screen.width,
         remoteScreenH: window.screen.height,
         key: data.key || "",
+        code: data.code || "",
+        ctrl: data.ctrl || false,
+        shift: data.shift || false,
+        alt: data.alt || false,
+        meta: data.meta || false,
         direction: data.direction || "down",
         delta: data.delta || 0,
       }),
@@ -11730,6 +11613,37 @@ function sendRCEvent(ev, x, y, extra) {
         ),
       ),
     );
+}
+
+// ─── RC Keyboard Control ───────────────────────────────────────
+var _rcKeyHandler = null;
+
+function enableRCKeyboard() {
+  if (_rcKeyHandler) return; // already attached
+  _rcKeyHandler = function (e) {
+    // Local input fields mein type karte waqt ignore karo
+    var tag = document.activeElement && document.activeElement.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+    sendRCEvent("keypress", 0, 0, {
+      key: e.key,
+      ctrl: e.ctrlKey,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      meta: e.metaKey,
+    });
+
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  document.addEventListener("keydown", _rcKeyHandler, true);
+}
+
+function disableRCKeyboard() {
+  if (_rcKeyHandler) {
+    document.removeEventListener("keydown", _rcKeyHandler, true);
+    _rcKeyHandler = null;
+  }
 }
 
 function updateRCButton() {
