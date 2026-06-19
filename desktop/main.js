@@ -91,65 +91,12 @@ function createWindow() {
   mainWindow.webContents.session.setDisplayMediaRequestHandler(
     async (request, callback) => {
       try {
-        const { screen } = require("electron");
-        const primaryDisplay = screen.getPrimaryDisplay();
-        const scaleFactor = primaryDisplay.scaleFactor || 1;
-
         const sources = await desktopCapturer.getSources({
           types: ["screen"],
-          thumbnailSize: {
-            width: Math.floor(primaryDisplay.size.width * scaleFactor),
-            height: Math.floor(primaryDisplay.size.height * scaleFactor),
-          },
-          fetchWindowIcons: false,
+          thumbnailSize: { width: 150, height: 100 },
         });
-
-        console.log(
-          "[ScreenShare] Available sources:",
-          sources.map((s) => ({ id: s.id, name: s.name })),
-        );
-
-        // Sab se pehle "screen:" wala source dhundo (primary screen)
-        let bestSource = null;
-
-        for (const source of sources) {
-          // Electron mein primary screen ka id "screen:0:0" hota hai
-          if (source.id === "screen:0:0" || source.id.startsWith("screen:0")) {
-            bestSource = source;
-            console.log("[ScreenShare] Found primary by ID:", source.id);
-            break;
-          }
-        }
-
-        // Agar ID se nahi mila to name se dhundo
-        if (!bestSource) {
-          for (const source of sources) {
-            const name = source.name.toLowerCase();
-            if (
-              name.includes("entire screen") ||
-              name.includes("screen 1") ||
-              name.includes("display 1") ||
-              name === "screen 0" ||
-              name.includes("your entire screen")
-            ) {
-              bestSource = source;
-              console.log("[ScreenShare] Found primary by name:", source.name);
-              break;
-            }
-          }
-        }
-
-        // Fallback: pehla source
-        if (!bestSource && sources.length > 0) {
-          bestSource = sources[0];
-          console.log("[ScreenShare] Using first source:", bestSource.name);
-        }
-
-        if (bestSource) {
-          callback({
-            video: bestSource, // Poora source object do — id aur display_id sab
-            audio: false,
-          });
+        if (sources.length > 0) {
+          callback({ video: sources[0], audio: false });
         } else {
           callback({});
         }
@@ -158,7 +105,7 @@ function createWindow() {
         callback({});
       }
     },
-    { useSystemPicker: true },
+    { useSystemPicker: false },
   );
 
   // ─── Permission grants ───
@@ -497,58 +444,77 @@ const keyMap = {
   CapsLock: "caps_lock",
 };
 
-ipcMain.on("rc-event", (event, rawData) => {
+ipcMain.on("rc-event", async (event, rawData) => {
   try {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
-
-    // Remote ki actual screen size use karo (jo unhone bheja)
     const { screen } = require("electron");
-    const myScreen = screen.getPrimaryDisplay().size;
-    const x = Math.round(
-      Math.max(0, Math.min(1, data.x || 0)) * myScreen.width,
-    );
-    const y = Math.round(
-      Math.max(0, Math.min(1, data.y || 0)) * myScreen.height,
-    );
+    const { width, height } = screen.getPrimaryDisplay().bounds; // taskbar sahi hogi
+
+    // Normalized 0-1 se actual screen coordinates
+    const x = Math.round(data.x * width);
+    const y = Math.round(data.y * height);
 
     if (data.event === "mousemove") {
       robot.moveMouse(x, y);
     } else if (data.event === "click") {
       robot.moveMouse(x, y);
-      setTimeout(() => robot.mouseClick("left"), 30);
+      robot.mouseClick("left");
     } else if (data.event === "rightclick") {
       robot.moveMouse(x, y);
-      setTimeout(() => robot.mouseClick("right"), 30);
+      robot.mouseClick("right");
     } else if (data.event === "scroll") {
-      const curPos = robot.getMousePos();
+      robot.moveMouse(x, y);
       const scrollAmt = Math.max(1, Math.floor((data.delta || 120) / 40));
-      if (data.direction === "down") {
-        robot.scrollMouse(curPos.x, curPos.y, scrollAmt);
-      } else {
-        robot.scrollMouse(curPos.x, curPos.y, -scrollAmt);
-      }
+      robot.scrollMouse(0, data.direction === "down" ? scrollAmt : -scrollAmt);
     } else if (data.event === "keypress") {
       const k = data.key;
-      if (k && k.length === 1) {
-        const modifiers = [];
-        if (data.ctrl) modifiers.push("control");
-        if (data.alt) modifiers.push("alt");
-        if (data.shift && k !== k.toLowerCase()) modifiers.push("shift");
-        try {
+      if (!k) return;
+
+      const keyMap = {
+        Enter: "return",
+        Backspace: "backspace",
+        Delete: "delete",
+        ArrowLeft: "left",
+        ArrowRight: "right",
+        ArrowUp: "up",
+        ArrowDown: "down",
+        Tab: "tab",
+        Escape: "escape",
+        " ": "space",
+        Home: "home",
+        End: "end",
+        PageUp: "pageup",
+        PageDown: "pagedown",
+        Insert: "insert",
+        CapsLock: "caps_lock",
+        F1: "f1",
+        F2: "f2",
+        F3: "f3",
+        F4: "f4",
+        F5: "f5",
+        F6: "f6",
+        F7: "f7",
+        F8: "f8",
+        F9: "f9",
+        F10: "f10",
+        F11: "f11",
+        F12: "f12",
+      };
+
+      const modifiers = [];
+      if (data.ctrl) modifiers.push("control");
+      if (data.alt) modifiers.push("alt");
+      if (data.shift) modifiers.push("shift");
+      if (data.meta) modifiers.push("command");
+
+      if (keyMap[k]) {
+        robot.keyTap(keyMap[k], modifiers);
+      } else if (k.length === 1) {
+        if (modifiers.length > 0) {
           robot.keyTap(k.toLowerCase(), modifiers);
-        } catch (e) {
-          try {
-            robot.typeString(k);
-          } catch (e2) {}
+        } else {
+          robot.typeString(k);
         }
-      } else if (k && keyMap[k]) {
-        const modifiers = [];
-        if (data.ctrl) modifiers.push("control");
-        if (data.shift) modifiers.push("shift");
-        if (data.alt) modifiers.push("alt");
-        try {
-          robot.keyTap(keyMap[k], modifiers);
-        } catch (e) {}
       }
     }
   } catch (e) {
