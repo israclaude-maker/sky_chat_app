@@ -6058,6 +6058,27 @@ function handleScreenToggle(data) {
           localVid,
           ongoingAv,
         );
+      } else if (
+        remoteVideo &&
+        remoteVideo.srcObject &&
+        remoteVideo.srcObject.getVideoTracks().length > 0
+      ) {
+        // Audio-only call: screen share went to remote-video as first track
+        // Move it to remote-screen-video
+        console.log(
+          "[ScreenToggle] Moving screen share from remote-video to remote-screen-video",
+        );
+        CallState.remoteScreenStream = remoteVideo.srcObject;
+        if (remoteScreenVideo) {
+          remoteScreenVideo.srcObject = remoteVideo.srcObject;
+        }
+        CallState._pendingScreenToggle = false;
+        _applyScreenToggleOn(
+          remoteVideo,
+          remoteScreenVideo,
+          localVid,
+          ongoingAv,
+        );
       } else if (attempts++ < 25) {
         setTimeout(waitForStream, 200);
       } else {
@@ -6112,6 +6133,16 @@ function _applyScreenToggleOn(
   localVid,
   ongoingAv,
 ) {
+  // If call is minimized, expand it so user can see the shared screen
+  if (callMinimized) {
+    expandCall();
+  }
+  // Ensure ongoing-call overlay is visible
+  var ongoingOverlay = $("ongoing-call");
+  if (ongoingOverlay && !ongoingOverlay.classList.contains("active")) {
+    ongoingOverlay.classList.add("active");
+  }
+
   if (remoteScreenVideo) {
     remoteScreenVideo.style.display = "block";
     remoteScreenVideo.srcObject = CallState.remoteScreenStream;
