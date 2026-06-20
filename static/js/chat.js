@@ -5508,9 +5508,7 @@ function doInitWebRTC(isInitiator, callback) {
       } else if (CallState._pendingScreenToggle) {
         // Screen share arriving as first video track (audio/voice call)
         // Route to remote-screen-video (object-fit:contain = no crop)
-        console.log(
-          "[ontrack] _pendingScreenToggle is true → routing to remote-screen-video",
-        );
+        console.log("[ontrack] _pendingScreenToggle is true → routing to remote-screen-video");
         CallState.remoteScreenStream = e.streams[0];
         var remoteScreenVideo = $("remote-screen-video");
         if (remoteScreenVideo) {
@@ -6089,9 +6087,7 @@ function handleScreenToggle(data) {
         remoteVideo.srcObject.getVideoTracks().length > 0
       ) {
         // Fallback: screen share went to remote-video, move it
-        console.log(
-          "[ScreenToggle] Moving screen share from remote-video to remote-screen-video",
-        );
+        console.log("[ScreenToggle] Moving screen share from remote-video to remote-screen-video");
         CallState.remoteScreenStream = remoteVideo.srcObject;
         if (remoteScreenVideo) {
           remoteScreenVideo.srcObject = remoteVideo.srcObject;
@@ -11445,11 +11441,7 @@ function attachRCToVideo(vid) {
 
   function getVideoContentRect(videoEl) {
     var rect = videoEl.getBoundingClientRect();
-    if (
-      videoEl.tagName !== "VIDEO" ||
-      !videoEl.videoWidth ||
-      !videoEl.videoHeight
-    ) {
+    if (videoEl.tagName !== "VIDEO" || !videoEl.videoWidth || !videoEl.videoHeight) {
       return rect;
     }
     var vidAR = videoEl.videoWidth / videoEl.videoHeight;
@@ -11482,14 +11474,8 @@ function attachRCToVideo(vid) {
     }, 16);
 
     var cRect = getVideoContentRect(vid);
-    var normX = Math.max(
-      0,
-      Math.min(1, (e.clientX - cRect.left) / cRect.width),
-    );
-    var normY = Math.max(
-      0,
-      Math.min(1, (e.clientY - cRect.top) / cRect.height),
-    );
+    var normX = Math.max(0, Math.min(1, (e.clientX - cRect.left) / cRect.width));
+    var normY = Math.max(0, Math.min(1, (e.clientY - cRect.top) / cRect.height));
 
     sendRCEvent("mousemove", normX, normY);
   };
@@ -11500,14 +11486,8 @@ function attachRCToVideo(vid) {
     vid.focus();
 
     var cRect = getVideoContentRect(vid);
-    var normX = Math.max(
-      0,
-      Math.min(1, (e.clientX - cRect.left) / cRect.width),
-    );
-    var normY = Math.max(
-      0,
-      Math.min(1, (e.clientY - cRect.top) / cRect.height),
-    );
+    var normX = Math.max(0, Math.min(1, (e.clientX - cRect.left) / cRect.width));
+    var normY = Math.max(0, Math.min(1, (e.clientY - cRect.top) / cRect.height));
 
     sendRCEvent("click", normX, normY);
 
