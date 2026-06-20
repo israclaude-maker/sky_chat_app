@@ -445,11 +445,9 @@ const keyMap = {
 };
 
 ipcMain.on("rc-event", (event, rawData) => {
-  console.log("[RC] Raw data received:", rawData);
   try {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
 
-    // Remote ki actual screen size use karo (jo unhone bheja)
     const { screen } = require("electron");
     const myScreen = screen.getPrimaryDisplay().size;
     const x = Math.round(
@@ -474,10 +472,26 @@ ipcMain.on("rc-event", (event, rawData) => {
       } else {
         robot.scrollMouse(0, scrollAmt);
       }
-    } else if (data.event === "keypress") {
+    } else if (data.event === "keydown") {
+      // ─── AnyDesk-style: key pressed down on remote ───
       const k = data.key;
       if (!k) return;
 
+      // Pure modifier keys — toggle down, don't tap
+      var modKey = {
+        Control: "control",
+        Shift: "shift",
+        Alt: "alt",
+        Meta: "command",
+      }[k];
+      if (modKey) {
+        try {
+          robot.keyToggle(modKey, "down");
+        } catch (e) {}
+        return;
+      }
+
+      // Build modifier list from flags
       const modifiers = [];
       if (data.ctrl) modifiers.push("control");
       if (data.alt) modifiers.push("alt");
@@ -485,14 +499,13 @@ ipcMain.on("rc-event", (event, rawData) => {
       if (data.meta) modifiers.push("command");
 
       if (k.length === 1) {
-        // Ctrl/Alt shortcuts (Ctrl+C, Ctrl+V, Alt+F4, etc.)
-        if (data.ctrl || data.alt) {
+        // Shortcut with modifier (Ctrl+C, Ctrl+V, Alt+F4, etc.)
+        if (modifiers.length > 0) {
           try {
             robot.keyTap(k.toLowerCase(), modifiers);
           } catch (e) {}
         } else {
-          // Normal characters — clipboard method use karo
-          // (yeh symbols, capitals, sab handle karta hai)
+          // Normal character — clipboard method for accurate typing
           try {
             const { clipboard } = require("electron");
             const prev = clipboard.readText();
@@ -506,7 +519,55 @@ ipcMain.on("rc-event", (event, rawData) => {
           }
         }
       } else if (keyMap[k]) {
-        // Special keys: Enter, Backspace, ArrowLeft, Tab, etc.
+        // Special keys: Enter, Backspace, ArrowLeft, Tab, F1-F12, etc.
+        try {
+          robot.keyTap(keyMap[k], modifiers);
+        } catch (e) {}
+      }
+    } else if (data.event === "keyup") {
+      // ─── Release modifier keys ───
+      const k = data.key;
+      var modKey = {
+        Control: "control",
+        Shift: "shift",
+        Alt: "alt",
+        Meta: "command",
+      }[k];
+      if (modKey) {
+        try {
+          robot.keyToggle(modKey, "up");
+        } catch (e) {}
+      }
+    } else if (data.event === "keypress") {
+      // ─── Legacy fallback (backward compatible) ───
+      const k = data.key;
+      if (!k) return;
+
+      const modifiers = [];
+      if (data.ctrl) modifiers.push("control");
+      if (data.alt) modifiers.push("alt");
+      if (data.shift) modifiers.push("shift");
+      if (data.meta) modifiers.push("command");
+
+      if (k.length === 1) {
+        if (data.ctrl || data.alt) {
+          try {
+            robot.keyTap(k.toLowerCase(), modifiers);
+          } catch (e) {}
+        } else {
+          try {
+            const { clipboard } = require("electron");
+            const prev = clipboard.readText();
+            clipboard.writeText(k);
+            robot.keyTap("v", ["control"]);
+            setTimeout(() => clipboard.writeText(prev), 300);
+          } catch (e) {
+            try {
+              robot.typeString(k);
+            } catch (e2) {}
+          }
+        }
+      } else if (keyMap[k]) {
         try {
           robot.keyTap(keyMap[k], modifiers);
         } catch (e) {}

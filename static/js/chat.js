@@ -5506,27 +5506,25 @@ function doInitWebRTC(isInitiator, callback) {
           }
         };
       } else if (CallState._pendingScreenToggle) {
-        // Screen share arriving as first video track (audio/voice call)
-        // Route to remote-screen-video (object-fit:contain = no crop)
-        console.log("[ontrack] _pendingScreenToggle is true → routing to remote-screen-video");
+        console.log(
+          "[ontrack] _pendingScreenToggle=true → routing to remote-screen-video",
+        );
         CallState.remoteScreenStream = e.streams[0];
-        var remoteScreenVideo = $("remote-screen-video");
-        if (remoteScreenVideo) {
-          remoteScreenVideo.srcObject = e.streams[0];
+        var remoteScreenVideo2 = $("remote-screen-video");
+        if (remoteScreenVideo2) {
+          remoteScreenVideo2.srcObject = e.streams[0];
         }
-        // Apply screen toggle UI
-        handleScreenToggle({ sharing: true });
+        handleScreenToggle({
+          sharing: true,
+          surface_type: CallState._pendingSurfaceType || "monitor",
+        });
         e.track.onended = function () {
-          if (remoteScreenVideo) {
-            remoteScreenVideo.style.display = "none";
-            remoteScreenVideo.srcObject = null;
+          if (remoteScreenVideo2) {
+            remoteScreenVideo2.style.display = "none";
+            remoteScreenVideo2.srcObject = null;
           }
           CallState.remoteScreenStream = null;
-          var rv = $("remote-video");
-          if (rv) {
-            rv.classList.remove("screen-pip");
-            rv.style.cssText = "";
-          }
+          hideRCButton();
         };
       } else {
         // First video track = camera → remote-video
@@ -6000,6 +5998,7 @@ function handleScreenOffer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
   console.log("Received screen_offer, renegotiating...");
   CallState._pendingScreenToggle = true; // ← YEH ADD KARO
+  CallState._pendingSurfaceType = data.surface_type || "monitor";
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
@@ -6071,6 +6070,8 @@ function handleScreenToggle(data) {
   var ongoingAv = $("ongoing-av");
 
   if (data.sharing) {
+    CallState._remoteSurfaceType =
+      data.surface_type || CallState._pendingSurfaceType || "monitor";
     var attempts = 0;
     function waitForStream() {
       if (CallState.remoteScreenStream) {
@@ -6086,12 +6087,9 @@ function handleScreenToggle(data) {
         remoteVideo.srcObject &&
         remoteVideo.srcObject.getVideoTracks().length > 0
       ) {
-        // Fallback: screen share went to remote-video, move it
-        console.log("[ScreenToggle] Moving screen share from remote-video to remote-screen-video");
         CallState.remoteScreenStream = remoteVideo.srcObject;
-        if (remoteScreenVideo) {
+        if (remoteScreenVideo)
           remoteScreenVideo.srcObject = remoteVideo.srcObject;
-        }
         remoteVideo.style.display = "none";
         CallState._pendingScreenToggle = false;
         _applyScreenToggleOn(
@@ -6154,11 +6152,7 @@ function _applyScreenToggleOn(
   localVid,
   ongoingAv,
 ) {
-  // If call is minimized, expand it so user can see the shared screen
-  if (callMinimized) {
-    expandCall();
-  }
-  // Ensure ongoing-call overlay is visible
+  if (callMinimized) expandCall();
   var ongoingOverlay = $("ongoing-call");
   if (ongoingOverlay && !ongoingOverlay.classList.contains("active")) {
     ongoingOverlay.classList.add("active");
@@ -6214,7 +6208,14 @@ function _applyScreenToggleOn(
     if (callOverlay) callOverlay.appendChild(lbl);
   }
   lbl.style.display = "flex";
-  showRCButton();
+  var surfaceType = CallState._remoteSurfaceType || "monitor";
+  var isOneOnOneCall = CallState.isInCall && !GC.active;
+  var isEntireScreen = surfaceType === "monitor";
+  if (isOneOnOneCall && isEntireScreen) {
+    showRCButton();
+  } else {
+    hideRCButton();
+  }
 
   var ssv2 = document.getElementById("remote-screen-video");
   var rv2 = document.getElementById("remote-video");
@@ -6806,6 +6807,8 @@ function minimizeCall() {
 
   minimizedOverlayId = activeOverlay;
   callMinimized = true;
+
+  // RC keyboard: when minimized, keys work locally (handler checks callMinimized flag)
 
   // Hide the full-screen overlay
   $(activeOverlay).classList.remove("active");
@@ -11136,70 +11139,10 @@ var RemoteCtrl = {
 };
 
 function requestRemoteControl() {
-  // In group call — target the currently focused peer
   if (GC.active) {
-    var targetId = null;
-    var targetName = "";
-
-    // Get focused participant (not local, not screen)
-    var focusedId = gcFocusedId;
-    if (focusedId && focusedId !== "local" && focusedId !== "local_screen") {
-      var realId = focusedId.toString().replace("_screen", "");
-      targetId = parseInt(realId);
-      var peer = GC.peers[targetId];
-      targetName = peer ? peer.name || "User" : "User";
-    }
-
-    if (!targetId) {
-      // No focused peer — show picker if multiple peers
-      var peerIds = Object.keys(GC.peers);
-      if (peerIds.length === 0) {
-        toast("No other participants in the call", "e");
-        return;
-      }
-      if (peerIds.length === 1) {
-        targetId = parseInt(peerIds[0]);
-        var peer = GC.peers[targetId];
-        targetName = peer ? peer.name || "User" : "User";
-      } else {
-        // Show a simple picker overlay
-        _showRemoteControlPicker();
-        return;
-      }
-    }
-
-    RemoteCtrl.targetUserId = targetId;
-    var ws = S.globalWs || S.ws;
-    if (ws && ws.readyState === 1) {
-      ws.send(
-        JSON.stringify({
-          type: "remote_control_request",
-          target_user_id: targetId,
-          caller_name: S.user.first_name || S.user.username,
-        }),
-      );
-    }
-    toast("Remote control request sent to " + targetName + "...", "i");
-
-    // Show waiting indicator on group call overlay
-    var overlay = $("gc-ongoing-call");
-    if (overlay) {
-      var old = document.getElementById("rc-wait");
-      if (old) old.remove();
-      var el = document.createElement("div");
-      el.id = "rc-wait";
-      el.style.cssText =
-        "position:absolute;top:16px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;display:flex;align-items:center;gap:10px;z-index:10010;";
-      el.innerHTML =
-        '<i class="fa-solid fa-spinner fa-spin"></i> Waiting for ' +
-        esc(targetName) +
-        '... <button onclick="stopRemoteControl()" style="background:#ef4444;border:none;color:#fff;padding:3px 10px;border-radius:8px;cursor:pointer;">Cancel</button>';
-      overlay.appendChild(el);
-    }
+    toast("Remote control is only available in 1:1 calls", "e");
     return;
   }
-
-  // 1-on-1 call — original logic
   if (!CallState.isInCall) {
     toast("Start a call first", "e");
     return;
@@ -11370,47 +11313,44 @@ function handleRemoteControlAccepted(data) {
 
   // ✅ Fix — screen share ke liye dedicated overlay banana
   function findAndAttach(attempt) {
-    if (attempt > 20) {
-      var overlay = $("ongoing-call") || $("gc-ongoing-call");
-      if (overlay) {
-        attachRCToVideo(overlay);
-      } else {
-        toast("Remote screen not found", "e");
-        RemoteCtrl.isControlling = false;
-      }
+    if (attempt > 40) {
+      toast("Remote screen video not found", "e");
+      RemoteCtrl.isControlling = false;
       updateRCButton();
       return;
     }
 
     var vid = null;
 
-    // 1. Pehle screen share video dhundo (sirf srcObject check, tracks nahi)
     if (RemoteCtrl._pendingVideoEl && RemoteCtrl._pendingVideoEl.srcObject) {
       vid = RemoteCtrl._pendingVideoEl;
     }
 
-    // 2. Phir remote-screen-video (sirf srcObject check)
     if (!vid) {
       var ssv = document.getElementById("remote-screen-video");
       if (ssv && ssv.srcObject) vid = ssv;
     }
 
-    // 3. Phir remote-video (sirf srcObject check)
     if (!vid) {
       var rv = document.getElementById("remote-video");
       if (rv && rv.srcObject) vid = rv;
-    }
-
-    // 4. Attempt 5 ke baad overlay fallback
-    if (!vid && attempt >= 5) {
-      var overlay = $("ongoing-call") || $("gc-ongoing-call");
-      if (overlay) vid = overlay;
     }
 
     if (!vid) {
       setTimeout(function () {
         findAndAttach(attempt + 1);
       }, 500);
+      return;
+    }
+
+    if (vid.tagName === "VIDEO" && (!vid.videoWidth || !vid.videoHeight)) {
+      vid.addEventListener("loadedmetadata", function onMeta() {
+        vid.removeEventListener("loadedmetadata", onMeta);
+        attachRCToVideo(vid);
+      });
+      setTimeout(function () {
+        if (!RemoteCtrl.videoEl) attachRCToVideo(vid);
+      }, 2000);
       return;
     }
 
@@ -11441,7 +11381,11 @@ function attachRCToVideo(vid) {
 
   function getVideoContentRect(videoEl) {
     var rect = videoEl.getBoundingClientRect();
-    if (videoEl.tagName !== "VIDEO" || !videoEl.videoWidth || !videoEl.videoHeight) {
+    if (
+      videoEl.tagName !== "VIDEO" ||
+      !videoEl.videoWidth ||
+      !videoEl.videoHeight
+    ) {
       return rect;
     }
     var vidAR = videoEl.videoWidth / videoEl.videoHeight;
@@ -11472,11 +11416,15 @@ function attachRCToVideo(vid) {
     throttleTimer = setTimeout(function () {
       throttleTimer = null;
     }, 16);
-
     var cRect = getVideoContentRect(vid);
-    var normX = Math.max(0, Math.min(1, (e.clientX - cRect.left) / cRect.width));
-    var normY = Math.max(0, Math.min(1, (e.clientY - cRect.top) / cRect.height));
-
+    var normX = Math.max(
+      0,
+      Math.min(1, (e.clientX - cRect.left) / cRect.width),
+    );
+    var normY = Math.max(
+      0,
+      Math.min(1, (e.clientY - cRect.top) / cRect.height),
+    );
     sendRCEvent("mousemove", normX, normY);
   };
   vid._rcClick = function (e) {
@@ -11484,10 +11432,15 @@ function attachRCToVideo(vid) {
     e.preventDefault();
     e.stopPropagation();
     vid.focus();
-
     var cRect = getVideoContentRect(vid);
-    var normX = Math.max(0, Math.min(1, (e.clientX - cRect.left) / cRect.width));
-    var normY = Math.max(0, Math.min(1, (e.clientY - cRect.top) / cRect.height));
+    var normX = Math.max(
+      0,
+      Math.min(1, (e.clientX - cRect.left) / cRect.width),
+    );
+    var normY = Math.max(
+      0,
+      Math.min(1, (e.clientY - cRect.top) / cRect.height),
+    );
 
     sendRCEvent("click", normX, normY);
 
@@ -11739,18 +11692,44 @@ function sendRCEvent(ev, x, y, extra) {
     );
 }
 
-// ─── RC Keyboard Control ───────────────────────────────────────
-var _rcKeyHandler = null;
+// ─── RC Keyboard Control (AnyDesk-style) ─────────────────────
+var _rcKeyDownHandler = null;
+var _rcKeyUpHandler = null;
 
 function enableRCKeyboard() {
-  if (_rcKeyHandler) return; // already attached
-  _rcKeyHandler = function (e) {
-    // Local input fields mein type karte waqt ignore karo
+  if (_rcKeyDownHandler) return; // already attached
+
+  _rcKeyDownHandler = function (e) {
+    // Don't intercept if call is minimized — keys work locally
+    if (callMinimized) return;
+    // Don't intercept if typing in local input fields
     var tag = document.activeElement && document.activeElement.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
-    sendRCEvent("keypress", 0, 0, {
+    // Send keydown to remote PC
+    sendRCEvent("keydown", 0, 0, {
       key: e.key,
+      code: e.code,
+      ctrl: e.ctrlKey,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      meta: e.metaKey,
+    });
+
+    // Prevent ALL local browser handling (Ctrl+W, Ctrl+T, F5, etc.)
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  _rcKeyUpHandler = function (e) {
+    if (callMinimized) return;
+    var tag = document.activeElement && document.activeElement.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+    // Send keyup to remote PC (for proper modifier key release)
+    sendRCEvent("keyup", 0, 0, {
+      key: e.key,
+      code: e.code,
       ctrl: e.ctrlKey,
       shift: e.shiftKey,
       alt: e.altKey,
@@ -11760,13 +11739,19 @@ function enableRCKeyboard() {
     e.preventDefault();
     e.stopPropagation();
   };
-  document.addEventListener("keydown", _rcKeyHandler, true);
+
+  document.addEventListener("keydown", _rcKeyDownHandler, true);
+  document.addEventListener("keyup", _rcKeyUpHandler, true);
 }
 
 function disableRCKeyboard() {
-  if (_rcKeyHandler) {
-    document.removeEventListener("keydown", _rcKeyHandler, true);
-    _rcKeyHandler = null;
+  if (_rcKeyDownHandler) {
+    document.removeEventListener("keydown", _rcKeyDownHandler, true);
+    _rcKeyDownHandler = null;
+  }
+  if (_rcKeyUpHandler) {
+    document.removeEventListener("keyup", _rcKeyUpHandler, true);
+    _rcKeyUpHandler = null;
   }
 }
 
