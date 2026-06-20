@@ -5506,14 +5506,10 @@ function doInitWebRTC(isInitiator, callback) {
           }
         };
       } else if (CallState._pendingScreenToggle) {
-        console.log(
-          "[ontrack] _pendingScreenToggle=true → routing to remote-screen-video",
-        );
+        console.log("[ontrack] screen share → remote-screen-video");
         CallState.remoteScreenStream = e.streams[0];
         var remoteScreenVideo2 = $("remote-screen-video");
-        if (remoteScreenVideo2) {
-          remoteScreenVideo2.srcObject = e.streams[0];
-        }
+        if (remoteScreenVideo2) remoteScreenVideo2.srcObject = e.streams[0];
         handleScreenToggle({
           sharing: true,
           surface_type: CallState._pendingSurfaceType || "monitor",
@@ -5527,32 +5523,29 @@ function doInitWebRTC(isInitiator, callback) {
           hideRCButton();
         };
       } else {
-        // First video track = camera → remote-video
         var remoteVideo = $("remote-video");
         if (remoteVideo) {
           remoteVideo.srcObject = e.streams[0];
           remoteVideo.style.display = "block";
-          remoteVideo.play().catch(function (err) {
-            console.log("Video play error:", err);
-          });
+          remoteVideo.play().catch(function (err) {});
           var ongoingAv = $("ongoing-av");
           if (ongoingAv) ongoingAv.style.display = "none";
         }
         CallState.remoteStream = e.streams[0];
         e.track.onended = function () {
           if (remoteVideo) remoteVideo.style.display = "none";
-          var ongoingAv = $("ongoing-av");
-          if (ongoingAv) ongoingAv.style.display = "block";
+          var oa = $("ongoing-av");
+          if (oa) oa.style.display = "block";
         };
         e.track.onmute = function () {
           if (remoteVideo) remoteVideo.style.display = "none";
-          var ongoingAv = $("ongoing-av");
-          if (ongoingAv) ongoingAv.style.display = "block";
+          var oa = $("ongoing-av");
+          if (oa) oa.style.display = "block";
         };
         e.track.onunmute = function () {
           if (remoteVideo) remoteVideo.style.display = "block";
-          var ongoingAv = $("ongoing-av");
-          if (ongoingAv) ongoingAv.style.display = "none";
+          var oa = $("ongoing-av");
+          if (oa) oa.style.display = "none";
         };
       }
     }
@@ -5997,7 +5990,7 @@ function flushPendingIceCandidates() {
 function handleScreenOffer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
   console.log("Received screen_offer, renegotiating...");
-  CallState._pendingScreenToggle = true; // ← YEH ADD KARO
+  CallState._pendingScreenToggle = true;
   CallState._pendingSurfaceType = data.surface_type || "monitor";
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
@@ -6100,8 +6093,6 @@ function handleScreenToggle(data) {
         );
       } else if (attempts++ < 25) {
         setTimeout(waitForStream, 200);
-      } else {
-        console.warn("[ScreenToggle] stream 5s baad bhi nahi aya");
       }
     }
     waitForStream();
@@ -6154,9 +6145,8 @@ function _applyScreenToggleOn(
 ) {
   if (callMinimized) expandCall();
   var ongoingOverlay = $("ongoing-call");
-  if (ongoingOverlay && !ongoingOverlay.classList.contains("active")) {
+  if (ongoingOverlay && !ongoingOverlay.classList.contains("active"))
     ongoingOverlay.classList.add("active");
-  }
 
   if (remoteScreenVideo) {
     remoteScreenVideo.style.display = "block";
@@ -6209,9 +6199,7 @@ function _applyScreenToggleOn(
   }
   lbl.style.display = "flex";
   var surfaceType = CallState._remoteSurfaceType || "monitor";
-  var isOneOnOneCall = CallState.isInCall && !GC.active;
-  var isEntireScreen = surfaceType === "monitor";
-  if (isOneOnOneCall && isEntireScreen) {
+  if (CallState.isInCall && !GC.active && surfaceType === "monitor") {
     showRCButton();
   } else {
     hideRCButton();
@@ -6807,8 +6795,6 @@ function minimizeCall() {
 
   minimizedOverlayId = activeOverlay;
   callMinimized = true;
-
-  // RC keyboard: when minimized, keys work locally (handler checks callMinimized flag)
 
   // Hide the full-screen overlay
   $(activeOverlay).classList.remove("active");
@@ -11310,8 +11296,8 @@ function handleRemoteControlAccepted(data) {
   if (waitEl) waitEl.remove();
   RemoteCtrl.isControlling = true;
   enableRCKeyboard();
+  showSystemShortcutsBar();
 
-  // ✅ Fix — screen share ke liye dedicated overlay banana
   function findAndAttach(attempt) {
     if (attempt > 40) {
       toast("Remote screen video not found", "e");
@@ -11319,30 +11305,23 @@ function handleRemoteControlAccepted(data) {
       updateRCButton();
       return;
     }
-
     var vid = null;
-
-    if (RemoteCtrl._pendingVideoEl && RemoteCtrl._pendingVideoEl.srcObject) {
+    if (RemoteCtrl._pendingVideoEl && RemoteCtrl._pendingVideoEl.srcObject)
       vid = RemoteCtrl._pendingVideoEl;
-    }
-
     if (!vid) {
       var ssv = document.getElementById("remote-screen-video");
       if (ssv && ssv.srcObject) vid = ssv;
     }
-
     if (!vid) {
       var rv = document.getElementById("remote-video");
       if (rv && rv.srcObject) vid = rv;
     }
-
     if (!vid) {
       setTimeout(function () {
         findAndAttach(attempt + 1);
       }, 500);
       return;
     }
-
     if (vid.tagName === "VIDEO" && (!vid.videoWidth || !vid.videoHeight)) {
       vid.addEventListener("loadedmetadata", function onMeta() {
         vid.removeEventListener("loadedmetadata", onMeta);
@@ -11353,7 +11332,6 @@ function handleRemoteControlAccepted(data) {
       }, 2000);
       return;
     }
-
     attachRCToVideo(vid);
   }
 
@@ -11385,29 +11363,23 @@ function attachRCToVideo(vid) {
       videoEl.tagName !== "VIDEO" ||
       !videoEl.videoWidth ||
       !videoEl.videoHeight
-    ) {
+    )
       return rect;
-    }
     var vidAR = videoEl.videoWidth / videoEl.videoHeight;
     var elAR = rect.width / rect.height;
-    var contentW, contentH, offsetX, offsetY;
+    var cW, cH, oX, oY;
     if (vidAR > elAR) {
-      contentW = rect.width;
-      contentH = rect.width / vidAR;
-      offsetX = 0;
-      offsetY = (rect.height - contentH) / 2;
+      cW = rect.width;
+      cH = rect.width / vidAR;
+      oX = 0;
+      oY = (rect.height - cH) / 2;
     } else {
-      contentH = rect.height;
-      contentW = rect.height * vidAR;
-      offsetX = (rect.width - contentW) / 2;
-      offsetY = 0;
+      cH = rect.height;
+      cW = rect.height * vidAR;
+      oX = (rect.width - cW) / 2;
+      oY = 0;
     }
-    return {
-      left: rect.left + offsetX,
-      top: rect.top + offsetY,
-      width: contentW,
-      height: contentH,
-    };
+    return { left: rect.left + oX, top: rect.top + oY, width: cW, height: cH };
   }
 
   vid._rcMove = function (e) {
@@ -11417,15 +11389,11 @@ function attachRCToVideo(vid) {
       throttleTimer = null;
     }, 16);
     var cRect = getVideoContentRect(vid);
-    var normX = Math.max(
-      0,
-      Math.min(1, (e.clientX - cRect.left) / cRect.width),
+    sendRCEvent(
+      "mousemove",
+      Math.max(0, Math.min(1, (e.clientX - cRect.left) / cRect.width)),
+      Math.max(0, Math.min(1, (e.clientY - cRect.top) / cRect.height)),
     );
-    var normY = Math.max(
-      0,
-      Math.min(1, (e.clientY - cRect.top) / cRect.height),
-    );
-    sendRCEvent("mousemove", normX, normY);
   };
   vid._rcClick = function (e) {
     if (!RemoteCtrl.isControlling) return;
@@ -11660,6 +11628,9 @@ function cleanupRC() {
     if (node) node.remove();
   });
 
+  disableRCKeyboard();
+  hideSystemShortcutsBar();
+
   // Reset all state flags
   Object.assign(RemoteCtrl, {
     isControlling: false,
@@ -11697,16 +11668,11 @@ var _rcKeyDownHandler = null;
 var _rcKeyUpHandler = null;
 
 function enableRCKeyboard() {
-  if (_rcKeyDownHandler) return; // already attached
-
+  if (_rcKeyDownHandler) return;
   _rcKeyDownHandler = function (e) {
-    // Don't intercept if call is minimized — keys work locally
-    if (callMinimized) return;
-    // Don't intercept if typing in local input fields
+    if (callMinimized) return; // Minimized → keys work locally
     var tag = document.activeElement && document.activeElement.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-
-    // Send keydown to remote PC
     sendRCEvent("keydown", 0, 0, {
       key: e.key,
       code: e.code,
@@ -11715,18 +11681,13 @@ function enableRCKeyboard() {
       alt: e.altKey,
       meta: e.metaKey,
     });
-
-    // Prevent ALL local browser handling (Ctrl+W, Ctrl+T, F5, etc.)
     e.preventDefault();
     e.stopPropagation();
   };
-
   _rcKeyUpHandler = function (e) {
     if (callMinimized) return;
     var tag = document.activeElement && document.activeElement.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-
-    // Send keyup to remote PC (for proper modifier key release)
     sendRCEvent("keyup", 0, 0, {
       key: e.key,
       code: e.code,
@@ -11735,11 +11696,9 @@ function enableRCKeyboard() {
       alt: e.altKey,
       meta: e.metaKey,
     });
-
     e.preventDefault();
     e.stopPropagation();
   };
-
   document.addEventListener("keydown", _rcKeyDownHandler, true);
   document.addEventListener("keyup", _rcKeyUpHandler, true);
 }
@@ -11753,6 +11712,48 @@ function disableRCKeyboard() {
     document.removeEventListener("keyup", _rcKeyUpHandler, true);
     _rcKeyUpHandler = null;
   }
+}
+
+// ─── System Shortcuts Toolbar (for keys that OS intercepts) ──
+function showSystemShortcutsBar() {
+  if (document.getElementById("rc-sys-bar")) return;
+  var bar = document.createElement("div");
+  bar.id = "rc-sys-bar";
+  bar.style.cssText =
+    "position:fixed;top:50%;right:0;transform:translateY(-50%);z-index:100010;" +
+    "display:flex;flex-direction:column;gap:4px;padding:6px;background:rgba(0,0,0,0.8);" +
+    "border-radius:12px 0 0 12px;";
+  var shortcuts = [
+    { label: "Alt+Tab", cmd: "alt_tab", icon: "⇥" },
+    { label: "Win", cmd: "win", icon: "⊞" },
+    { label: "Alt+F4", cmd: "alt_f4", icon: "✕" },
+    { label: "Task Mgr", cmd: "ctrl_alt_del", icon: "☰" },
+    { label: "Desktop", cmd: "win_d", icon: "🖥" },
+  ];
+  shortcuts.forEach(function (s) {
+    var btn = document.createElement("button");
+    btn.title = s.label;
+    btn.textContent = s.icon;
+    btn.style.cssText =
+      "width:36px;height:36px;border:none;border-radius:8px;cursor:pointer;" +
+      "background:rgba(255,255,255,0.15);color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;";
+    btn.onmouseenter = function () {
+      btn.style.background = "rgba(255,255,255,0.3)";
+    };
+    btn.onmouseleave = function () {
+      btn.style.background = "rgba(255,255,255,0.15)";
+    };
+    btn.onclick = function () {
+      sendRCEvent("system_shortcut", 0, 0, { key: s.cmd });
+    };
+    bar.appendChild(btn);
+  });
+  document.body.appendChild(bar);
+}
+
+function hideSystemShortcutsBar() {
+  var bar = document.getElementById("rc-sys-bar");
+  if (bar) bar.remove();
 }
 
 function updateRCButton() {

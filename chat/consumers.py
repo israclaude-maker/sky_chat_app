@@ -1714,14 +1714,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "event": data.get("event"),
                 "x": data.get("x", 0),
                 "y": data.get("y", 0),
-                "direction": data.get("direction", ""),
-                "delta": data.get("delta", 0),
-                "key": data.get("key", ""),
-                "code": data.get("code", ""),
-                "ctrl": data.get("ctrl", False),
-                "shift": data.get("shift", False),
-                "alt": data.get("alt", False),
-                "meta": data.get("meta", False),
             },
         )
 
@@ -1768,14 +1760,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     "event": event["event"],
                     "x": event["x"],
                     "y": event["y"],
-                    "direction": event.get("direction", ""),
-                    "delta": event.get("delta", 0),
-                    "key": event.get("key", ""),
-                    "code": event.get("code", ""),
-                    "ctrl": event.get("ctrl", False),
-                    "shift": event.get("shift", False),
-                    "alt": event.get("alt", False),
-                    "meta": event.get("meta", False),
                 }
             )
         )

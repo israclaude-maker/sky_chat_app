@@ -448,13 +448,17 @@ ipcMain.on("rc-event", (event, rawData) => {
   try {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
 
-    const { screen } = require("electron");
-    const myScreen = screen.getPrimaryDisplay().size;
+    // ═══ CRITICAL: Use robotjs own screen size, NOT Electron's display.size ═══
+    // On DPI-scaled displays these are DIFFERENT:
+    //   Electron display.size = DIP (logical) e.g. 1536x864
+    //   robot.getScreenSize() = physical pixels e.g. 1920x1080
+    // robot.moveMouse uses physical pixels, so we must use getScreenSize()
+    const screenSize = robot.getScreenSize();
     const x = Math.round(
-      Math.max(0, Math.min(1, data.x || 0)) * myScreen.width,
+      Math.max(0, Math.min(1, data.x || 0)) * screenSize.width,
     );
     const y = Math.round(
-      Math.max(0, Math.min(1, data.y || 0)) * myScreen.height,
+      Math.max(0, Math.min(1, data.y || 0)) * screenSize.height,
     );
 
     if (data.event === "mousemove") {
@@ -473,11 +477,9 @@ ipcMain.on("rc-event", (event, rawData) => {
         robot.scrollMouse(0, scrollAmt);
       }
     } else if (data.event === "keydown") {
-      // ─── AnyDesk-style: key pressed down on remote ───
       const k = data.key;
       if (!k) return;
-
-      // Pure modifier keys — toggle down, don't tap
+      // Pure modifier keys — hold down
       var modKey = {
         Control: "control",
         Shift: "shift",
@@ -490,22 +492,17 @@ ipcMain.on("rc-event", (event, rawData) => {
         } catch (e) {}
         return;
       }
-
-      // Build modifier list from flags
       const modifiers = [];
       if (data.ctrl) modifiers.push("control");
       if (data.alt) modifiers.push("alt");
       if (data.shift) modifiers.push("shift");
       if (data.meta) modifiers.push("command");
-
       if (k.length === 1) {
-        // Shortcut with modifier (Ctrl+C, Ctrl+V, Alt+F4, etc.)
         if (modifiers.length > 0) {
           try {
             robot.keyTap(k.toLowerCase(), modifiers);
           } catch (e) {}
         } else {
-          // Normal character — clipboard method for accurate typing
           try {
             const { clipboard } = require("electron");
             const prev = clipboard.readText();
@@ -519,13 +516,11 @@ ipcMain.on("rc-event", (event, rawData) => {
           }
         }
       } else if (keyMap[k]) {
-        // Special keys: Enter, Backspace, ArrowLeft, Tab, F1-F12, etc.
         try {
           robot.keyTap(keyMap[k], modifiers);
         } catch (e) {}
       }
     } else if (data.event === "keyup") {
-      // ─── Release modifier keys ───
       const k = data.key;
       var modKey = {
         Control: "control",
@@ -538,17 +533,39 @@ ipcMain.on("rc-event", (event, rawData) => {
           robot.keyToggle(modKey, "up");
         } catch (e) {}
       }
+    } else if (data.event === "system_shortcut") {
+      // ─── System shortcuts that browser can't intercept ───
+      var cmd = data.key;
+      try {
+        if (cmd === "alt_tab") {
+          robot.keyTap("tab", ["alt"]);
+        } else if (cmd === "win") {
+          robot.keyTap("command");
+        } else if (cmd === "ctrl_alt_del") {
+          // Can't simulate Ctrl+Alt+Del on Windows (OS blocks it)
+          // But we can open Task Manager
+          robot.keyTap("escape", ["control", "shift"]);
+        } else if (cmd === "alt_f4") {
+          robot.keyTap("f4", ["alt"]);
+        } else if (cmd === "win_d") {
+          robot.keyTap("d", ["command"]);
+        } else if (cmd === "win_e") {
+          robot.keyTap("e", ["command"]);
+        } else if (cmd === "win_r") {
+          robot.keyTap("r", ["command"]);
+        } else if (cmd === "win_l") {
+          robot.keyTap("l", ["command"]);
+        }
+      } catch (e) {}
     } else if (data.event === "keypress") {
-      // ─── Legacy fallback (backward compatible) ───
+      // Legacy fallback
       const k = data.key;
       if (!k) return;
-
       const modifiers = [];
       if (data.ctrl) modifiers.push("control");
       if (data.alt) modifiers.push("alt");
       if (data.shift) modifiers.push("shift");
       if (data.meta) modifiers.push("command");
-
       if (k.length === 1) {
         if (data.ctrl || data.alt) {
           try {
