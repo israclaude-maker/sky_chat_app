@@ -480,16 +480,9 @@ ipcMain.on("rc-event", (event, rawData) => {
       const k = data.key;
       if (!k) return;
       // Pure modifier keys — hold down
-      var modKey = {
-        Control: "control",
-        Shift: "shift",
-        Alt: "alt",
-        Meta: "command",
-      }[k];
+      var modKey = { Control: "control", Shift: "shift", Alt: "alt", Meta: "command" }[k];
       if (modKey) {
-        try {
-          robot.keyToggle(modKey, "down");
-        } catch (e) {}
+        try { robot.keyToggle(modKey, "down"); } catch (e) {}
         return;
       }
       const modifiers = [];
@@ -499,9 +492,7 @@ ipcMain.on("rc-event", (event, rawData) => {
       if (data.meta) modifiers.push("command");
       if (k.length === 1) {
         if (modifiers.length > 0) {
-          try {
-            robot.keyTap(k.toLowerCase(), modifiers);
-          } catch (e) {}
+          try { robot.keyTap(k.toLowerCase(), modifiers); } catch (e) {}
         } else {
           try {
             const { clipboard } = require("electron");
@@ -510,28 +501,17 @@ ipcMain.on("rc-event", (event, rawData) => {
             robot.keyTap("v", ["control"]);
             setTimeout(() => clipboard.writeText(prev), 300);
           } catch (e) {
-            try {
-              robot.typeString(k);
-            } catch (e2) {}
+            try { robot.typeString(k); } catch (e2) {}
           }
         }
       } else if (keyMap[k]) {
-        try {
-          robot.keyTap(keyMap[k], modifiers);
-        } catch (e) {}
+        try { robot.keyTap(keyMap[k], modifiers); } catch (e) {}
       }
     } else if (data.event === "keyup") {
       const k = data.key;
-      var modKey = {
-        Control: "control",
-        Shift: "shift",
-        Alt: "alt",
-        Meta: "command",
-      }[k];
+      var modKey = { Control: "control", Shift: "shift", Alt: "alt", Meta: "command" }[k];
       if (modKey) {
-        try {
-          robot.keyToggle(modKey, "up");
-        } catch (e) {}
+        try { robot.keyToggle(modKey, "up"); } catch (e) {}
       }
     } else if (data.event === "system_shortcut") {
       // ─── System shortcuts that browser can't intercept ───
@@ -568,9 +548,7 @@ ipcMain.on("rc-event", (event, rawData) => {
       if (data.meta) modifiers.push("command");
       if (k.length === 1) {
         if (data.ctrl || data.alt) {
-          try {
-            robot.keyTap(k.toLowerCase(), modifiers);
-          } catch (e) {}
+          try { robot.keyTap(k.toLowerCase(), modifiers); } catch (e) {}
         } else {
           try {
             const { clipboard } = require("electron");
@@ -579,15 +557,11 @@ ipcMain.on("rc-event", (event, rawData) => {
             robot.keyTap("v", ["control"]);
             setTimeout(() => clipboard.writeText(prev), 300);
           } catch (e) {
-            try {
-              robot.typeString(k);
-            } catch (e2) {}
+            try { robot.typeString(k); } catch (e2) {}
           }
         }
       } else if (keyMap[k]) {
-        try {
-          robot.keyTap(keyMap[k], modifiers);
-        } catch (e) {}
+        try { robot.keyTap(keyMap[k], modifiers); } catch (e) {}
       }
     }
   } catch (e) {
