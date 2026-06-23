@@ -5197,3 +5197,37 @@ body {
     right: -6px;
   }
 }
+
+/* ═══ PIN/UNPIN CALL BAR ═══ */
+.call-controls.unpinned {
+  opacity: 0;
+  transform: translateX(-50%) translateY(20px);
+  pointer-events: none;
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
+}
+
+.call-controls.unpinned:hover,
+.call-screen:hover .call-controls.unpinned {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: all;
+}
+
+.call-controls.pinned {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: all;
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
+}
+
+#pin-btn.pinned i {
+  color: #25d366;
+}
+
+#pin-btn.unpinned i {
+  color: rgba(255, 255, 255, 0.6);
+}

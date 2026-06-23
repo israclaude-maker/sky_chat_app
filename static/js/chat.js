@@ -6258,6 +6258,7 @@ function showOngoingCall() {
   if (ongoingName) ongoingName.textContent = CallState.remoteUserName;
 
   showCallOverlay("ongoing-call");
+  resetCallBarPin();
 
   CallState.callStartTime = Date.now();
   CallState.timerInterval = setInterval(updateCallTimer, 1000);
@@ -11438,9 +11439,14 @@ function attachRCToVideo(vid) {
     );
   };
 
+  var _scrollThrottle = null;
   vid._rcScroll = function (e) {
     if (!RemoteCtrl.isControlling) return;
     e.preventDefault();
+    if (_scrollThrottle) return; // events skip karo
+    _scrollThrottle = setTimeout(function () {
+      _scrollThrottle = null;
+    }, 50); // 50ms mein sirf ek scroll event
     sendRCEvent("scroll", 0, 0, {
       direction: e.deltaY > 0 ? "down" : "up",
       delta: Math.abs(e.deltaY),
@@ -11795,4 +11801,43 @@ function keepAudioContextAlive() {
   }
 }
 
+// ═══ PIN/UNPIN CALL BAR ═══
+var callBarPinned = true; // default: pinned
+
+function toggleCallBarPin() {
+  callBarPinned = !callBarPinned;
+  var bar = document.querySelector("#ongoing-call .call-controls");
+  var btn = document.getElementById("pin-btn");
+
+  if (callBarPinned) {
+    bar.classList.remove("unpinned");
+    bar.classList.add("pinned");
+    btn.classList.remove("unpinned");
+    btn.classList.add("pinned");
+    btn.title = "Unpin Controls";
+    toast("Controls pinned", "s");
+  } else {
+    bar.classList.remove("pinned");
+    bar.classList.add("unpinned");
+    btn.classList.remove("pinned");
+    btn.classList.add("unpinned");
+    btn.title = "Pin Controls";
+    toast("Controls will hide — hover to show", "i");
+  }
+}
+
+// Call shuру hone par default pinned reset karo
+function resetCallBarPin() {
+  callBarPinned = true;
+  var bar = document.querySelector("#ongoing-call .call-controls");
+  var btn = document.getElementById("pin-btn");
+  if (bar) {
+    bar.classList.remove("unpinned");
+    bar.classList.add("pinned");
+  }
+  if (btn) {
+    btn.classList.remove("unpinned");
+    btn.classList.add("pinned");
+  }
+}
 init();
