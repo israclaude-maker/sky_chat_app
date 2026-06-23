@@ -5200,19 +5200,16 @@ body {
 
 /* ═══ PIN/UNPIN CALL BAR ═══ */
 .call-controls.unpinned {
-  opacity: 0;
-  transform: translateX(-50%) translateY(20px);
+  display: none !important;
   pointer-events: none;
-  transition:
-    opacity 0.3s ease,
-    transform 0.3s ease;
 }
 
-.call-controls.unpinned:hover,
 .call-screen:hover .call-controls.unpinned {
+  display: flex !important;
   opacity: 1;
   transform: translateX(-50%) translateY(0);
   pointer-events: all;
+  transition: opacity 0.3s ease;
 }
 
 .call-controls.pinned {
