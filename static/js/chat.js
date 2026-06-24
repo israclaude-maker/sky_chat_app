@@ -5505,18 +5505,6 @@ function doInitWebRTC(isInitiator, callback) {
             rv.style.cssText = "";
           }
         };
-      } else if (CallState._pendingScreenToggle) {
-        // Screen share arriving as first video track (voice/audio call)
-        console.log("[ontrack] screen share → remote-screen-video");
-        CallState.remoteScreenStream = e.streams[0];
-        var ssVid = $("remote-screen-video");
-        if (ssVid) ssVid.srcObject = e.streams[0];
-        handleScreenToggle({ sharing: true, surface_type: CallState._pendingSurfaceType || "monitor" });
-        e.track.onended = function () {
-          if (ssVid) { ssVid.style.display = "none"; ssVid.srcObject = null; }
-          CallState.remoteScreenStream = null;
-          hideRCButton();
-        };
       } else {
         // First video track = camera → remote-video
         var remoteVideo = $("remote-video");
@@ -5988,8 +5976,7 @@ function flushPendingIceCandidates() {
 function handleScreenOffer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
   console.log("Received screen_offer, renegotiating...");
-  CallState._pendingScreenToggle = true;
-  CallState._pendingSurfaceType = data.surface_type || "monitor";
+  CallState._pendingScreenToggle = true; // ← YEH ADD KARO
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
@@ -6061,40 +6048,23 @@ function handleScreenToggle(data) {
   var ongoingAv = $("ongoing-av");
 
   if (data.sharing) {
-    // Store surface type for RC condition
     CallState._remoteSurfaceType = data.surface_type || "monitor";
     var attempts = 0;
     function waitForStream() {
       if (CallState.remoteScreenStream) {
         CallState._pendingScreenToggle = false;
-        _applyScreenToggleOn(
-          remoteVideo,
-          remoteScreenVideo,
-          localVid,
-          ongoingAv,
-        );
-      } else if (
-        remoteVideo &&
-        remoteVideo.srcObject &&
-        remoteVideo.srcObject.getVideoTracks().length > 0
-      ) {
-        // Audio-only call: screen share went to remote-video, move it
-        CallState.remoteScreenStream = remoteVideo.srcObject;
-        if (remoteScreenVideo) {
-          remoteScreenVideo.srcObject = remoteVideo.srcObject;
-        }
-        remoteVideo.style.display = "none";
+        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
+      } else if (remoteVideo && remoteVideo.srcObject &&
+                 remoteVideo.srcObject.getVideoTracks().length > 0) {
+        // Stream went to remote-video (audio-only call) — _applyScreenToggleOn will move it
         CallState._pendingScreenToggle = false;
-        _applyScreenToggleOn(
-          remoteVideo,
-          remoteScreenVideo,
-          localVid,
-          ongoingAv,
-        );
+        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
       } else if (attempts++ < 25) {
         setTimeout(waitForStream, 200);
       } else {
         console.warn("[ScreenToggle] stream 5s baad bhi nahi aya");
+        // Last resort: try applying anyway — _applyScreenToggleOn will handle the move
+        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
       }
     }
     waitForStream();
@@ -6145,9 +6115,16 @@ function _applyScreenToggleOn(
   localVid,
   ongoingAv,
 ) {
-  if (remoteScreenVideo) {
-    // Force object-fit:contain to ensure FULL screen is visible (including taskbar)
-    // Never use object-fit:cover which crops the edges
+  // ── If screen share stream is missing, grab it from remote-video ──
+  if (!CallState.remoteScreenStream && remoteVideo && remoteVideo.srcObject) {
+    var rvTracks = remoteVideo.srcObject.getVideoTracks();
+    if (rvTracks.length > 0) {
+      console.log("[ScreenToggle] Moving stream from remote-video → remote-screen-video");
+      CallState.remoteScreenStream = remoteVideo.srcObject;
+    }
+  }
+
+  if (remoteScreenVideo && CallState.remoteScreenStream) {
     remoteScreenVideo.style.display = "block";
     remoteScreenVideo.style.objectFit = "contain";
     remoteScreenVideo.style.background = "#0f172a";
@@ -6155,9 +6132,12 @@ function _applyScreenToggleOn(
     remoteScreenVideo.play().catch(function (e) {});
   }
 
+  // Only show remote-video as PIP if it has a SEPARATE camera stream
+  // (not the same stream we just moved to remote-screen-video)
   var hasRemoteCam =
     remoteVideo &&
     CallState.remoteStream &&
+    CallState.remoteStream !== CallState.remoteScreenStream &&
     CallState.remoteStream.getVideoTracks().some(function (t) {
       return t.readyState === "live";
     });
@@ -6166,6 +6146,7 @@ function _applyScreenToggleOn(
     remoteVideo.style.display = "block";
   } else if (remoteVideo) {
     remoteVideo.style.display = "none";
+    remoteVideo.classList.remove("screen-pip");
   }
 
   var hasLocalCam =
@@ -6200,16 +6181,12 @@ function _applyScreenToggleOn(
   }
   lbl.style.display = "flex";
 
-  // RC only for 1:1 calls + entire screen share (not window/tab)
+  // RC only for 1:1 calls + entire screen (not window/tab)
   var surfaceType = CallState._remoteSurfaceType || "monitor";
-  var isOneOnOneCall = CallState.isInCall && !GC.active;
-  if (isOneOnOneCall && surfaceType === "monitor") {
+  if (CallState.isInCall && !GC.active && surfaceType === "monitor") {
     showRCButton();
   } else {
     hideRCButton();
-    if (isOneOnOneCall && surfaceType !== "monitor") {
-      toast("Remote control requires entire screen sharing", "i");
-    }
   }
 
   var ssv2 = document.getElementById("remote-screen-video");
