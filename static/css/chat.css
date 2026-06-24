@@ -2484,10 +2484,8 @@ body {
   position: absolute;
   top: 0;
   left: 0;
-  right: 0;
-  bottom: 140px;
-  width: auto;
-  height: auto;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   background: #0f172a;
   z-index: 2;
@@ -2581,6 +2579,59 @@ body {
   padding: 16px 8px;
   border-radius: 40px;
   backdrop-filter: blur(10px);
+  transition:
+    opacity 0.3s,
+    transform 0.3s;
+}
+
+/* Unpinned: hidden by default, slides up on hover */
+.call-controls.unpinned {
+  opacity: 0;
+  transform: translateX(-50%) translateY(20px);
+  pointer-events: none;
+}
+
+.call-controls.unpinned.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+/* Pin/Unpin toggle button */
+.call-pin-btn {
+  position: absolute;
+  top: -32px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s;
+  z-index: 11;
+}
+
+.call-pin-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: scale(1.1);
+}
+
+/* Bottom hover zone for showing unpinned controls */
+.call-hover-zone {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 80px;
+  z-index: 9;
+  pointer-events: auto;
 }
 
 .ctrl-btn {
@@ -5196,35 +5247,4 @@ body {
   .out:not(.consec) .bubble::before {
     right: -6px;
   }
-}
-
-/* ═══ PIN/UNPIN CALL BAR ═══ */
-.call-controls.unpinned {
-  display: none !important;
-  pointer-events: none;
-}
-
-.call-screen:hover .call-controls.unpinned {
-  display: flex !important;
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-  pointer-events: all;
-  transition: opacity 0.3s ease;
-}
-
-.call-controls.pinned {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-  pointer-events: all;
-  transition:
-    opacity 0.3s ease,
-    transform 0.3s ease;
-}
-
-#pin-btn.pinned i {
-  color: #25d366;
-}
-
-#pin-btn.unpinned i {
-  color: rgba(255, 255, 255, 0.6);
 }

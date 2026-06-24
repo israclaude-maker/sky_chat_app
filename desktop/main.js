@@ -87,14 +87,16 @@ function createWindow() {
 
   mainWindow.setMenuBarVisibility(false);
 
-  // ─── Screen sharing: auto-pick entire screen ───
+  // ─── Screen sharing: show system picker (like web browser) ───
   mainWindow.webContents.session.setDisplayMediaRequestHandler(
     async (request, callback) => {
+      // Fallback for systems where native picker is unavailable
       try {
         const sources = await desktopCapturer.getSources({
           types: ["screen"],
-          thumbnailSize: { width: 150, height: 100 },
+          thumbnailSize: { width: 300, height: 200 },
         });
+        // Auto-select entire screen as fallback
         if (sources.length > 0) {
           callback({ video: sources[0], audio: false });
         } else {
@@ -105,7 +107,7 @@ function createWindow() {
         callback({});
       }
     },
-    { useSystemPicker: false },
+    { useSystemPicker: true },
   );
 
   // ─── Permission grants ───
@@ -445,20 +447,18 @@ const keyMap = {
 };
 
 ipcMain.on("rc-event", (event, rawData) => {
+  console.log("[RC] Raw data received:", rawData);
   try {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
 
-    // ═══ CRITICAL: Use robotjs own screen size, NOT Electron's display.size ═══
-    // On DPI-scaled displays these are DIFFERENT:
-    //   Electron display.size = DIP (logical) e.g. 1536x864
-    //   robot.getScreenSize() = physical pixels e.g. 1920x1080
-    // robot.moveMouse uses physical pixels, so we must use getScreenSize()
-    const screenSize = robot.getScreenSize();
+    // Remote ki actual screen size use karo (jo unhone bheja)
+    const { screen } = require("electron");
+    const myScreen = screen.getPrimaryDisplay().size;
     const x = Math.round(
-      Math.max(0, Math.min(1, data.x || 0)) * screenSize.width,
+      Math.max(0, Math.min(1, data.x || 0)) * myScreen.width,
     );
     const y = Math.round(
-      Math.max(0, Math.min(1, data.y || 0)) * screenSize.height,
+      Math.max(0, Math.min(1, data.y || 0)) * myScreen.height,
     );
 
     if (data.event === "mousemove") {
@@ -470,108 +470,32 @@ ipcMain.on("rc-event", (event, rawData) => {
       robot.moveMouse(x, y);
       setTimeout(() => robot.mouseClick("right"), 30);
     } else if (data.event === "scroll") {
-      const scrollAmt = Math.max(3, Math.floor((data.delta || 120) / 15));
-      if (data.direction === "up") {
-        robot.scrollMouse(0, -scrollAmt);
+      const curPos = robot.getMousePos();
+      const scrollAmt = Math.max(5, Math.floor((data.delta || 120) / 12));
+      if (data.direction === "down") {
+        robot.scrollMouse(curPos.x, curPos.y, scrollAmt);
       } else {
-        robot.scrollMouse(0, scrollAmt);
+        robot.scrollMouse(curPos.x, curPos.y, -scrollAmt);
       }
-    } else if (data.event === "keydown") {
-      const k = data.key;
-      if (!k) return;
-      // Pure modifier keys — hold down
-      var modKey = {
-        Control: "control",
-        Shift: "shift",
-        Alt: "alt",
-        Meta: "command",
-      }[k];
-      if (modKey) {
-        try {
-          robot.keyToggle(modKey, "down");
-        } catch (e) {}
-        return;
-      }
-      const modifiers = [];
-      if (data.ctrl) modifiers.push("control");
-      if (data.alt) modifiers.push("alt");
-      if (data.shift) modifiers.push("shift");
-      if (data.meta) modifiers.push("command");
-      if (k.length === 1) {
-        if (modifiers.length > 0) {
-          try {
-            robot.keyTap(k.toLowerCase(), modifiers);
-          } catch (e) {}
-        } else {
-          try {
-            const { clipboard } = require("electron");
-            const prev = clipboard.readText();
-            clipboard.writeText(k);
-            robot.keyTap("v", ["control"]);
-            setTimeout(() => clipboard.writeText(prev), 300);
-          } catch (e) {
-            try {
-              robot.typeString(k);
-            } catch (e2) {}
-          }
-        }
-      } else if (keyMap[k]) {
-        try {
-          robot.keyTap(keyMap[k], modifiers);
-        } catch (e) {}
-      }
-    } else if (data.event === "keyup") {
-      const k = data.key;
-      var modKey = {
-        Control: "control",
-        Shift: "shift",
-        Alt: "alt",
-        Meta: "command",
-      }[k];
-      if (modKey) {
-        try {
-          robot.keyToggle(modKey, "up");
-        } catch (e) {}
-      }
-    } else if (data.event === "system_shortcut") {
-      // ─── System shortcuts that browser can't intercept ───
-      var cmd = data.key;
-      try {
-        if (cmd === "alt_tab") {
-          robot.keyTap("tab", ["alt"]);
-        } else if (cmd === "win") {
-          robot.keyTap("command");
-        } else if (cmd === "ctrl_alt_del") {
-          // Can't simulate Ctrl+Alt+Del on Windows (OS blocks it)
-          // But we can open Task Manager
-          robot.keyTap("escape", ["control", "shift"]);
-        } else if (cmd === "alt_f4") {
-          robot.keyTap("f4", ["alt"]);
-        } else if (cmd === "win_d") {
-          robot.keyTap("d", ["command"]);
-        } else if (cmd === "win_e") {
-          robot.keyTap("e", ["command"]);
-        } else if (cmd === "win_r") {
-          robot.keyTap("r", ["command"]);
-        } else if (cmd === "win_l") {
-          robot.keyTap("l", ["command"]);
-        }
-      } catch (e) {}
     } else if (data.event === "keypress") {
-      // Legacy fallback
       const k = data.key;
       if (!k) return;
+
       const modifiers = [];
       if (data.ctrl) modifiers.push("control");
       if (data.alt) modifiers.push("alt");
       if (data.shift) modifiers.push("shift");
       if (data.meta) modifiers.push("command");
+
       if (k.length === 1) {
+        // Ctrl/Alt shortcuts (Ctrl+C, Ctrl+V, Alt+F4, etc.)
         if (data.ctrl || data.alt) {
           try {
             robot.keyTap(k.toLowerCase(), modifiers);
           } catch (e) {}
         } else {
+          // Normal characters — clipboard method use karo
+          // (yeh symbols, capitals, sab handle karta hai)
           try {
             const { clipboard } = require("electron");
             const prev = clipboard.readText();
@@ -585,6 +509,7 @@ ipcMain.on("rc-event", (event, rawData) => {
           }
         }
       } else if (keyMap[k]) {
+        // Special keys: Enter, Backspace, ArrowLeft, Tab, etc.
         try {
           robot.keyTap(keyMap[k], modifiers);
         } catch (e) {}
