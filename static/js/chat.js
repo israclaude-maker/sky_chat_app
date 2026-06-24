@@ -5481,17 +5481,17 @@ function doInitWebRTC(isInitiator, callback) {
 
       if (hasExistingCamera) {
         // Second video track = screen share
-        // Second video track = screen share
-        console.log("Routing second video track to remote-screen-video");
+        console.log("[ontrack] Second video → remote-screen-video");
         CallState.remoteScreenStream = e.streams[0];
         var remoteScreenVideo = $("remote-screen-video");
         if (remoteScreenVideo) {
           remoteScreenVideo.srcObject = e.streams[0];
         }
-        // Agar toggle pehle aa chuka tha to ab apply karo
         if (CallState._pendingScreenToggle) {
-          console.log("[ontrack] Pending toggle mil gaya, apply kar raha hun");
-          handleScreenToggle({ sharing: true });
+          handleScreenToggle({
+            sharing: true,
+            surface_type: CallState._pendingSurfaceType || "monitor",
+          });
         }
         e.track.onended = function () {
           if (remoteScreenVideo) {
@@ -5505,8 +5505,34 @@ function doInitWebRTC(isInitiator, callback) {
             rv.style.cssText = "";
           }
         };
+      } else if (CallState._pendingScreenToggle) {
+        // ── CRITICAL FIX: Screen share as first video track (voice call) ──
+        console.log(
+          "[ontrack] _pendingScreenToggle=true → routing to remote-screen-video",
+        );
+        CallState.remoteScreenStream = e.streams[0];
+        var ssVid = $("remote-screen-video");
+        if (ssVid) {
+          ssVid.srcObject = e.streams[0];
+          ssVid.style.display = "block";
+          ssVid.style.objectFit = "contain";
+          ssVid.play().catch(function (err) {});
+        }
+        handleScreenToggle({
+          sharing: true,
+          surface_type: CallState._pendingSurfaceType || "monitor",
+        });
+        e.track.onended = function () {
+          if (ssVid) {
+            ssVid.style.display = "none";
+            ssVid.srcObject = null;
+          }
+          CallState.remoteScreenStream = null;
+          hideRCButton();
+        };
       } else {
         // First video track = camera → remote-video
+        console.log("[ontrack] First video → remote-video (camera)");
         var remoteVideo = $("remote-video");
         if (remoteVideo) {
           remoteVideo.srcObject = e.streams[0];
@@ -6053,18 +6079,36 @@ function handleScreenToggle(data) {
     function waitForStream() {
       if (CallState.remoteScreenStream) {
         CallState._pendingScreenToggle = false;
-        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
-      } else if (remoteVideo && remoteVideo.srcObject &&
-                 remoteVideo.srcObject.getVideoTracks().length > 0) {
+        _applyScreenToggleOn(
+          remoteVideo,
+          remoteScreenVideo,
+          localVid,
+          ongoingAv,
+        );
+      } else if (
+        remoteVideo &&
+        remoteVideo.srcObject &&
+        remoteVideo.srcObject.getVideoTracks().length > 0
+      ) {
         // Stream went to remote-video (audio-only call) — _applyScreenToggleOn will move it
         CallState._pendingScreenToggle = false;
-        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
+        _applyScreenToggleOn(
+          remoteVideo,
+          remoteScreenVideo,
+          localVid,
+          ongoingAv,
+        );
       } else if (attempts++ < 25) {
         setTimeout(waitForStream, 200);
       } else {
         console.warn("[ScreenToggle] stream 5s baad bhi nahi aya");
         // Last resort: try applying anyway — _applyScreenToggleOn will handle the move
-        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
+        _applyScreenToggleOn(
+          remoteVideo,
+          remoteScreenVideo,
+          localVid,
+          ongoingAv,
+        );
       }
     }
     waitForStream();
@@ -6118,11 +6162,25 @@ function _applyScreenToggleOn(
   // ── If screen share stream is missing, grab it from remote-video ──
   if (!CallState.remoteScreenStream && remoteVideo && remoteVideo.srcObject) {
     var rvTracks = remoteVideo.srcObject.getVideoTracks();
+    console.log(
+      "[_applyScreenToggleOn] remoteScreenStream missing, checking remote-video:",
+      rvTracks.length,
+      "video tracks",
+    );
     if (rvTracks.length > 0) {
-      console.log("[ScreenToggle] Moving stream from remote-video → remote-screen-video");
+      console.log(
+        "[_applyScreenToggleOn] Moving stream from remote-video → remote-screen-video",
+      );
       CallState.remoteScreenStream = remoteVideo.srcObject;
     }
   }
+
+  console.log(
+    "[_applyScreenToggleOn] remoteScreenStream:",
+    !!CallState.remoteScreenStream,
+    "| remoteScreenVideo:",
+    !!remoteScreenVideo,
+  );
 
   if (remoteScreenVideo && CallState.remoteScreenStream) {
     remoteScreenVideo.style.display = "block";
@@ -6130,6 +6188,14 @@ function _applyScreenToggleOn(
     remoteScreenVideo.style.background = "#0f172a";
     remoteScreenVideo.srcObject = CallState.remoteScreenStream;
     remoteScreenVideo.play().catch(function (e) {});
+    console.log("[_applyScreenToggleOn] ✅ Screen video set and playing");
+  } else {
+    console.warn(
+      "[_applyScreenToggleOn] ❌ Cannot display screen - stream:",
+      !!CallState.remoteScreenStream,
+      "element:",
+      !!remoteScreenVideo,
+    );
   }
 
   // Only show remote-video as PIP if it has a SEPARATE camera stream
