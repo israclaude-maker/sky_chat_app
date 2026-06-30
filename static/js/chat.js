@@ -5481,17 +5481,17 @@ function doInitWebRTC(isInitiator, callback) {
 
       if (hasExistingCamera) {
         // Second video track = screen share
-        console.log("[ontrack] Second video → remote-screen-video");
+        // Second video track = screen share
+        console.log("Routing second video track to remote-screen-video");
         CallState.remoteScreenStream = e.streams[0];
         var remoteScreenVideo = $("remote-screen-video");
         if (remoteScreenVideo) {
           remoteScreenVideo.srcObject = e.streams[0];
         }
+        // Agar toggle pehle aa chuka tha to ab apply karo
         if (CallState._pendingScreenToggle) {
-          handleScreenToggle({
-            sharing: true,
-            surface_type: CallState._pendingSurfaceType || "monitor",
-          });
+          console.log("[ontrack] Pending toggle mil gaya, apply kar raha hun");
+          handleScreenToggle({ sharing: true });
         }
         e.track.onended = function () {
           if (remoteScreenVideo) {
@@ -5505,34 +5505,8 @@ function doInitWebRTC(isInitiator, callback) {
             rv.style.cssText = "";
           }
         };
-      } else if (CallState._pendingScreenToggle) {
-        // ── CRITICAL FIX: Screen share as first video track (voice call) ──
-        console.log(
-          "[ontrack] _pendingScreenToggle=true → routing to remote-screen-video",
-        );
-        CallState.remoteScreenStream = e.streams[0];
-        var ssVid = $("remote-screen-video");
-        if (ssVid) {
-          ssVid.srcObject = e.streams[0];
-          ssVid.style.display = "block";
-          ssVid.style.objectFit = "contain";
-          ssVid.play().catch(function (err) {});
-        }
-        handleScreenToggle({
-          sharing: true,
-          surface_type: CallState._pendingSurfaceType || "monitor",
-        });
-        e.track.onended = function () {
-          if (ssVid) {
-            ssVid.style.display = "none";
-            ssVid.srcObject = null;
-          }
-          CallState.remoteScreenStream = null;
-          hideRCButton();
-        };
       } else {
         // First video track = camera → remote-video
-        console.log("[ontrack] First video → remote-video (camera)");
         var remoteVideo = $("remote-video");
         if (remoteVideo) {
           remoteVideo.srcObject = e.streams[0];
@@ -6074,23 +6048,9 @@ function handleScreenToggle(data) {
   var ongoingAv = $("ongoing-av");
 
   if (data.sharing) {
-    CallState._remoteSurfaceType = data.surface_type || "monitor";
     var attempts = 0;
     function waitForStream() {
       if (CallState.remoteScreenStream) {
-        CallState._pendingScreenToggle = false;
-        _applyScreenToggleOn(
-          remoteVideo,
-          remoteScreenVideo,
-          localVid,
-          ongoingAv,
-        );
-      } else if (
-        remoteVideo &&
-        remoteVideo.srcObject &&
-        remoteVideo.srcObject.getVideoTracks().length > 0
-      ) {
-        // Stream went to remote-video (audio-only call) — _applyScreenToggleOn will move it
         CallState._pendingScreenToggle = false;
         _applyScreenToggleOn(
           remoteVideo,
@@ -6102,13 +6062,6 @@ function handleScreenToggle(data) {
         setTimeout(waitForStream, 200);
       } else {
         console.warn("[ScreenToggle] stream 5s baad bhi nahi aya");
-        // Last resort: try applying anyway — _applyScreenToggleOn will handle the move
-        _applyScreenToggleOn(
-          remoteVideo,
-          remoteScreenVideo,
-          localVid,
-          ongoingAv,
-        );
       }
     }
     waitForStream();
@@ -6159,51 +6112,15 @@ function _applyScreenToggleOn(
   localVid,
   ongoingAv,
 ) {
-  // ── If screen share stream is missing, grab it from remote-video ──
-  if (!CallState.remoteScreenStream && remoteVideo && remoteVideo.srcObject) {
-    var rvTracks = remoteVideo.srcObject.getVideoTracks();
-    console.log(
-      "[_applyScreenToggleOn] remoteScreenStream missing, checking remote-video:",
-      rvTracks.length,
-      "video tracks",
-    );
-    if (rvTracks.length > 0) {
-      console.log(
-        "[_applyScreenToggleOn] Moving stream from remote-video → remote-screen-video",
-      );
-      CallState.remoteScreenStream = remoteVideo.srcObject;
-    }
-  }
-
-  console.log(
-    "[_applyScreenToggleOn] remoteScreenStream:",
-    !!CallState.remoteScreenStream,
-    "| remoteScreenVideo:",
-    !!remoteScreenVideo,
-  );
-
-  if (remoteScreenVideo && CallState.remoteScreenStream) {
+  if (remoteScreenVideo) {
     remoteScreenVideo.style.display = "block";
-    remoteScreenVideo.style.objectFit = "contain";
-    remoteScreenVideo.style.background = "#0f172a";
     remoteScreenVideo.srcObject = CallState.remoteScreenStream;
     remoteScreenVideo.play().catch(function (e) {});
-    console.log("[_applyScreenToggleOn] ✅ Screen video set and playing");
-  } else {
-    console.warn(
-      "[_applyScreenToggleOn] ❌ Cannot display screen - stream:",
-      !!CallState.remoteScreenStream,
-      "element:",
-      !!remoteScreenVideo,
-    );
   }
 
-  // Only show remote-video as PIP if it has a SEPARATE camera stream
-  // (not the same stream we just moved to remote-screen-video)
   var hasRemoteCam =
     remoteVideo &&
     CallState.remoteStream &&
-    CallState.remoteStream !== CallState.remoteScreenStream &&
     CallState.remoteStream.getVideoTracks().some(function (t) {
       return t.readyState === "live";
     });
@@ -6212,7 +6129,6 @@ function _applyScreenToggleOn(
     remoteVideo.style.display = "block";
   } else if (remoteVideo) {
     remoteVideo.style.display = "none";
-    remoteVideo.classList.remove("screen-pip");
   }
 
   var hasLocalCam =
@@ -6246,14 +6162,7 @@ function _applyScreenToggleOn(
     if (callOverlay) callOverlay.appendChild(lbl);
   }
   lbl.style.display = "flex";
-
-  // RC only for 1:1 calls + entire screen (not window/tab)
-  var surfaceType = CallState._remoteSurfaceType || "monitor";
-  if (CallState.isInCall && !GC.active && surfaceType === "monitor") {
-    showRCButton();
-  } else {
-    hideRCButton();
-  }
+  showRCButton();
 
   var ssv2 = document.getElementById("remote-screen-video");
   var rv2 = document.getElementById("remote-video");
@@ -6628,6 +6537,7 @@ function showCallOverlay(id) {
 }
 
 function hideAllCallOverlays() {
+  resetCallBarPin();
   [
     "incoming-call",
     "outgoing-call",
@@ -11775,6 +11685,95 @@ function disableRCKeyboard() {
   if (_rcKeyHandler) {
     document.removeEventListener("keydown", _rcKeyHandler, true);
     _rcKeyHandler = null;
+  }
+}
+
+// ─── Pin/Unpin Call Controls ──────────────────────────────
+var _ctrlBarPinned = true;
+var _ctrlHideTimer = null;
+var _ctrlHoverZone = null;
+
+function toggleCallBarPin() {
+  _ctrlBarPinned = !_ctrlBarPinned;
+  var controls = document.querySelector("#ongoing-call .call-controls");
+  var overlay = document.getElementById("ongoing-call");
+  var pinBtn = document.getElementById("pin-btn");
+  if (!controls) return;
+
+  if (_ctrlBarPinned) {
+    controls.classList.remove("ctrl-unpinned", "ctrl-show");
+    if (overlay) overlay.classList.remove("ctrl-bar-unpinned");
+    if (pinBtn) {
+      pinBtn.classList.add("pinned");
+      pinBtn.title = "Unpin Controls";
+    }
+    _removeCtrlHoverZone();
+  } else {
+    controls.classList.add("ctrl-unpinned");
+    controls.classList.remove("ctrl-show");
+    if (overlay) overlay.classList.add("ctrl-bar-unpinned");
+    if (pinBtn) {
+      pinBtn.classList.remove("pinned");
+      pinBtn.title = "Pin Controls";
+    }
+    _createCtrlHoverZone();
+  }
+}
+
+function _createCtrlHoverZone() {
+  if (_ctrlHoverZone) return;
+  var overlay = document.getElementById("ongoing-call");
+  var controls = overlay && overlay.querySelector(".call-controls");
+  if (!overlay || !controls) return;
+
+  _ctrlHoverZone = document.createElement("div");
+  _ctrlHoverZone.className = "ctrl-hover-zone";
+  _ctrlHoverZone.addEventListener("mouseenter", function () {
+    controls.classList.add("ctrl-show");
+    if (_ctrlHideTimer) clearTimeout(_ctrlHideTimer);
+  });
+  _ctrlHoverZone.addEventListener("mouseleave", function () {
+    _scheduleCtrlHide(controls);
+  });
+  overlay.appendChild(_ctrlHoverZone);
+
+  controls.addEventListener("mouseenter", function () {
+    if (_ctrlHideTimer) clearTimeout(_ctrlHideTimer);
+  });
+  controls.addEventListener("mouseleave", function () {
+    if (!_ctrlBarPinned) _scheduleCtrlHide(controls);
+  });
+}
+
+function _removeCtrlHoverZone() {
+  if (_ctrlHoverZone) {
+    _ctrlHoverZone.remove();
+    _ctrlHoverZone = null;
+  }
+  if (_ctrlHideTimer) {
+    clearTimeout(_ctrlHideTimer);
+    _ctrlHideTimer = null;
+  }
+}
+
+function _scheduleCtrlHide(controls) {
+  if (_ctrlHideTimer) clearTimeout(_ctrlHideTimer);
+  _ctrlHideTimer = setTimeout(function () {
+    if (!_ctrlBarPinned) controls.classList.remove("ctrl-show");
+  }, 2000);
+}
+
+function resetCallBarPin() {
+  _ctrlBarPinned = true;
+  _removeCtrlHoverZone();
+  var controls = document.querySelector("#ongoing-call .call-controls");
+  if (controls) controls.classList.remove("ctrl-unpinned", "ctrl-show");
+  var overlay = document.getElementById("ongoing-call");
+  if (overlay) overlay.classList.remove("ctrl-bar-unpinned");
+  var pinBtn = document.getElementById("pin-btn");
+  if (pinBtn) {
+    pinBtn.classList.add("pinned");
+    pinBtn.title = "Unpin Controls";
   }
 }
 
