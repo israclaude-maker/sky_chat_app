@@ -87,16 +87,14 @@ function createWindow() {
 
   mainWindow.setMenuBarVisibility(false);
 
-  // ─── Screen sharing: show system picker (like web browser) ───
+  // ─── Screen sharing: auto-pick entire screen ───
   mainWindow.webContents.session.setDisplayMediaRequestHandler(
     async (request, callback) => {
-      // Fallback for systems where native picker is unavailable
       try {
         const sources = await desktopCapturer.getSources({
           types: ["screen"],
-          thumbnailSize: { width: 300, height: 200 },
+          thumbnailSize: { width: 150, height: 100 },
         });
-        // Auto-select entire screen as fallback
         if (sources.length > 0) {
           callback({ video: sources[0], audio: false });
         } else {
@@ -451,14 +449,14 @@ ipcMain.on("rc-event", (event, rawData) => {
   try {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
 
-    // Remote ki actual screen size use karo (jo unhone bheja)
-    const { screen } = require("electron");
-    const myScreen = screen.getPrimaryDisplay().size;
+    // Use robotjs own screen size (matches moveMouse coordinate system)
+    // NOT Electron display.size which may differ on DPI-scaled screens
+    const screenSize = robot.getScreenSize();
     const x = Math.round(
-      Math.max(0, Math.min(1, data.x || 0)) * myScreen.width,
+      Math.max(0, Math.min(1, data.x || 0)) * screenSize.width,
     );
     const y = Math.round(
-      Math.max(0, Math.min(1, data.y || 0)) * myScreen.height,
+      Math.max(0, Math.min(1, data.y || 0)) * screenSize.height,
     );
 
     if (data.event === "mousemove") {
@@ -470,12 +468,12 @@ ipcMain.on("rc-event", (event, rawData) => {
       robot.moveMouse(x, y);
       setTimeout(() => robot.mouseClick("right"), 30);
     } else if (data.event === "scroll") {
-      const curPos = robot.getMousePos();
-      const scrollAmt = Math.max(5, Math.floor((data.delta || 120) / 12));
-      if (data.direction === "down") {
-        robot.scrollMouse(curPos.x, curPos.y, scrollAmt);
+      // scrollMouse(deltaX, deltaY) — positive Y = down, negative Y = up
+      var scrollAmt = Math.max(5, Math.floor((data.delta || 120) / 12));
+      if (data.direction === "up") {
+        robot.scrollMouse(0, -scrollAmt);
       } else {
-        robot.scrollMouse(curPos.x, curPos.y, -scrollAmt);
+        robot.scrollMouse(0, scrollAmt);
       }
     } else if (data.event === "keypress") {
       const k = data.key;

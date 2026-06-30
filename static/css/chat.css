@@ -2579,12 +2579,13 @@ body {
   padding: 16px 8px;
   border-radius: 40px;
   backdrop-filter: blur(10px);
+  cursor: grab;
   transition:
     opacity 0.3s ease,
     transform 0.3s ease;
 }
 
-/* Unpinned: controls hidden, slide up on hover */
+/* Unpinned: hidden, slide up on hover */
 .call-controls.ctrl-unpinned {
   opacity: 0;
   pointer-events: none;
@@ -2594,15 +2595,14 @@ body {
 .call-controls.ctrl-unpinned.ctrl-show {
   opacity: 1;
   pointer-events: auto;
-  transform: translateX(-50%) translateY(0);
 }
 
-/* Pin button active state */
+/* Pin button highlight */
 .ctrl-btn.pinned {
   background: rgba(59, 130, 246, 0.5);
 }
 
-/* Hover zone at bottom to trigger controls */
+/* Hover zone at bottom */
 .ctrl-hover-zone {
   position: absolute;
   bottom: 0;
@@ -2612,7 +2612,7 @@ body {
   z-index: 9;
 }
 
-/* When controls unpinned: hide ALL overlay chrome for full mouse access */
+/* When unpinned: hide all overlay chrome for full mouse access */
 #ongoing-call.ctrl-bar-unpinned .call-minimize-btn,
 #ongoing-call.ctrl-bar-unpinned .call-info,
 #ongoing-call.ctrl-bar-unpinned #remote-screen-label,
@@ -2623,14 +2623,7 @@ body {
   transition: opacity 0.3s;
 }
 
-/* Show them on hover */
-#ongoing-call.ctrl-bar-unpinned .call-minimize-btn:hover,
-#ongoing-call.ctrl-bar-unpinned .call-info:hover {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* Remote screen video always covers full area */
+/* Video fills full area when unpinned */
 #ongoing-call.ctrl-bar-unpinned #remote-screen-video {
   top: 0 !important;
   left: 0 !important;

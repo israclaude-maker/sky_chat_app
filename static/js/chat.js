@@ -5480,33 +5480,37 @@ function doInitWebRTC(isInitiator, callback) {
         });
 
       if (hasExistingCamera) {
-        // Second video track = screen share
-        // Second video track = screen share
-        console.log("Routing second video track to remote-screen-video");
+        console.log("[ontrack] Second video → remote-screen-video");
         CallState.remoteScreenStream = e.streams[0];
         var remoteScreenVideo = $("remote-screen-video");
-        if (remoteScreenVideo) {
-          remoteScreenVideo.srcObject = e.streams[0];
-        }
-        // Agar toggle pehle aa chuka tha to ab apply karo
+        if (remoteScreenVideo) remoteScreenVideo.srcObject = e.streams[0];
         if (CallState._pendingScreenToggle) {
-          console.log("[ontrack] Pending toggle mil gaya, apply kar raha hun");
-          handleScreenToggle({ sharing: true });
+          handleScreenToggle({ sharing: true, surface_type: CallState._pendingSurfaceType || "monitor" });
         }
         e.track.onended = function () {
-          if (remoteScreenVideo) {
-            remoteScreenVideo.style.display = "none";
-            remoteScreenVideo.srcObject = null;
-          }
+          if (remoteScreenVideo) { remoteScreenVideo.style.display = "none"; remoteScreenVideo.srcObject = null; }
           CallState.remoteScreenStream = null;
-          var rv = $("remote-video");
-          if (rv) {
-            rv.classList.remove("screen-pip");
-            rv.style.cssText = "";
-          }
+          var rv = $("remote-video"); if (rv) { rv.classList.remove("screen-pip"); rv.style.cssText = ""; }
+        };
+      } else if (CallState._pendingScreenToggle) {
+        // Screen share as first video track (voice/audio call)
+        console.log("[ontrack] _pendingScreenToggle → routing to remote-screen-video");
+        CallState.remoteScreenStream = e.streams[0];
+        var ssVid = $("remote-screen-video");
+        if (ssVid) {
+          ssVid.srcObject = e.streams[0];
+          ssVid.style.display = "block";
+          ssVid.style.objectFit = "contain";
+          ssVid.play().catch(function (e) {});
+        }
+        handleScreenToggle({ sharing: true, surface_type: CallState._pendingSurfaceType || "monitor" });
+        e.track.onended = function () {
+          if (ssVid) { ssVid.style.display = "none"; ssVid.srcObject = null; }
+          CallState.remoteScreenStream = null;
+          hideRCButton();
         };
       } else {
-        // First video track = camera → remote-video
+        // First video track = camera
         var remoteVideo = $("remote-video");
         if (remoteVideo) {
           remoteVideo.srcObject = e.streams[0];
@@ -5976,7 +5980,8 @@ function flushPendingIceCandidates() {
 function handleScreenOffer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
   console.log("Received screen_offer, renegotiating...");
-  CallState._pendingScreenToggle = true; // ← YEH ADD KARO
+  CallState._pendingScreenToggle = true;
+  CallState._pendingSurfaceType = data.surface_type || "monitor";
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
@@ -6048,20 +6053,19 @@ function handleScreenToggle(data) {
   var ongoingAv = $("ongoing-av");
 
   if (data.sharing) {
+    CallState._remoteSurfaceType = data.surface_type || CallState._pendingSurfaceType || "monitor";
     var attempts = 0;
     function waitForStream() {
       if (CallState.remoteScreenStream) {
         CallState._pendingScreenToggle = false;
-        _applyScreenToggleOn(
-          remoteVideo,
-          remoteScreenVideo,
-          localVid,
-          ongoingAv,
-        );
+        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
+      } else if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getVideoTracks().length > 0) {
+        CallState._pendingScreenToggle = false;
+        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
       } else if (attempts++ < 25) {
         setTimeout(waitForStream, 200);
       } else {
-        console.warn("[ScreenToggle] stream 5s baad bhi nahi aya");
+        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
       }
     }
     waitForStream();
@@ -6112,15 +6116,28 @@ function _applyScreenToggleOn(
   localVid,
   ongoingAv,
 ) {
-  if (remoteScreenVideo) {
+  // If screen stream is missing, grab it from remote-video
+  if (!CallState.remoteScreenStream && remoteVideo && remoteVideo.srcObject) {
+    var rvTracks = remoteVideo.srcObject.getVideoTracks();
+    if (rvTracks.length > 0) {
+      console.log("[ScreenToggle] Moving stream from remote-video → remote-screen-video");
+      CallState.remoteScreenStream = remoteVideo.srcObject;
+    }
+  }
+
+  if (remoteScreenVideo && CallState.remoteScreenStream) {
     remoteScreenVideo.style.display = "block";
+    remoteScreenVideo.style.objectFit = "contain";
+    remoteScreenVideo.style.background = "#0f172a";
     remoteScreenVideo.srcObject = CallState.remoteScreenStream;
     remoteScreenVideo.play().catch(function (e) {});
   }
 
+  // Only show remote-video as PIP if it has a SEPARATE camera stream
   var hasRemoteCam =
     remoteVideo &&
     CallState.remoteStream &&
+    CallState.remoteStream !== CallState.remoteScreenStream &&
     CallState.remoteStream.getVideoTracks().some(function (t) {
       return t.readyState === "live";
     });
@@ -6129,6 +6146,7 @@ function _applyScreenToggleOn(
     remoteVideo.style.display = "block";
   } else if (remoteVideo) {
     remoteVideo.style.display = "none";
+    remoteVideo.classList.remove("screen-pip");
   }
 
   var hasLocalCam =
@@ -6162,7 +6180,12 @@ function _applyScreenToggleOn(
     if (callOverlay) callOverlay.appendChild(lbl);
   }
   lbl.style.display = "flex";
-  showRCButton();
+  var surfaceType = CallState._remoteSurfaceType || "monitor";
+  if (CallState.isInCall && !GC.active && surfaceType === "monitor") {
+    showRCButton();
+  } else {
+    hideRCButton();
+  }
 
   var ssv2 = document.getElementById("remote-screen-video");
   var rv2 = document.getElementById("remote-video");
@@ -6217,6 +6240,7 @@ function showOngoingCall() {
   if (ongoingName) ongoingName.textContent = CallState.remoteUserName;
 
   showCallOverlay("ongoing-call");
+  setTimeout(initDraggableControls, 500);
 
   CallState.callStartTime = Date.now();
   CallState.timerInterval = setInterval(updateCallTimer, 1000);
@@ -11688,10 +11712,12 @@ function disableRCKeyboard() {
   }
 }
 
-// ─── Pin/Unpin Call Controls ──────────────────────────────
+// ─── Pin/Unpin + Draggable Call Controls ──────────────────
 var _ctrlBarPinned = true;
 var _ctrlHideTimer = null;
 var _ctrlHoverZone = null;
+var _ctrlDragging = false;
+var _ctrlDragOffset = { x: 0, y: 0 };
 
 function toggleCallBarPin() {
   _ctrlBarPinned = !_ctrlBarPinned;
@@ -11703,19 +11729,18 @@ function toggleCallBarPin() {
   if (_ctrlBarPinned) {
     controls.classList.remove("ctrl-unpinned", "ctrl-show");
     if (overlay) overlay.classList.remove("ctrl-bar-unpinned");
-    if (pinBtn) {
-      pinBtn.classList.add("pinned");
-      pinBtn.title = "Unpin Controls";
-    }
+    if (pinBtn) { pinBtn.classList.add("pinned"); pinBtn.title = "Unpin Controls"; }
     _removeCtrlHoverZone();
+    // Reset position to center bottom
+    controls.style.left = "50%";
+    controls.style.top = "";
+    controls.style.bottom = "48px";
+    controls.style.transform = "translateX(-50%)";
   } else {
     controls.classList.add("ctrl-unpinned");
     controls.classList.remove("ctrl-show");
     if (overlay) overlay.classList.add("ctrl-bar-unpinned");
-    if (pinBtn) {
-      pinBtn.classList.remove("pinned");
-      pinBtn.title = "Pin Controls";
-    }
+    if (pinBtn) { pinBtn.classList.remove("pinned"); pinBtn.title = "Pin Controls"; }
     _createCtrlHoverZone();
   }
 }
@@ -11746,14 +11771,8 @@ function _createCtrlHoverZone() {
 }
 
 function _removeCtrlHoverZone() {
-  if (_ctrlHoverZone) {
-    _ctrlHoverZone.remove();
-    _ctrlHoverZone = null;
-  }
-  if (_ctrlHideTimer) {
-    clearTimeout(_ctrlHideTimer);
-    _ctrlHideTimer = null;
-  }
+  if (_ctrlHoverZone) { _ctrlHoverZone.remove(); _ctrlHoverZone = null; }
+  if (_ctrlHideTimer) { clearTimeout(_ctrlHideTimer); _ctrlHideTimer = null; }
 }
 
 function _scheduleCtrlHide(controls) {
@@ -11766,15 +11785,57 @@ function _scheduleCtrlHide(controls) {
 function resetCallBarPin() {
   _ctrlBarPinned = true;
   _removeCtrlHoverZone();
+  _ctrlDragging = false;
   var controls = document.querySelector("#ongoing-call .call-controls");
-  if (controls) controls.classList.remove("ctrl-unpinned", "ctrl-show");
+  if (controls) {
+    controls.classList.remove("ctrl-unpinned", "ctrl-show");
+    controls.style.left = "50%"; controls.style.top = "";
+    controls.style.bottom = "48px"; controls.style.transform = "translateX(-50%)";
+  }
   var overlay = document.getElementById("ongoing-call");
   if (overlay) overlay.classList.remove("ctrl-bar-unpinned");
   var pinBtn = document.getElementById("pin-btn");
-  if (pinBtn) {
-    pinBtn.classList.add("pinned");
-    pinBtn.title = "Unpin Controls";
-  }
+  if (pinBtn) { pinBtn.classList.add("pinned"); pinBtn.title = "Unpin Controls"; }
+}
+
+// ── Draggable Call Controls ──
+function initDraggableControls() {
+  var controls = document.querySelector("#ongoing-call .call-controls");
+  if (!controls || controls._dragInited) return;
+  controls._dragInited = true;
+
+  controls.addEventListener("mousedown", function (e) {
+    // Only drag when clicking on the bar background (not buttons)
+    if (e.target.closest(".ctrl-btn") || e.target.closest("button")) return;
+    _ctrlDragging = true;
+    var rect = controls.getBoundingClientRect();
+    _ctrlDragOffset.x = e.clientX - rect.left;
+    _ctrlDragOffset.y = e.clientY - rect.top;
+    controls.style.transition = "none";
+    controls.style.cursor = "grabbing";
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", function (e) {
+    if (!_ctrlDragging) return;
+    var newX = e.clientX - _ctrlDragOffset.x;
+    var newY = e.clientY - _ctrlDragOffset.y;
+    // Keep within viewport
+    newX = Math.max(0, Math.min(window.innerWidth - 200, newX));
+    newY = Math.max(0, Math.min(window.innerHeight - 80, newY));
+    controls.style.left = newX + "px";
+    controls.style.top = newY + "px";
+    controls.style.bottom = "auto";
+    controls.style.transform = "none";
+  });
+
+  document.addEventListener("mouseup", function () {
+    if (_ctrlDragging) {
+      _ctrlDragging = false;
+      controls.style.transition = "";
+      controls.style.cursor = "";
+    }
+  });
 }
 
 function updateRCButton() {
