@@ -5480,7 +5480,6 @@ function doInitWebRTC(isInitiator, callback) {
         });
 
       if (hasExistingCamera) {
-        console.log("[ontrack] Second video → remote-screen-video");
         CallState.remoteScreenStream = e.streams[0];
         var remoteScreenVideo = $("remote-screen-video");
         if (remoteScreenVideo) remoteScreenVideo.srcObject = e.streams[0];
@@ -5493,8 +5492,7 @@ function doInitWebRTC(isInitiator, callback) {
           var rv = $("remote-video"); if (rv) { rv.classList.remove("screen-pip"); rv.style.cssText = ""; }
         };
       } else if (CallState._pendingScreenToggle) {
-        // Screen share as first video track (voice/audio call)
-        console.log("[ontrack] _pendingScreenToggle → routing to remote-screen-video");
+        // Screen share as first video track (voice call)
         CallState.remoteScreenStream = e.streams[0];
         var ssVid = $("remote-screen-video");
         if (ssVid) {
@@ -5510,7 +5508,6 @@ function doInitWebRTC(isInitiator, callback) {
           hideRCButton();
         };
       } else {
-        // First video track = camera
         var remoteVideo = $("remote-video");
         if (remoteVideo) {
           remoteVideo.srcObject = e.streams[0];
@@ -6116,11 +6113,10 @@ function _applyScreenToggleOn(
   localVid,
   ongoingAv,
 ) {
-  // If screen stream is missing, grab it from remote-video
+  // If screen stream missing, grab from remote-video
   if (!CallState.remoteScreenStream && remoteVideo && remoteVideo.srcObject) {
     var rvTracks = remoteVideo.srcObject.getVideoTracks();
     if (rvTracks.length > 0) {
-      console.log("[ScreenToggle] Moving stream from remote-video → remote-screen-video");
       CallState.remoteScreenStream = remoteVideo.srcObject;
     }
   }
@@ -6133,14 +6129,11 @@ function _applyScreenToggleOn(
     remoteScreenVideo.play().catch(function (e) {});
   }
 
-  // Only show remote-video as PIP if it has a SEPARATE camera stream
+  // Only PIP if separate camera stream exists
   var hasRemoteCam =
-    remoteVideo &&
-    CallState.remoteStream &&
+    remoteVideo && CallState.remoteStream &&
     CallState.remoteStream !== CallState.remoteScreenStream &&
-    CallState.remoteStream.getVideoTracks().some(function (t) {
-      return t.readyState === "live";
-    });
+    CallState.remoteStream.getVideoTracks().some(function (t) { return t.readyState === "live"; });
   if (hasRemoteCam) {
     remoteVideo.classList.add("screen-pip");
     remoteVideo.style.display = "block";
@@ -11337,52 +11330,26 @@ function handleRemoteControlAccepted(data) {
   RemoteCtrl.isControlling = true;
   enableRCKeyboard();
 
-  // ✅ Fix — screen share ke liye dedicated overlay banana
   function findAndAttach(attempt) {
-    if (attempt > 20) {
-      var overlay = $("ongoing-call") || $("gc-ongoing-call");
-      if (overlay) {
-        attachRCToVideo(overlay);
-      } else {
-        toast("Remote screen not found", "e");
-        RemoteCtrl.isControlling = false;
-      }
+    if (attempt > 40) {
+      toast("Remote screen video not found", "e");
+      RemoteCtrl.isControlling = false;
       updateRCButton();
       return;
     }
-
     var vid = null;
-
-    // 1. Pehle screen share video dhundo (sirf srcObject check, tracks nahi)
-    if (RemoteCtrl._pendingVideoEl && RemoteCtrl._pendingVideoEl.srcObject) {
-      vid = RemoteCtrl._pendingVideoEl;
-    }
-
-    // 2. Phir remote-screen-video (sirf srcObject check)
-    if (!vid) {
-      var ssv = document.getElementById("remote-screen-video");
-      if (ssv && ssv.srcObject) vid = ssv;
-    }
-
-    // 3. Phir remote-video (sirf srcObject check)
-    if (!vid) {
-      var rv = document.getElementById("remote-video");
-      if (rv && rv.srcObject) vid = rv;
-    }
-
-    // 4. Attempt 5 ke baad overlay fallback
-    if (!vid && attempt >= 5) {
-      var overlay = $("ongoing-call") || $("gc-ongoing-call");
-      if (overlay) vid = overlay;
-    }
-
-    if (!vid) {
-      setTimeout(function () {
-        findAndAttach(attempt + 1);
-      }, 500);
+    if (RemoteCtrl._pendingVideoEl && RemoteCtrl._pendingVideoEl.srcObject) vid = RemoteCtrl._pendingVideoEl;
+    if (!vid) { var ssv = document.getElementById("remote-screen-video"); if (ssv && ssv.srcObject) vid = ssv; }
+    if (!vid) { var rv = document.getElementById("remote-video"); if (rv && rv.srcObject) vid = rv; }
+    if (!vid) { setTimeout(function () { findAndAttach(attempt + 1); }, 500); return; }
+    if (vid.tagName === "VIDEO" && (!vid.videoWidth || !vid.videoHeight)) {
+      vid.addEventListener("loadedmetadata", function onMeta() {
+        vid.removeEventListener("loadedmetadata", onMeta);
+        attachRCToVideo(vid);
+      });
+      setTimeout(function () { if (!RemoteCtrl.videoEl) attachRCToVideo(vid); }, 2000);
       return;
     }
-
     attachRCToVideo(vid);
   }
 
@@ -11408,28 +11375,41 @@ function attachRCToVideo(vid) {
   vid.style.cursor = "crosshair";
   var throttleTimer = null;
 
+  // Calculate video content area (accounts for object-fit:contain letterboxing)
+  // Shrinks by EDGE_BUFFER px so cursor reaches 0.0/1.0 before hitting the exact edge
+  function getVideoContentRect(videoEl) {
+    var rect = videoEl.getBoundingClientRect();
+    if (videoEl.tagName !== "VIDEO" || !videoEl.videoWidth || !videoEl.videoHeight) return rect;
+    var vidAR = videoEl.videoWidth / videoEl.videoHeight;
+    var elAR = rect.width / rect.height;
+    var cW, cH, oX, oY;
+    if (vidAR > elAR) { cW = rect.width; cH = rect.width / vidAR; oX = 0; oY = (rect.height - cH) / 2; }
+    else { cH = rect.height; cW = rect.height * vidAR; oX = (rect.width - cW) / 2; oY = 0; }
+    // Edge buffer: shrink by 8px each side so user can reach 0.0/1.0 more easily
+    var buf = 8;
+    return {
+      left: rect.left + oX + buf,
+      top: rect.top + oY + buf,
+      width: Math.max(1, cW - buf * 2),
+      height: Math.max(1, cH - buf * 2),
+    };
+  }
+
   vid._rcMove = function (e) {
     if (!RemoteCtrl.isControlling) return;
     if (throttleTimer) return;
-    throttleTimer = setTimeout(function () {
-      throttleTimer = null;
-    }, 16);
-
-    var rect = vid.getBoundingClientRect();
-    var normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    var normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-
-    sendRCEvent("mousemove", normX, normY);
+    throttleTimer = setTimeout(function () { throttleTimer = null; }, 16);
+    var cRect = getVideoContentRect(vid);
+    sendRCEvent("mousemove",
+      Math.max(0, Math.min(1, (e.clientX - cRect.left) / cRect.width)),
+      Math.max(0, Math.min(1, (e.clientY - cRect.top) / cRect.height)));
   };
   vid._rcClick = function (e) {
     if (!RemoteCtrl.isControlling) return;
-    e.preventDefault();
-    e.stopPropagation();
-    vid.focus();
-
-    var rect = vid.getBoundingClientRect();
-    var normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    var normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    e.preventDefault(); e.stopPropagation(); vid.focus();
+    var cRect = getVideoContentRect(vid);
+    var normX = Math.max(0, Math.min(1, (e.clientX - cRect.left) / cRect.width));
+    var normY = Math.max(0, Math.min(1, (e.clientY - cRect.top) / cRect.height));
 
     sendRCEvent("click", normX, normY);
 
@@ -11451,12 +11431,10 @@ function attachRCToVideo(vid) {
   vid._rcRightClick = function (e) {
     if (!RemoteCtrl.isControlling) return;
     e.preventDefault();
-    var rect = vid.getBoundingClientRect();
-    sendRCEvent(
-      "rightclick",
-      Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
-    );
+    var cRect = getVideoContentRect(vid);
+    sendRCEvent("rightclick",
+      Math.max(0, Math.min(1, (e.clientX - cRect.left) / cRect.width)),
+      Math.max(0, Math.min(1, (e.clientY - cRect.top) / cRect.height)));
   };
 
   vid._rcScroll = function (e) {
@@ -11712,7 +11690,8 @@ function disableRCKeyboard() {
   }
 }
 
-// ─── Pin/Unpin + Draggable Call Controls ──────────────────
+// ─── SKYCHAT FIXES v20260627 ──────────────────────────────
+// Pin/Unpin + Draggable Call Controls
 var _ctrlBarPinned = true;
 var _ctrlHideTimer = null;
 var _ctrlHoverZone = null;
@@ -11725,17 +11704,13 @@ function toggleCallBarPin() {
   var overlay = document.getElementById("ongoing-call");
   var pinBtn = document.getElementById("pin-btn");
   if (!controls) return;
-
   if (_ctrlBarPinned) {
     controls.classList.remove("ctrl-unpinned", "ctrl-show");
     if (overlay) overlay.classList.remove("ctrl-bar-unpinned");
     if (pinBtn) { pinBtn.classList.add("pinned"); pinBtn.title = "Unpin Controls"; }
     _removeCtrlHoverZone();
-    // Reset position to center bottom
-    controls.style.left = "50%";
-    controls.style.top = "";
-    controls.style.bottom = "48px";
-    controls.style.transform = "translateX(-50%)";
+    controls.style.left = "50%"; controls.style.top = "";
+    controls.style.bottom = "48px"; controls.style.transform = "translateX(-50%)";
   } else {
     controls.classList.add("ctrl-unpinned");
     controls.classList.remove("ctrl-show");
@@ -11744,68 +11719,45 @@ function toggleCallBarPin() {
     _createCtrlHoverZone();
   }
 }
-
 function _createCtrlHoverZone() {
   if (_ctrlHoverZone) return;
   var overlay = document.getElementById("ongoing-call");
   var controls = overlay && overlay.querySelector(".call-controls");
   if (!overlay || !controls) return;
-
   _ctrlHoverZone = document.createElement("div");
   _ctrlHoverZone.className = "ctrl-hover-zone";
   _ctrlHoverZone.addEventListener("mouseenter", function () {
     controls.classList.add("ctrl-show");
     if (_ctrlHideTimer) clearTimeout(_ctrlHideTimer);
   });
-  _ctrlHoverZone.addEventListener("mouseleave", function () {
-    _scheduleCtrlHide(controls);
-  });
+  _ctrlHoverZone.addEventListener("mouseleave", function () { _scheduleCtrlHide(controls); });
   overlay.appendChild(_ctrlHoverZone);
-
-  controls.addEventListener("mouseenter", function () {
-    if (_ctrlHideTimer) clearTimeout(_ctrlHideTimer);
-  });
-  controls.addEventListener("mouseleave", function () {
-    if (!_ctrlBarPinned) _scheduleCtrlHide(controls);
-  });
+  controls.addEventListener("mouseenter", function () { if (_ctrlHideTimer) clearTimeout(_ctrlHideTimer); });
+  controls.addEventListener("mouseleave", function () { if (!_ctrlBarPinned) _scheduleCtrlHide(controls); });
 }
-
 function _removeCtrlHoverZone() {
   if (_ctrlHoverZone) { _ctrlHoverZone.remove(); _ctrlHoverZone = null; }
   if (_ctrlHideTimer) { clearTimeout(_ctrlHideTimer); _ctrlHideTimer = null; }
 }
-
-function _scheduleCtrlHide(controls) {
+function _scheduleCtrlHide(c) {
   if (_ctrlHideTimer) clearTimeout(_ctrlHideTimer);
-  _ctrlHideTimer = setTimeout(function () {
-    if (!_ctrlBarPinned) controls.classList.remove("ctrl-show");
-  }, 2000);
+  _ctrlHideTimer = setTimeout(function () { if (!_ctrlBarPinned) c.classList.remove("ctrl-show"); }, 2000);
 }
-
 function resetCallBarPin() {
-  _ctrlBarPinned = true;
+  _ctrlBarPinned = true; _ctrlDragging = false;
   _removeCtrlHoverZone();
-  _ctrlDragging = false;
-  var controls = document.querySelector("#ongoing-call .call-controls");
-  if (controls) {
-    controls.classList.remove("ctrl-unpinned", "ctrl-show");
-    controls.style.left = "50%"; controls.style.top = "";
-    controls.style.bottom = "48px"; controls.style.transform = "translateX(-50%)";
-  }
-  var overlay = document.getElementById("ongoing-call");
-  if (overlay) overlay.classList.remove("ctrl-bar-unpinned");
-  var pinBtn = document.getElementById("pin-btn");
-  if (pinBtn) { pinBtn.classList.add("pinned"); pinBtn.title = "Unpin Controls"; }
+  var c = document.querySelector("#ongoing-call .call-controls");
+  if (c) { c.classList.remove("ctrl-unpinned", "ctrl-show"); c.style.left = "50%"; c.style.top = ""; c.style.bottom = "48px"; c.style.transform = "translateX(-50%)"; }
+  var o = document.getElementById("ongoing-call");
+  if (o) o.classList.remove("ctrl-bar-unpinned");
+  var p = document.getElementById("pin-btn");
+  if (p) { p.classList.add("pinned"); p.title = "Unpin Controls"; }
 }
-
-// ── Draggable Call Controls ──
 function initDraggableControls() {
   var controls = document.querySelector("#ongoing-call .call-controls");
   if (!controls || controls._dragInited) return;
   controls._dragInited = true;
-
   controls.addEventListener("mousedown", function (e) {
-    // Only drag when clicking on the bar background (not buttons)
     if (e.target.closest(".ctrl-btn") || e.target.closest("button")) return;
     _ctrlDragging = true;
     var rect = controls.getBoundingClientRect();
@@ -11815,25 +11767,20 @@ function initDraggableControls() {
     controls.style.cursor = "grabbing";
     e.preventDefault();
   });
-
   document.addEventListener("mousemove", function (e) {
     if (!_ctrlDragging) return;
-    var newX = e.clientX - _ctrlDragOffset.x;
-    var newY = e.clientY - _ctrlDragOffset.y;
-    // Keep within viewport
-    newX = Math.max(0, Math.min(window.innerWidth - 200, newX));
-    newY = Math.max(0, Math.min(window.innerHeight - 80, newY));
-    controls.style.left = newX + "px";
-    controls.style.top = newY + "px";
-    controls.style.bottom = "auto";
-    controls.style.transform = "none";
+    var controls = document.querySelector("#ongoing-call .call-controls");
+    if (!controls) return;
+    var nx = Math.max(0, Math.min(window.innerWidth - 200, e.clientX - _ctrlDragOffset.x));
+    var ny = Math.max(0, Math.min(window.innerHeight - 80, e.clientY - _ctrlDragOffset.y));
+    controls.style.left = nx + "px"; controls.style.top = ny + "px";
+    controls.style.bottom = "auto"; controls.style.transform = "none";
   });
-
   document.addEventListener("mouseup", function () {
     if (_ctrlDragging) {
       _ctrlDragging = false;
-      controls.style.transition = "";
-      controls.style.cursor = "";
+      var controls = document.querySelector("#ongoing-call .call-controls");
+      if (controls) { controls.style.transition = ""; controls.style.cursor = ""; }
     }
   });
 }

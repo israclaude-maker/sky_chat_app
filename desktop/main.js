@@ -450,7 +450,6 @@ ipcMain.on("rc-event", (event, rawData) => {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
 
     // Use robotjs own screen size (matches moveMouse coordinate system)
-    // NOT Electron display.size which may differ on DPI-scaled screens
     const screenSize = robot.getScreenSize();
     const x = Math.round(
       Math.max(0, Math.min(1, data.x || 0)) * screenSize.width,
@@ -468,7 +467,7 @@ ipcMain.on("rc-event", (event, rawData) => {
       robot.moveMouse(x, y);
       setTimeout(() => robot.mouseClick("right"), 30);
     } else if (data.event === "scroll") {
-      // scrollMouse(deltaX, deltaY) — positive Y = down, negative Y = up
+      // scrollMouse(deltaX, deltaY) — NOT mouse position!
       var scrollAmt = Math.max(5, Math.floor((data.delta || 120) / 12));
       if (data.direction === "up") {
         robot.scrollMouse(0, -scrollAmt);
