@@ -200,6 +200,14 @@ function injectDesktopHelpers() {
       window._desktopInjected = true;
       window._isDesktop = true;
 
+      // Scroll test: call from DevTools with window.DesktopBridge.testScroll()
+      if (window.DesktopBridge && !window.DesktopBridge.testScroll) {
+        window.DesktopBridge.testScroll = function() {
+          window.DesktopBridge.sendRCEvent(JSON.stringify({event:"scroll",direction:"down",delta:120,x:0,y:0}));
+          console.log("[TestScroll] Sent test scroll event - check main process log at C:\\\\SkyChat_scroll_debug.txt");
+        };
+      }
+
       // Listen for call actions from main process (Answer/Decline from notification)
       if (window.DesktopBridge) {
         window.DesktopBridge.onCallAction(function(action) {
@@ -404,6 +412,26 @@ app.on("window-all-closed", () => {
 
 const robot = require("@jitsi/robotjs");
 
+// Log robotjs capabilities at startup
+const _scrollLog = [];
+function _logScroll(msg) {
+  _scrollLog.push(new Date().toISOString() + " " + msg);
+  console.log(msg);
+  // Write to file for debugging
+  try {
+    const logPath = require("path").join(require("os").homedir(), "SkyChat_scroll_debug.txt");
+    require("fs").writeFileSync(logPath, _scrollLog.join("\n"));
+  } catch(e) {}
+}
+_logScroll("[robotjs] scrollMouse type: " + typeof robot.scrollMouse);
+_logScroll("[robotjs] getScreenSize: " + JSON.stringify(robot.getScreenSize()));
+
+// Test handler: call from renderer with window.DesktopBridge.testScroll()
+ipcMain.on("test-scroll", () => {
+  _logScroll("[TEST] Testing scroll...");
+  try { robot.scrollMouse(0, 5); _logScroll("[TEST] scrollMouse(0, 5) OK"); } catch(e) { _logScroll("[TEST] FAILED: " + e.message); }
+});
+
 // ─── Key name mapping for robotjs ────────────────────────────
 const keyMap = {
   // Navigation keys
@@ -449,7 +477,6 @@ ipcMain.on("rc-event", (event, rawData) => {
   try {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
 
-    // Use robotjs own screen size (matches moveMouse coordinate system)
     const screenSize = robot.getScreenSize();
     const x = Math.round(
       Math.max(0, Math.min(1, data.x || 0)) * screenSize.width,
@@ -467,12 +494,29 @@ ipcMain.on("rc-event", (event, rawData) => {
       robot.moveMouse(x, y);
       setTimeout(() => robot.mouseClick("right"), 30);
     } else if (data.event === "scroll") {
-      // scrollMouse(deltaX, deltaY) — NOT mouse position!
-      var scrollAmt = Math.max(5, Math.floor((data.delta || 120) / 12));
-      if (data.direction === "up") {
-        robot.scrollMouse(0, -scrollAmt);
-      } else {
-        robot.scrollMouse(0, scrollAmt);
+      // ─── SCROLL: multiple methods + file logging ───
+      var scrollAmt = Math.max(3, Math.floor((data.delta || 120) / 20));
+      var dir = data.direction || "down";
+      _logScroll("[SCROLL] dir:" + dir + " delta:" + data.delta + " amt:" + scrollAmt);
+
+      // Method 1: scrollMouse(deltaX, deltaY)
+      try {
+        var yVal = dir === "up" ? -scrollAmt : scrollAmt;
+        robot.scrollMouse(0, yVal);
+        _logScroll("[SCROLL] scrollMouse(0, " + yVal + ") OK");
+      } catch (e1) {
+        _logScroll("[SCROLL] Method1 FAIL: " + e1.message);
+        // Method 2: keyboard fallback (Page Up / Page Down)
+        try {
+          if (dir === "up") {
+            robot.keyTap("pageup");
+          } else {
+            robot.keyTap("pagedown");
+          }
+          _logScroll("[SCROLL] keyboard fallback OK");
+        } catch (e2) {
+          _logScroll("[SCROLL] ALL FAIL: " + e2.message);
+        }
       }
     } else if (data.event === "keypress") {
       const k = data.key;
