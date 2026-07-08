@@ -2584,7 +2584,6 @@ body {
     opacity 0.3s ease,
     transform 0.3s ease;
 }
-
 .call-controls.ctrl-unpinned {
   opacity: 0;
   pointer-events: none;
@@ -2606,7 +2605,6 @@ body {
   z-index: 9;
 }
 
-/* When unpinned: hide ALL overlay chrome for full mouse access */
 #ongoing-call.ctrl-bar-unpinned .call-minimize-btn,
 #ongoing-call.ctrl-bar-unpinned .call-info,
 #ongoing-call.ctrl-bar-unpinned #remote-screen-label,
@@ -2616,7 +2614,6 @@ body {
   pointer-events: none;
   transition: opacity 0.3s;
 }
-
 #ongoing-call.ctrl-bar-unpinned #remote-screen-video {
   top: 0 !important;
   left: 0 !important;

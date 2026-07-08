@@ -5494,19 +5494,10 @@ function doInitWebRTC(isInitiator, callback) {
       } else if (CallState._pendingScreenToggle) {
         // Screen share as first video track (voice call)
         CallState.remoteScreenStream = e.streams[0];
-        var ssVid = $("remote-screen-video");
-        if (ssVid) {
-          ssVid.srcObject = e.streams[0];
-          ssVid.style.display = "block";
-          ssVid.style.objectFit = "contain";
-          ssVid.play().catch(function (e) {});
-        }
+        var ssVid2 = $("remote-screen-video");
+        if (ssVid2) { ssVid2.srcObject = e.streams[0]; ssVid2.style.display = "block"; ssVid2.style.objectFit = "contain"; ssVid2.play().catch(function(){}); }
         handleScreenToggle({ sharing: true, surface_type: CallState._pendingSurfaceType || "monitor" });
-        e.track.onended = function () {
-          if (ssVid) { ssVid.style.display = "none"; ssVid.srcObject = null; }
-          CallState.remoteScreenStream = null;
-          hideRCButton();
-        };
+        e.track.onended = function () { if (ssVid2) { ssVid2.style.display = "none"; ssVid2.srcObject = null; } CallState.remoteScreenStream = null; hideRCButton(); };
       } else {
         var remoteVideo = $("remote-video");
         if (remoteVideo) {
@@ -6113,14 +6104,10 @@ function _applyScreenToggleOn(
   localVid,
   ongoingAv,
 ) {
-  // If screen stream missing, grab from remote-video
   if (!CallState.remoteScreenStream && remoteVideo && remoteVideo.srcObject) {
-    var rvTracks = remoteVideo.srcObject.getVideoTracks();
-    if (rvTracks.length > 0) {
-      CallState.remoteScreenStream = remoteVideo.srcObject;
-    }
+    var rvt = remoteVideo.srcObject.getVideoTracks();
+    if (rvt.length > 0) CallState.remoteScreenStream = remoteVideo.srcObject;
   }
-
   if (remoteScreenVideo && CallState.remoteScreenStream) {
     remoteScreenVideo.style.display = "block";
     remoteScreenVideo.style.objectFit = "contain";
@@ -6128,10 +6115,7 @@ function _applyScreenToggleOn(
     remoteScreenVideo.srcObject = CallState.remoteScreenStream;
     remoteScreenVideo.play().catch(function (e) {});
   }
-
-  // Only PIP if separate camera stream exists
-  var hasRemoteCam =
-    remoteVideo && CallState.remoteStream &&
+  var hasRemoteCam = remoteVideo && CallState.remoteStream &&
     CallState.remoteStream !== CallState.remoteScreenStream &&
     CallState.remoteStream.getVideoTracks().some(function (t) { return t.readyState === "live"; });
   if (hasRemoteCam) {
@@ -11270,6 +11254,7 @@ function handleRemoteControlRequest(data) {
   }
   var el = document.createElement("div");
   el.id = "rc-incoming";
+  el.setAttribute("data-name", fromName);
   el.style.cssText =
     "position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#1f2937;color:#fff;padding:28px 32px;border-radius:20px;text-align:center;z-index:10010;min-width:270px;box-shadow:0 20px 60px rgba(0,0,0,0.6);";
   el.innerHTML =
@@ -11294,6 +11279,8 @@ function acceptRemoteControl(fromId) {
   if (el) el.remove();
   RemoteCtrl.isBeingControlled = true;
   RemoteCtrl.controlledBy = fromId;
+  // Store the controller's name from the request data attribute
+  RemoteCtrl.controllerName = el ? (el.getAttribute("data-name") || "User") : "User";
   var ws = S.globalWs || S.ws;
   if (ws && ws.readyState === 1)
     ws.send(
@@ -11331,22 +11318,14 @@ function handleRemoteControlAccepted(data) {
   enableRCKeyboard();
 
   function findAndAttach(attempt) {
-    if (attempt > 40) {
-      toast("Remote screen video not found", "e");
-      RemoteCtrl.isControlling = false;
-      updateRCButton();
-      return;
-    }
+    if (attempt > 40) { toast("Remote screen video not found", "e"); RemoteCtrl.isControlling = false; updateRCButton(); return; }
     var vid = null;
     if (RemoteCtrl._pendingVideoEl && RemoteCtrl._pendingVideoEl.srcObject) vid = RemoteCtrl._pendingVideoEl;
     if (!vid) { var ssv = document.getElementById("remote-screen-video"); if (ssv && ssv.srcObject) vid = ssv; }
     if (!vid) { var rv = document.getElementById("remote-video"); if (rv && rv.srcObject) vid = rv; }
     if (!vid) { setTimeout(function () { findAndAttach(attempt + 1); }, 500); return; }
     if (vid.tagName === "VIDEO" && (!vid.videoWidth || !vid.videoHeight)) {
-      vid.addEventListener("loadedmetadata", function onMeta() {
-        vid.removeEventListener("loadedmetadata", onMeta);
-        attachRCToVideo(vid);
-      });
+      vid.addEventListener("loadedmetadata", function onM() { vid.removeEventListener("loadedmetadata", onM); attachRCToVideo(vid); });
       setTimeout(function () { if (!RemoteCtrl.videoEl) attachRCToVideo(vid); }, 2000);
       return;
     }
@@ -11372,11 +11351,32 @@ function attachRCToVideo(vid) {
     vid.style.display = "block";
     vid.play().catch(function () {});
   }
-  vid.style.cursor = "crosshair";
+  vid.style.cursor = "none"; // Hide system cursor — show custom one instead
   var throttleTimer = null;
 
+  // ── Custom named cursor for controller ──
+  var _rcCursorEl = document.getElementById("rc-my-cursor");
+  if (!_rcCursorEl) {
+    _rcCursorEl = document.createElement("div");
+    _rcCursorEl.id = "rc-my-cursor";
+    var myName = (S.user && (S.user.first_name || S.user.username)) || "You";
+    var myInitial = myName.charAt(0).toUpperCase();
+    _rcCursorEl.style.cssText =
+      "position:fixed;pointer-events:none;z-index:99998;display:none;" +
+      "transition:left 0.01s linear,top 0.01s linear;";
+    _rcCursorEl.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24">' +
+      '<path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" ' +
+      'fill="#10b981" stroke="white" stroke-width="1.5"/></svg>' +
+      '<span style="background:#10b981;color:#fff;font-size:9px;font-weight:700;' +
+      'padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:10px;' +
+      'box-shadow:0 1px 4px rgba(0,0,0,0.3);display:inline-block;">' + esc(myName) + '</span>';
+    document.body.appendChild(_rcCursorEl);
+  }
+  _rcCursorEl.style.display = "flex";
+
   // Calculate video content area (accounts for object-fit:contain letterboxing)
-  // Shrinks by EDGE_BUFFER px so cursor reaches 0.0/1.0 before hitting the exact edge
+  // Edge buffer: shrinks by 8px so cursor reaches 0.0/1.0 before the exact pixel edge
   function getVideoContentRect(videoEl) {
     var rect = videoEl.getBoundingClientRect();
     if (videoEl.tagName !== "VIDEO" || !videoEl.videoWidth || !videoEl.videoHeight) return rect;
@@ -11385,18 +11385,14 @@ function attachRCToVideo(vid) {
     var cW, cH, oX, oY;
     if (vidAR > elAR) { cW = rect.width; cH = rect.width / vidAR; oX = 0; oY = (rect.height - cH) / 2; }
     else { cH = rect.height; cW = rect.height * vidAR; oX = (rect.width - cW) / 2; oY = 0; }
-    // Edge buffer: shrink by 8px each side so user can reach 0.0/1.0 more easily
     var buf = 8;
-    return {
-      left: rect.left + oX + buf,
-      top: rect.top + oY + buf,
-      width: Math.max(1, cW - buf * 2),
-      height: Math.max(1, cH - buf * 2),
-    };
+    return { left: rect.left + oX + buf, top: rect.top + oY + buf, width: Math.max(1, cW - buf * 2), height: Math.max(1, cH - buf * 2) };
   }
 
   vid._rcMove = function (e) {
     if (!RemoteCtrl.isControlling) return;
+    // Move custom cursor to follow mouse
+    if (_rcCursorEl) { _rcCursorEl.style.left = e.clientX + "px"; _rcCursorEl.style.top = e.clientY + "px"; }
     if (throttleTimer) return;
     throttleTimer = setTimeout(function () { throttleTimer = null; }, 16);
     var cRect = getVideoContentRect(vid);
@@ -11552,20 +11548,23 @@ function handleRemoteControlEvent(data) {
     if (!cur) {
       cur = document.createElement("div");
       cur.id = "rc-cursor";
+      var cName = RemoteCtrl.controllerName || "User";
+      var cInitial = cName.charAt(0).toUpperCase();
       cur.style.cssText =
         "position:fixed;pointer-events:none;z-index:99999;" +
-        "transition:left 0.04s,top 0.04s;";
+        "transition:left 0.03s linear,top 0.03s linear;display:flex;align-items:flex-start;gap:2px;";
       cur.innerHTML =
-        '<svg width="22" height="22" viewBox="0 0 24 24">' +
+        '<svg width="20" height="20" viewBox="0 0 24 24">' +
         '<path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" ' +
-        'fill="#ff4444" stroke="white" stroke-width="1.5"/></svg>' +
-        '<span style="background:#ff4444;color:#fff;font-size:10px;' +
-        'padding:2px 6px;border-radius:8px;margin-left:2px;">Remote</span>';
+        'fill="#3b82f6" stroke="white" stroke-width="1.5"/></svg>' +
+        '<span style="background:#3b82f6;color:#fff;font-size:9px;font-weight:700;' +
+        'padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:12px;' +
+        'box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + esc(cName) + '</span>';
       document.body.appendChild(cur);
     }
     cur.style.left = cursorX + "px";
     cur.style.top = cursorY + "px";
-    cur.style.display = "block";
+    cur.style.display = "flex";
   }
 
   // ACTUAL PC CONTROL - Desktop app pe robotjs se
@@ -11621,7 +11620,7 @@ function cleanupRC() {
   }
 
   // Use a more generic selector or loop to ensure clean state
-  const ids = ["rc-wait", "rc-incoming", "rc-indicator", "rc-cursor"];
+  const ids = ["rc-wait", "rc-incoming", "rc-indicator", "rc-cursor", "rc-my-cursor"];
   ids.forEach((id) => {
     const node = document.getElementById(id);
     if (node) node.remove();
@@ -11633,6 +11632,7 @@ function cleanupRC() {
     isBeingControlled: false,
     targetUserId: null,
     controlledBy: null,
+    controllerName: null,
   });
 
   updateRCButton();
@@ -11690,98 +11690,64 @@ function disableRCKeyboard() {
   }
 }
 
-// ─── SKYCHAT FIXES v20260627 ──────────────────────────────
-// Pin/Unpin + Draggable Call Controls
-var _ctrlBarPinned = true;
-var _ctrlHideTimer = null;
-var _ctrlHoverZone = null;
-var _ctrlDragging = false;
-var _ctrlDragOffset = { x: 0, y: 0 };
+// ─── Pin/Unpin + Draggable Call Controls ──────────────────
+var _ctrlBarPinned = true, _ctrlHideTimer = null, _ctrlHoverZone = null, _ctrlDragging = false, _ctrlDragOffset = {x:0,y:0};
 
 function toggleCallBarPin() {
   _ctrlBarPinned = !_ctrlBarPinned;
-  var controls = document.querySelector("#ongoing-call .call-controls");
-  var overlay = document.getElementById("ongoing-call");
-  var pinBtn = document.getElementById("pin-btn");
-  if (!controls) return;
+  var c = document.querySelector("#ongoing-call .call-controls");
+  var o = document.getElementById("ongoing-call");
+  var p = document.getElementById("pin-btn");
+  if (!c) return;
   if (_ctrlBarPinned) {
-    controls.classList.remove("ctrl-unpinned", "ctrl-show");
-    if (overlay) overlay.classList.remove("ctrl-bar-unpinned");
-    if (pinBtn) { pinBtn.classList.add("pinned"); pinBtn.title = "Unpin Controls"; }
+    c.classList.remove("ctrl-unpinned","ctrl-show"); if (o) o.classList.remove("ctrl-bar-unpinned");
+    if (p) { p.classList.add("pinned"); p.title = "Unpin Controls"; }
     _removeCtrlHoverZone();
-    controls.style.left = "50%"; controls.style.top = "";
-    controls.style.bottom = "48px"; controls.style.transform = "translateX(-50%)";
+    c.style.left="50%"; c.style.top=""; c.style.bottom="48px"; c.style.transform="translateX(-50%)";
   } else {
-    controls.classList.add("ctrl-unpinned");
-    controls.classList.remove("ctrl-show");
-    if (overlay) overlay.classList.add("ctrl-bar-unpinned");
-    if (pinBtn) { pinBtn.classList.remove("pinned"); pinBtn.title = "Pin Controls"; }
+    c.classList.add("ctrl-unpinned"); c.classList.remove("ctrl-show");
+    if (o) o.classList.add("ctrl-bar-unpinned");
+    if (p) { p.classList.remove("pinned"); p.title = "Pin Controls"; }
     _createCtrlHoverZone();
   }
 }
 function _createCtrlHoverZone() {
   if (_ctrlHoverZone) return;
-  var overlay = document.getElementById("ongoing-call");
-  var controls = overlay && overlay.querySelector(".call-controls");
-  if (!overlay || !controls) return;
-  _ctrlHoverZone = document.createElement("div");
-  _ctrlHoverZone.className = "ctrl-hover-zone";
-  _ctrlHoverZone.addEventListener("mouseenter", function () {
-    controls.classList.add("ctrl-show");
-    if (_ctrlHideTimer) clearTimeout(_ctrlHideTimer);
-  });
-  _ctrlHoverZone.addEventListener("mouseleave", function () { _scheduleCtrlHide(controls); });
-  overlay.appendChild(_ctrlHoverZone);
-  controls.addEventListener("mouseenter", function () { if (_ctrlHideTimer) clearTimeout(_ctrlHideTimer); });
-  controls.addEventListener("mouseleave", function () { if (!_ctrlBarPinned) _scheduleCtrlHide(controls); });
+  var o = document.getElementById("ongoing-call"), c = o && o.querySelector(".call-controls");
+  if (!o || !c) return;
+  _ctrlHoverZone = document.createElement("div"); _ctrlHoverZone.className = "ctrl-hover-zone";
+  _ctrlHoverZone.addEventListener("mouseenter", function(){ c.classList.add("ctrl-show"); if(_ctrlHideTimer) clearTimeout(_ctrlHideTimer); });
+  _ctrlHoverZone.addEventListener("mouseleave", function(){ _schedHide(c); });
+  o.appendChild(_ctrlHoverZone);
+  c.addEventListener("mouseenter", function(){ if(_ctrlHideTimer) clearTimeout(_ctrlHideTimer); });
+  c.addEventListener("mouseleave", function(){ if(!_ctrlBarPinned) _schedHide(c); });
 }
-function _removeCtrlHoverZone() {
-  if (_ctrlHoverZone) { _ctrlHoverZone.remove(); _ctrlHoverZone = null; }
-  if (_ctrlHideTimer) { clearTimeout(_ctrlHideTimer); _ctrlHideTimer = null; }
-}
-function _scheduleCtrlHide(c) {
-  if (_ctrlHideTimer) clearTimeout(_ctrlHideTimer);
-  _ctrlHideTimer = setTimeout(function () { if (!_ctrlBarPinned) c.classList.remove("ctrl-show"); }, 2000);
-}
+function _removeCtrlHoverZone() { if(_ctrlHoverZone){_ctrlHoverZone.remove();_ctrlHoverZone=null;} if(_ctrlHideTimer){clearTimeout(_ctrlHideTimer);_ctrlHideTimer=null;} }
+function _schedHide(c) { if(_ctrlHideTimer) clearTimeout(_ctrlHideTimer); _ctrlHideTimer=setTimeout(function(){if(!_ctrlBarPinned) c.classList.remove("ctrl-show");},2000); }
 function resetCallBarPin() {
-  _ctrlBarPinned = true; _ctrlDragging = false;
-  _removeCtrlHoverZone();
-  var c = document.querySelector("#ongoing-call .call-controls");
-  if (c) { c.classList.remove("ctrl-unpinned", "ctrl-show"); c.style.left = "50%"; c.style.top = ""; c.style.bottom = "48px"; c.style.transform = "translateX(-50%)"; }
-  var o = document.getElementById("ongoing-call");
-  if (o) o.classList.remove("ctrl-bar-unpinned");
-  var p = document.getElementById("pin-btn");
-  if (p) { p.classList.add("pinned"); p.title = "Unpin Controls"; }
+  _ctrlBarPinned=true; _ctrlDragging=false; _removeCtrlHoverZone();
+  var c=document.querySelector("#ongoing-call .call-controls");
+  if(c){c.classList.remove("ctrl-unpinned","ctrl-show");c.style.left="50%";c.style.top="";c.style.bottom="48px";c.style.transform="translateX(-50%)";}
+  var o=document.getElementById("ongoing-call"); if(o) o.classList.remove("ctrl-bar-unpinned");
+  var p=document.getElementById("pin-btn"); if(p){p.classList.add("pinned");p.title="Unpin Controls";}
 }
 function initDraggableControls() {
-  var controls = document.querySelector("#ongoing-call .call-controls");
-  if (!controls || controls._dragInited) return;
-  controls._dragInited = true;
-  controls.addEventListener("mousedown", function (e) {
-    if (e.target.closest(".ctrl-btn") || e.target.closest("button")) return;
-    _ctrlDragging = true;
-    var rect = controls.getBoundingClientRect();
-    _ctrlDragOffset.x = e.clientX - rect.left;
-    _ctrlDragOffset.y = e.clientY - rect.top;
-    controls.style.transition = "none";
-    controls.style.cursor = "grabbing";
-    e.preventDefault();
+  var c = document.querySelector("#ongoing-call .call-controls");
+  if (!c || c._dragInit) return; c._dragInit = true;
+  c.addEventListener("mousedown", function(e) {
+    if (e.target.closest(".ctrl-btn")||e.target.closest("button")) return;
+    _ctrlDragging=true; var r=c.getBoundingClientRect();
+    _ctrlDragOffset.x=e.clientX-r.left; _ctrlDragOffset.y=e.clientY-r.top;
+    c.style.transition="none"; c.style.cursor="grabbing"; e.preventDefault();
   });
-  document.addEventListener("mousemove", function (e) {
-    if (!_ctrlDragging) return;
-    var controls = document.querySelector("#ongoing-call .call-controls");
-    if (!controls) return;
-    var nx = Math.max(0, Math.min(window.innerWidth - 200, e.clientX - _ctrlDragOffset.x));
-    var ny = Math.max(0, Math.min(window.innerHeight - 80, e.clientY - _ctrlDragOffset.y));
-    controls.style.left = nx + "px"; controls.style.top = ny + "px";
-    controls.style.bottom = "auto"; controls.style.transform = "none";
+  document.addEventListener("mousemove", function(e) {
+    if (!_ctrlDragging) return; var cc=document.querySelector("#ongoing-call .call-controls"); if(!cc) return;
+    cc.style.left=Math.max(0,Math.min(window.innerWidth-200,e.clientX-_ctrlDragOffset.x))+"px";
+    cc.style.top=Math.max(0,Math.min(window.innerHeight-80,e.clientY-_ctrlDragOffset.y))+"px";
+    cc.style.bottom="auto"; cc.style.transform="none";
   });
-  document.addEventListener("mouseup", function () {
-    if (_ctrlDragging) {
-      _ctrlDragging = false;
-      var controls = document.querySelector("#ongoing-call .call-controls");
-      if (controls) { controls.style.transition = ""; controls.style.cursor = ""; }
-    }
+  document.addEventListener("mouseup", function() {
+    if(_ctrlDragging){_ctrlDragging=false;var cc=document.querySelector("#ongoing-call .call-controls");if(cc){cc.style.transition="";cc.style.cursor="";}}
   });
 }
 
