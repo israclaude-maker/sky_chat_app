@@ -274,12 +274,35 @@ var go = function (p) {
   window.location.href = p;
 };
 var doLogout = function () {
-  if (window.AndroidBridge && AndroidBridge.logout) { try { AndroidBridge.logout(); } catch(e) {} }
-  if (S.globalWs) { try { S.globalWs.onclose = null; S.globalWs.close(); } catch(e) {} }
-  S.token = null; S.user = null;
-  localStorage.clear(); sessionStorage.clear();
-  if ("caches" in window) { caches.keys().then(function(n){n.forEach(function(k){caches.delete(k);})}); }
-  if ("serviceWorker" in navigator) { navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(sw){sw.unregister();})}); }
+  if (window.AndroidBridge && AndroidBridge.logout) {
+    try {
+      AndroidBridge.logout();
+    } catch (e) {}
+  }
+  if (S.globalWs) {
+    try {
+      S.globalWs.onclose = null;
+      S.globalWs.close();
+    } catch (e) {}
+  }
+  S.token = null;
+  S.user = null;
+  localStorage.clear();
+  sessionStorage.clear();
+  if ("caches" in window) {
+    caches.keys().then(function (n) {
+      n.forEach(function (k) {
+        caches.delete(k);
+      });
+    });
+  }
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.getRegistrations().then(function (r) {
+      r.forEach(function (sw) {
+        sw.unregister();
+      });
+    });
+  }
   window.location.href = "/login/";
 };
 
@@ -620,10 +643,12 @@ function init() {
       // Do not force-login on generic runtime errors; prevents redirect loops.
       console.error("Init failed:", err);
       var te = document.getElementById("toasts");
-      if (te) te.innerHTML = '<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:14px 20px;border-radius:12px;margin:10px;text-align:center;font-size:14px;">' +
-        '<div>Failed to initialize chat.</div><div style="margin-top:10px;display:flex;gap:8px;justify-content:center;">' +
-        '<button onclick="location.reload()" style="background:#3b82f6;color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:600;">Retry</button>' +
-        '<button onclick="doLogout()" style="background:#ef4444;color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:600;">Logout</button></div></div>';
+      if (te)
+        te.innerHTML =
+          '<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:14px 20px;border-radius:12px;margin:10px;text-align:center;font-size:14px;">' +
+          '<div>Failed to initialize chat.</div><div style="margin-top:10px;display:flex;gap:8px;justify-content:center;">' +
+          '<button onclick="location.reload()" style="background:#3b82f6;color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:600;">Retry</button>' +
+          '<button onclick="doLogout()" style="background:#ef4444;color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:600;">Logout</button></div></div>';
     });
 }
 // Initialize paste handler for images
@@ -881,8 +906,10 @@ function connectGlobalWS() {
     if (!S.token || !S.user) return;
     S._wsRetryCount = (S._wsRetryCount || 0) + 1;
     var delay = Math.min(3000 * Math.pow(2, S._wsRetryCount - 1), 30000);
-    console.log("WS reconnect in " + (delay/1000) + "s");
-    setTimeout(function(){ if (S.token && S.user) connectGlobalWS(); }, delay);
+    console.log("WS reconnect in " + delay / 1000 + "s");
+    setTimeout(function () {
+      if (S.token && S.user) connectGlobalWS();
+    }, delay);
   };
 
   ws.onerror = function () {
@@ -5483,14 +5510,44 @@ function doInitWebRTC(isInitiator, callback) {
         CallState.remoteScreenStream = e.streams[0];
         var remoteScreenVideo = $("remote-screen-video");
         if (remoteScreenVideo) remoteScreenVideo.srcObject = e.streams[0];
-        if (CallState._pendingScreenToggle) handleScreenToggle({sharing:true,surface_type:CallState._pendingSurfaceType||"monitor"});
-        e.track.onended = function(){if(remoteScreenVideo){remoteScreenVideo.style.display="none";remoteScreenVideo.srcObject=null;}CallState.remoteScreenStream=null;var rv=$("remote-video");if(rv){rv.classList.remove("screen-pip");rv.style.cssText="";}};
+        if (CallState._pendingScreenToggle)
+          handleScreenToggle({
+            sharing: true,
+            surface_type: CallState._pendingSurfaceType || "monitor",
+          });
+        e.track.onended = function () {
+          if (remoteScreenVideo) {
+            remoteScreenVideo.style.display = "none";
+            remoteScreenVideo.srcObject = null;
+          }
+          CallState.remoteScreenStream = null;
+          var rv = $("remote-video");
+          if (rv) {
+            rv.classList.remove("screen-pip");
+            rv.style.cssText = "";
+          }
+        };
       } else if (CallState._pendingScreenToggle) {
         CallState.remoteScreenStream = e.streams[0];
         var ssVid2 = $("remote-screen-video");
-        if(ssVid2){ssVid2.srcObject=e.streams[0];ssVid2.style.display="block";ssVid2.style.objectFit="contain";ssVid2.play().catch(function(){});}
-        handleScreenToggle({sharing:true,surface_type:CallState._pendingSurfaceType||"monitor"});
-        e.track.onended = function(){if(ssVid2){ssVid2.style.display="none";ssVid2.srcObject=null;}CallState.remoteScreenStream=null;hideRCButton();};
+        if (ssVid2) {
+          ssVid2.srcObject = e.streams[0];
+          ssVid2.style.display = "block";
+          ssVid2.style.objectFit = "contain";
+          ssVid2.play().catch(function () {});
+        }
+        handleScreenToggle({
+          sharing: true,
+          surface_type: CallState._pendingSurfaceType || "monitor",
+        });
+        e.track.onended = function () {
+          if (ssVid2) {
+            ssVid2.style.display = "none";
+            ssVid2.srcObject = null;
+          }
+          CallState.remoteScreenStream = null;
+          hideRCButton();
+        };
       } else {
         var remoteVideo = $("remote-video");
         if (remoteVideo) {
@@ -6034,19 +6091,39 @@ function handleScreenToggle(data) {
   var ongoingAv = $("ongoing-av");
 
   if (data.sharing) {
-    CallState._remoteSurfaceType = data.surface_type || CallState._pendingSurfaceType || "monitor";
+    CallState._remoteSurfaceType =
+      data.surface_type || CallState._pendingSurfaceType || "monitor";
     var attempts = 0;
     function waitForStream() {
       if (CallState.remoteScreenStream) {
         CallState._pendingScreenToggle = false;
-        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
-      } else if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getVideoTracks().length > 0) {
+        _applyScreenToggleOn(
+          remoteVideo,
+          remoteScreenVideo,
+          localVid,
+          ongoingAv,
+        );
+      } else if (
+        remoteVideo &&
+        remoteVideo.srcObject &&
+        remoteVideo.srcObject.getVideoTracks().length > 0
+      ) {
         CallState._pendingScreenToggle = false;
-        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
+        _applyScreenToggleOn(
+          remoteVideo,
+          remoteScreenVideo,
+          localVid,
+          ongoingAv,
+        );
       } else if (attempts++ < 25) {
         setTimeout(waitForStream, 200);
       } else {
-        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
+        _applyScreenToggleOn(
+          remoteVideo,
+          remoteScreenVideo,
+          localVid,
+          ongoingAv,
+        );
       }
     }
     waitForStream();
@@ -6092,7 +6169,10 @@ function handleScreenToggle(data) {
 }
 
 function _applyScreenToggleOn(
-  remoteVideo, remoteScreenVideo, localVid, ongoingAv,
+  remoteVideo,
+  remoteScreenVideo,
+  localVid,
+  ongoingAv,
 ) {
   if (!CallState.remoteScreenStream && remoteVideo && remoteVideo.srcObject) {
     var rvt = remoteVideo.srcObject.getVideoTracks();
@@ -6105,9 +6185,13 @@ function _applyScreenToggleOn(
     remoteScreenVideo.srcObject = CallState.remoteScreenStream;
     remoteScreenVideo.play().catch(function (e) {});
   }
-  var hasRemoteCam = remoteVideo && CallState.remoteStream &&
+  var hasRemoteCam =
+    remoteVideo &&
+    CallState.remoteStream &&
     CallState.remoteStream !== CallState.remoteScreenStream &&
-    CallState.remoteStream.getVideoTracks().some(function(t){return t.readyState==="live";});
+    CallState.remoteStream.getVideoTracks().some(function (t) {
+      return t.readyState === "live";
+    });
   if (hasRemoteCam) {
     remoteVideo.classList.add("screen-pip");
     remoteVideo.style.display = "block";
@@ -6148,7 +6232,11 @@ function _applyScreenToggleOn(
   }
   lbl.style.display = "flex";
   var surfaceType = CallState._remoteSurfaceType || "monitor";
-  if (CallState.isInCall && !GC.active && surfaceType === "monitor") { showRCButton(); } else { hideRCButton(); }
+  if (CallState.isInCall && !GC.active && surfaceType === "monitor") {
+    showRCButton();
+  } else {
+    hideRCButton();
+  }
 
   var ssv2 = document.getElementById("remote-screen-video");
   var rv2 = document.getElementById("remote-video");
@@ -11262,7 +11350,9 @@ function handleRemoteControlRequest(data) {
 
 function acceptRemoteControl(fromId) {
   var el = document.getElementById("rc-incoming");
-  RemoteCtrl.controllerName = el ? (el.getAttribute("data-name") || "User") : "User";
+  RemoteCtrl.controllerName = el
+    ? el.getAttribute("data-name") || "User"
+    : "User";
   if (el) el.remove();
   RemoteCtrl.isBeingControlled = true;
   RemoteCtrl.controlledBy = fromId;
@@ -11283,6 +11373,50 @@ function acceptRemoteControl(fromId) {
     overlay.appendChild(ind);
   }
   toast("Remote control has been allowed!", "s");
+
+  // ── Start sending OUR cursor position back to controller ──
+  startCursorSync();
+}
+
+// ── Cursor Sync: send local cursor position to the other side ──
+var _cursorSyncTimer = null;
+var _cursorSyncHandler = null;
+
+function startCursorSync() {
+  if (_cursorSyncHandler) return;
+  var lastSent = 0;
+  _cursorSyncHandler = function (e) {
+    var now = Date.now();
+    if (now - lastSent < 100) return; // 10 updates/sec max
+    lastSent = now;
+    var normX = e.screenX / window.screen.width;
+    var normY = e.screenY / window.screen.height;
+    var ws = S.globalWs || S.ws;
+    var targetId = RemoteCtrl.controlledBy || RemoteCtrl.targetUserId;
+    if (ws && ws.readyState === 1 && targetId) {
+      ws.send(
+        JSON.stringify({
+          type: "remote_control_event",
+          target_user_id: targetId,
+          event: "cursor_sync",
+          x: normX,
+          y: normY,
+          cursor_name:
+            (S.user && (S.user.first_name || S.user.username)) || "User",
+        }),
+      );
+    }
+  };
+  document.addEventListener("mousemove", _cursorSyncHandler);
+}
+
+function stopCursorSync() {
+  if (_cursorSyncHandler) {
+    document.removeEventListener("mousemove", _cursorSyncHandler);
+    _cursorSyncHandler = null;
+  }
+  var el = document.getElementById("rc-remote-cursor");
+  if (el) el.remove();
 }
 
 function rejectRemoteControl(fromId) {
@@ -11301,22 +11435,52 @@ function handleRemoteControlAccepted(data) {
   if (waitEl) waitEl.remove();
   RemoteCtrl.isControlling = true;
   if (RemoteCtrl._keepaliveTimer) clearInterval(RemoteCtrl._keepaliveTimer);
-  RemoteCtrl._keepaliveTimer = setInterval(function(){
-    if(!RemoteCtrl.isControlling){clearInterval(RemoteCtrl._keepaliveTimer);RemoteCtrl._keepaliveTimer=null;return;}
-    var ws=S.globalWs||S.ws; if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"ping"}));
+  RemoteCtrl._keepaliveTimer = setInterval(function () {
+    if (!RemoteCtrl.isControlling) {
+      clearInterval(RemoteCtrl._keepaliveTimer);
+      RemoteCtrl._keepaliveTimer = null;
+      return;
+    }
+    var ws = S.globalWs || S.ws;
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "ping" }));
   }, 15000);
   enableRCKeyboard();
+  // Start sending OUR cursor to the controlled side too
+  startCursorSync();
 
   function findAndAttach(attempt) {
-    if (attempt > 40) { toast("Remote screen not found","e"); RemoteCtrl.isControlling=false; updateRCButton(); return; }
+    if (attempt > 40) {
+      toast("Remote screen not found", "e");
+      RemoteCtrl.isControlling = false;
+      updateRCButton();
+      return;
+    }
     var vid = null;
-    if (RemoteCtrl._pendingVideoEl && RemoteCtrl._pendingVideoEl.srcObject) vid = RemoteCtrl._pendingVideoEl;
-    if (!vid) { var ssv=document.getElementById("remote-screen-video"); if(ssv&&ssv.srcObject) vid=ssv; }
-    if (!vid) { var rv=document.getElementById("remote-video"); if(rv&&rv.srcObject) vid=rv; }
-    if (!vid) { setTimeout(function(){findAndAttach(attempt+1);},500); return; }
-    if (vid.tagName==="VIDEO"&&(!vid.videoWidth||!vid.videoHeight)) {
-      vid.addEventListener("loadedmetadata",function onM(){vid.removeEventListener("loadedmetadata",onM);attachRCToVideo(vid);});
-      setTimeout(function(){if(!RemoteCtrl.videoEl)attachRCToVideo(vid);},2000); return;
+    if (RemoteCtrl._pendingVideoEl && RemoteCtrl._pendingVideoEl.srcObject)
+      vid = RemoteCtrl._pendingVideoEl;
+    if (!vid) {
+      var ssv = document.getElementById("remote-screen-video");
+      if (ssv && ssv.srcObject) vid = ssv;
+    }
+    if (!vid) {
+      var rv = document.getElementById("remote-video");
+      if (rv && rv.srcObject) vid = rv;
+    }
+    if (!vid) {
+      setTimeout(function () {
+        findAndAttach(attempt + 1);
+      }, 500);
+      return;
+    }
+    if (vid.tagName === "VIDEO" && (!vid.videoWidth || !vid.videoHeight)) {
+      vid.addEventListener("loadedmetadata", function onM() {
+        vid.removeEventListener("loadedmetadata", onM);
+        attachRCToVideo(vid);
+      });
+      setTimeout(function () {
+        if (!RemoteCtrl.videoEl) attachRCToVideo(vid);
+      }, 2000);
+      return;
     }
     attachRCToVideo(vid);
   }
@@ -11336,17 +11500,25 @@ function attachRCToVideo(vid) {
     old.style.cursor = "";
   }
   RemoteCtrl.videoEl = vid;
-  if (vid.tagName === "VIDEO") { vid.style.display = "block"; vid.play().catch(function(){}); }
+  if (vid.tagName === "VIDEO") {
+    vid.style.display = "block";
+    vid.play().catch(function () {});
+  }
 
   // ── DUAL CURSOR SYSTEM: hide system cursor, show named cursor ──
   vid.style.cursor = "none";
   var _myCur = document.getElementById("rc-my-cursor");
   if (!_myCur) {
-    _myCur = document.createElement("div"); _myCur.id = "rc-my-cursor";
+    _myCur = document.createElement("div");
+    _myCur.id = "rc-my-cursor";
     var _myN = (S.user && (S.user.first_name || S.user.username)) || "You";
-    _myCur.style.cssText = "position:fixed;pointer-events:none;z-index:99998;display:none;align-items:flex-start;gap:2px;";
-    _myCur.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#10b981" stroke="#fff" stroke-width="1.5"/></svg>' +
-      '<span style="background:#10b981;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:10px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + esc(_myN) + '</span>';
+    _myCur.style.cssText =
+      "position:fixed;pointer-events:none;z-index:99998;display:none;align-items:flex-start;gap:2px;";
+    _myCur.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#10b981" stroke="#fff" stroke-width="1.5"/></svg>' +
+      '<span style="background:#10b981;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:10px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' +
+      esc(_myN) +
+      "</span>";
     document.body.appendChild(_myCur);
   }
   _myCur.style.display = "flex";
@@ -11355,31 +11527,55 @@ function attachRCToVideo(vid) {
   function getVideoContentRect(v) {
     var r = v.getBoundingClientRect();
     if (v.tagName !== "VIDEO" || !v.videoWidth || !v.videoHeight) return r;
-    var vAR = v.videoWidth / v.videoHeight, eAR = r.width / r.height;
-    var cW,cH,oX,oY;
-    if (vAR > eAR) { cW=r.width; cH=r.width/vAR; oX=0; oY=(r.height-cH)/2; }
-    else { cH=r.height; cW=r.height*vAR; oX=(r.width-cW)/2; oY=0; }
-    var b=10;
-    return {left:r.left+oX+b, top:r.top+oY+b, width:Math.max(1,cW-b*2), height:Math.max(1,cH-b*2)};
+    var vAR = v.videoWidth / v.videoHeight,
+      eAR = r.width / r.height;
+    var cW, cH, oX, oY;
+    if (vAR > eAR) {
+      cW = r.width;
+      cH = r.width / vAR;
+      oX = 0;
+      oY = (r.height - cH) / 2;
+    } else {
+      cH = r.height;
+      cW = r.height * vAR;
+      oX = (r.width - cW) / 2;
+      oY = 0;
+    }
+    var b = 10;
+    return {
+      left: r.left + oX + b,
+      top: r.top + oY + b,
+      width: Math.max(1, cW - b * 2),
+      height: Math.max(1, cH - b * 2),
+    };
   }
 
   var throttleTimer = null;
   vid._rcMove = function (e) {
     if (!RemoteCtrl.isControlling) return;
-    if (_myCur) { _myCur.style.left=e.clientX+"px"; _myCur.style.top=e.clientY+"px"; }
+    if (_myCur) {
+      _myCur.style.left = e.clientX + "px";
+      _myCur.style.top = e.clientY + "px";
+    }
     if (throttleTimer) return;
-    throttleTimer = setTimeout(function(){throttleTimer=null;}, 50);
+    throttleTimer = setTimeout(function () {
+      throttleTimer = null;
+    }, 50);
     var cr = getVideoContentRect(vid);
-    sendRCEvent("mousemove",
-      Math.max(0,Math.min(1,(e.clientX-cr.left)/cr.width)),
-      Math.max(0,Math.min(1,(e.clientY-cr.top)/cr.height)));
+    sendRCEvent(
+      "mousemove",
+      Math.max(0, Math.min(1, (e.clientX - cr.left) / cr.width)),
+      Math.max(0, Math.min(1, (e.clientY - cr.top) / cr.height)),
+    );
   };
   vid._rcClick = function (e) {
     if (!RemoteCtrl.isControlling) return;
-    e.preventDefault(); e.stopPropagation(); vid.focus();
+    e.preventDefault();
+    e.stopPropagation();
+    vid.focus();
     var cr = getVideoContentRect(vid);
-    var normX = Math.max(0,Math.min(1,(e.clientX-cr.left)/cr.width));
-    var normY = Math.max(0,Math.min(1,(e.clientY-cr.top)/cr.height));
+    var normX = Math.max(0, Math.min(1, (e.clientX - cr.left) / cr.width));
+    var normY = Math.max(0, Math.min(1, (e.clientY - cr.top) / cr.height));
 
     sendRCEvent("click", normX, normY);
 
@@ -11402,9 +11598,11 @@ function attachRCToVideo(vid) {
     if (!RemoteCtrl.isControlling) return;
     e.preventDefault();
     var cr = getVideoContentRect(vid);
-    sendRCEvent("rightclick",
-      Math.max(0,Math.min(1,(e.clientX-cr.left)/cr.width)),
-      Math.max(0,Math.min(1,(e.clientY-cr.top)/cr.height)));
+    sendRCEvent(
+      "rightclick",
+      Math.max(0, Math.min(1, (e.clientX - cr.left) / cr.width)),
+      Math.max(0, Math.min(1, (e.clientY - cr.top) / cr.height)),
+    );
   };
 
   vid._rcScroll = function (e) {
@@ -11487,7 +11685,77 @@ function handleRemoteControlRejected() {
   toast("Remote control request was rejected.", "e");
 }
 
+// ── Show the other user's cursor (works on BOTH sides) ──
+function showRemoteUserCursor(data) {
+  var cursorName = data.cursor_name || "User";
+  var normX = data.x || 0;
+  var normY = data.y || 0;
+
+  // If we're the CONTROLLER: show on the shared screen video
+  if (RemoteCtrl.isControlling) {
+    var vid =
+      RemoteCtrl.videoEl ||
+      document.getElementById("remote-screen-video") ||
+      document.getElementById("remote-video");
+    if (!vid) return;
+    var rect = vid.getBoundingClientRect();
+    // Map normalized screen coords to video position
+    var vw = vid.videoWidth,
+      vh = vid.videoHeight;
+    if (vid.tagName === "VIDEO" && vw && vh) {
+      var vidAR = vw / vh,
+        elAR = rect.width / rect.height;
+      var cW, cH, oX, oY;
+      if (vidAR > elAR) {
+        cW = rect.width;
+        cH = rect.width / vidAR;
+        oX = 0;
+        oY = (rect.height - cH) / 2;
+      } else {
+        cH = rect.height;
+        cW = rect.height * vidAR;
+        oX = (rect.width - cW) / 2;
+        oY = 0;
+      }
+      var px = rect.left + oX + normX * cW;
+      var py = rect.top + oY + normY * cH;
+    } else {
+      var px = rect.left + normX * rect.width;
+      var py = rect.top + normY * rect.height;
+    }
+  }
+  // If we're BEING CONTROLLED: show on our own screen
+  else if (RemoteCtrl.isBeingControlled) {
+    var px = normX * window.innerWidth;
+    var py = normY * window.innerHeight;
+  } else return;
+
+  var cur = document.getElementById("rc-remote-cursor");
+  if (!cur) {
+    cur = document.createElement("div");
+    cur.id = "rc-remote-cursor";
+    cur.style.cssText =
+      "position:fixed;pointer-events:none;z-index:99997;transition:left 0.06s linear,top 0.06s linear;display:flex;align-items:flex-start;gap:2px;";
+    // Orange cursor for the OTHER user
+    cur.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#f59e0b" stroke="#fff" stroke-width="1.5"/></svg>' +
+      '<span style="background:#f59e0b;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:10px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' +
+      esc(cursorName) +
+      "</span>";
+    document.body.appendChild(cur);
+  }
+  cur.style.left = px + "px";
+  cur.style.top = py + "px";
+  cur.style.display = "flex";
+}
+
 function handleRemoteControlEvent(data) {
+  // ── Handle cursor_sync: show the OTHER user's cursor ──
+  if (data.event === "cursor_sync") {
+    showRemoteUserCursor(data);
+    return;
+  }
+
   if (!RemoteCtrl.isBeingControlled) return;
   console.log(
     "[RC DEBUG] received event:",
@@ -11520,11 +11788,16 @@ function handleRemoteControlEvent(data) {
 
     var cur = document.getElementById("rc-cursor");
     if (!cur) {
-      cur = document.createElement("div"); cur.id = "rc-cursor";
+      cur = document.createElement("div");
+      cur.id = "rc-cursor";
       var cN = RemoteCtrl.controllerName || "Controller";
-      cur.style.cssText = "position:fixed;pointer-events:none;z-index:99999;transition:left 0.03s linear,top 0.03s linear;display:flex;align-items:flex-start;gap:2px;";
-      cur.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/></svg>' +
-        '<span style="background:#3b82f6;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:12px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + esc(cN) + '</span>';
+      cur.style.cssText =
+        "position:fixed;pointer-events:none;z-index:99999;transition:left 0.03s linear,top 0.03s linear;display:flex;align-items:flex-start;gap:2px;";
+      cur.innerHTML =
+        '<svg width="20" height="20" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/></svg>' +
+        '<span style="background:#3b82f6;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:12px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' +
+        esc(cN) +
+        "</span>";
       document.body.appendChild(cur);
     }
     cur.style.left = cursorX + "px";
@@ -11585,8 +11858,19 @@ function cleanupRC() {
   }
 
   // Use a more generic selector or loop to ensure clean state
-  if(RemoteCtrl._keepaliveTimer){clearInterval(RemoteCtrl._keepaliveTimer);RemoteCtrl._keepaliveTimer=null;}
-  const ids = ["rc-wait", "rc-incoming", "rc-indicator", "rc-cursor", "rc-my-cursor"];
+  if (RemoteCtrl._keepaliveTimer) {
+    clearInterval(RemoteCtrl._keepaliveTimer);
+    RemoteCtrl._keepaliveTimer = null;
+  }
+  stopCursorSync();
+  const ids = [
+    "rc-wait",
+    "rc-incoming",
+    "rc-indicator",
+    "rc-cursor",
+    "rc-my-cursor",
+    "rc-remote-cursor",
+  ];
   ids.forEach((id) => {
     const node = document.getElementById(id);
     if (node) node.remove();
@@ -11656,32 +11940,140 @@ function disableRCKeyboard() {
 }
 
 // ─── Pin/Unpin + Draggable Call Controls ──────────────────
-var _ctrlBarPinned=true,_ctrlHideTimer=null,_ctrlHoverZone=null,_ctrlDragging=false,_ctrlDragOffset={x:0,y:0};
-function toggleCallBarPin(){
-  _ctrlBarPinned=!_ctrlBarPinned;
-  var c=document.querySelector("#ongoing-call .call-controls"),o=document.getElementById("ongoing-call"),p=document.getElementById("pin-btn");
-  if(!c)return;
-  if(_ctrlBarPinned){c.classList.remove("ctrl-unpinned","ctrl-show");if(o)o.classList.remove("ctrl-bar-unpinned");if(p){p.classList.add("pinned");p.title="Unpin Controls";}
-    _removeCtrlHZ();c.style.left="50%";c.style.top="";c.style.bottom="48px";c.style.transform="translateX(-50%)";
-  }else{c.classList.add("ctrl-unpinned");c.classList.remove("ctrl-show");if(o)o.classList.add("ctrl-bar-unpinned");if(p){p.classList.remove("pinned");p.title="Pin Controls";}
-    _createCtrlHZ();}
+var _ctrlBarPinned = true,
+  _ctrlHideTimer = null,
+  _ctrlHoverZone = null,
+  _ctrlDragging = false,
+  _ctrlDragOffset = { x: 0, y: 0 };
+function toggleCallBarPin() {
+  _ctrlBarPinned = !_ctrlBarPinned;
+  var c = document.querySelector("#ongoing-call .call-controls"),
+    o = document.getElementById("ongoing-call"),
+    p = document.getElementById("pin-btn");
+  if (!c) return;
+  if (_ctrlBarPinned) {
+    c.classList.remove("ctrl-unpinned", "ctrl-show");
+    if (o) o.classList.remove("ctrl-bar-unpinned");
+    if (p) {
+      p.classList.add("pinned");
+      p.title = "Unpin Controls";
+    }
+    _removeCtrlHZ();
+    c.style.left = "50%";
+    c.style.top = "";
+    c.style.bottom = "48px";
+    c.style.transform = "translateX(-50%)";
+  } else {
+    c.classList.add("ctrl-unpinned");
+    c.classList.remove("ctrl-show");
+    if (o) o.classList.add("ctrl-bar-unpinned");
+    if (p) {
+      p.classList.remove("pinned");
+      p.title = "Pin Controls";
+    }
+    _createCtrlHZ();
+  }
 }
-function _createCtrlHZ(){if(_ctrlHoverZone)return;var o=document.getElementById("ongoing-call"),c=o&&o.querySelector(".call-controls");if(!o||!c)return;
-  _ctrlHoverZone=document.createElement("div");_ctrlHoverZone.className="ctrl-hover-zone";
-  _ctrlHoverZone.addEventListener("mouseenter",function(){c.classList.add("ctrl-show");if(_ctrlHideTimer)clearTimeout(_ctrlHideTimer);});
-  _ctrlHoverZone.addEventListener("mouseleave",function(){_schH(c);});o.appendChild(_ctrlHoverZone);
-  c.addEventListener("mouseenter",function(){if(_ctrlHideTimer)clearTimeout(_ctrlHideTimer);});
-  c.addEventListener("mouseleave",function(){if(!_ctrlBarPinned)_schH(c);});}
-function _removeCtrlHZ(){if(_ctrlHoverZone){_ctrlHoverZone.remove();_ctrlHoverZone=null;}if(_ctrlHideTimer){clearTimeout(_ctrlHideTimer);_ctrlHideTimer=null;}}
-function _schH(c){if(_ctrlHideTimer)clearTimeout(_ctrlHideTimer);_ctrlHideTimer=setTimeout(function(){if(!_ctrlBarPinned)c.classList.remove("ctrl-show");},2000);}
-function resetCallBarPin(){_ctrlBarPinned=true;_ctrlDragging=false;_removeCtrlHZ();
-  var c=document.querySelector("#ongoing-call .call-controls");if(c){c.classList.remove("ctrl-unpinned","ctrl-show");c.style.left="50%";c.style.top="";c.style.bottom="48px";c.style.transform="translateX(-50%)";}
-  var o=document.getElementById("ongoing-call");if(o)o.classList.remove("ctrl-bar-unpinned");
-  var p=document.getElementById("pin-btn");if(p){p.classList.add("pinned");p.title="Unpin Controls";}}
-function initDraggableControls(){var c=document.querySelector("#ongoing-call .call-controls");if(!c||c._dragInit)return;c._dragInit=true;
-  c.addEventListener("mousedown",function(e){if(e.target.closest(".ctrl-btn")||e.target.closest("button"))return;_ctrlDragging=true;var r=c.getBoundingClientRect();_ctrlDragOffset.x=e.clientX-r.left;_ctrlDragOffset.y=e.clientY-r.top;c.style.transition="none";c.style.cursor="grabbing";e.preventDefault();});
-  document.addEventListener("mousemove",function(e){if(!_ctrlDragging)return;var cc=document.querySelector("#ongoing-call .call-controls");if(!cc)return;cc.style.left=Math.max(0,Math.min(window.innerWidth-200,e.clientX-_ctrlDragOffset.x))+"px";cc.style.top=Math.max(0,Math.min(window.innerHeight-80,e.clientY-_ctrlDragOffset.y))+"px";cc.style.bottom="auto";cc.style.transform="none";});
-  document.addEventListener("mouseup",function(){if(_ctrlDragging){_ctrlDragging=false;var cc=document.querySelector("#ongoing-call .call-controls");if(cc){cc.style.transition="";cc.style.cursor="";}}});}
+function _createCtrlHZ() {
+  if (_ctrlHoverZone) return;
+  var o = document.getElementById("ongoing-call"),
+    c = o && o.querySelector(".call-controls");
+  if (!o || !c) return;
+  _ctrlHoverZone = document.createElement("div");
+  _ctrlHoverZone.className = "ctrl-hover-zone";
+  _ctrlHoverZone.addEventListener("mouseenter", function () {
+    c.classList.add("ctrl-show");
+    if (_ctrlHideTimer) clearTimeout(_ctrlHideTimer);
+  });
+  _ctrlHoverZone.addEventListener("mouseleave", function () {
+    _schH(c);
+  });
+  o.appendChild(_ctrlHoverZone);
+  c.addEventListener("mouseenter", function () {
+    if (_ctrlHideTimer) clearTimeout(_ctrlHideTimer);
+  });
+  c.addEventListener("mouseleave", function () {
+    if (!_ctrlBarPinned) _schH(c);
+  });
+}
+function _removeCtrlHZ() {
+  if (_ctrlHoverZone) {
+    _ctrlHoverZone.remove();
+    _ctrlHoverZone = null;
+  }
+  if (_ctrlHideTimer) {
+    clearTimeout(_ctrlHideTimer);
+    _ctrlHideTimer = null;
+  }
+}
+function _schH(c) {
+  if (_ctrlHideTimer) clearTimeout(_ctrlHideTimer);
+  _ctrlHideTimer = setTimeout(function () {
+    if (!_ctrlBarPinned) c.classList.remove("ctrl-show");
+  }, 2000);
+}
+function resetCallBarPin() {
+  _ctrlBarPinned = true;
+  _ctrlDragging = false;
+  _removeCtrlHZ();
+  var c = document.querySelector("#ongoing-call .call-controls");
+  if (c) {
+    c.classList.remove("ctrl-unpinned", "ctrl-show");
+    c.style.left = "50%";
+    c.style.top = "";
+    c.style.bottom = "48px";
+    c.style.transform = "translateX(-50%)";
+  }
+  var o = document.getElementById("ongoing-call");
+  if (o) o.classList.remove("ctrl-bar-unpinned");
+  var p = document.getElementById("pin-btn");
+  if (p) {
+    p.classList.add("pinned");
+    p.title = "Unpin Controls";
+  }
+}
+function initDraggableControls() {
+  var c = document.querySelector("#ongoing-call .call-controls");
+  if (!c || c._dragInit) return;
+  c._dragInit = true;
+  c.addEventListener("mousedown", function (e) {
+    if (e.target.closest(".ctrl-btn") || e.target.closest("button")) return;
+    _ctrlDragging = true;
+    var r = c.getBoundingClientRect();
+    _ctrlDragOffset.x = e.clientX - r.left;
+    _ctrlDragOffset.y = e.clientY - r.top;
+    c.style.transition = "none";
+    c.style.cursor = "grabbing";
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", function (e) {
+    if (!_ctrlDragging) return;
+    var cc = document.querySelector("#ongoing-call .call-controls");
+    if (!cc) return;
+    cc.style.left =
+      Math.max(
+        0,
+        Math.min(window.innerWidth - 200, e.clientX - _ctrlDragOffset.x),
+      ) + "px";
+    cc.style.top =
+      Math.max(
+        0,
+        Math.min(window.innerHeight - 80, e.clientY - _ctrlDragOffset.y),
+      ) + "px";
+    cc.style.bottom = "auto";
+    cc.style.transform = "none";
+  });
+  document.addEventListener("mouseup", function () {
+    if (_ctrlDragging) {
+      _ctrlDragging = false;
+      var cc = document.querySelector("#ongoing-call .call-controls");
+      if (cc) {
+        cc.style.transition = "";
+        cc.style.cursor = "";
+      }
+    }
+  });
+}
 
 function updateRCButton() {
   var btn = document.getElementById("rc-btn");
