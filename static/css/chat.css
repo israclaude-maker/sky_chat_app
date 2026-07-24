@@ -2604,7 +2604,6 @@ body {
   height: 60px;
   z-index: 9;
 }
-
 #ongoing-call.ctrl-bar-unpinned .call-minimize-btn,
 #ongoing-call.ctrl-bar-unpinned .call-info,
 #ongoing-call.ctrl-bar-unpinned #remote-screen-label,
