@@ -276,19 +276,30 @@ var go = function (p) {
 var doLogout = function () {
   // Clear Android service credentials on logout
   if (window.AndroidBridge && AndroidBridge.logout) {
-    AndroidBridge.logout();
+    try { AndroidBridge.logout(); } catch(e) {}
   }
+  // Close WebSocket to prevent reconnect loop
+  if (S.globalWs) {
+    try { S.globalWs.onclose = null; S.globalWs.close(); } catch(e) {}
+  }
+  S.token = null;
+  S.user = null;
   localStorage.clear();
   sessionStorage.clear();
-  // Clear service worker cache
+  // Clear ALL caches
   if ("caches" in window) {
     caches.keys().then(function (names) {
-      names.forEach(function (name) {
-        caches.delete(name);
-      });
+      names.forEach(function (name) { caches.delete(name); });
     });
   }
-  go("/login/");
+  // Unregister ALL service workers to force fresh load
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.getRegistrations().then(function (registrations) {
+      registrations.forEach(function (r) { r.unregister(); });
+    });
+  }
+  // Force redirect
+  window.location.href = "/login/";
 };
 
 // Test media permissions - helps users grant camera/mic access
@@ -625,9 +636,18 @@ function init() {
       }
     })
     .catch(function (err) {
-      // Do not force-login on generic runtime errors; prevents redirect loops.
       console.error("Init failed:", err);
-      toast("Failed to initialize chat. Please refresh once.", "e");
+      // Show error with retry and logout buttons
+      var toastEl = document.getElementById("toasts");
+      if (toastEl) {
+        toastEl.innerHTML =
+          '<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:14px 20px;border-radius:12px;margin:10px;display:flex;flex-direction:column;gap:10px;align-items:center;font-size:14px;">' +
+          '<span>Failed to initialize chat.</span>' +
+          '<div style="display:flex;gap:8px;">' +
+          '<button onclick="location.reload()" style="background:#3b82f6;color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:600;">Retry</button>' +
+          '<button onclick="doLogout()" style="background:#ef4444;color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:600;">Logout</button>' +
+          '</div></div>';
+      }
     });
 }
 // Initialize paste handler for images
@@ -793,6 +813,7 @@ function connectGlobalWS() {
 
   ws.onopen = function () {
     console.log("Global WS Connected for calls");
+    S._wsRetryCount = 0; // Reset backoff on successful connect
     keepAudioContextAlive();
   };
 
@@ -881,8 +902,15 @@ function connectGlobalWS() {
   };
 
   ws.onclose = function (e) {
-    console.log("Global WS Disconnected, reconnecting...");
-    setTimeout(connectGlobalWS, 3000);
+    console.log("Global WS Disconnected, code:", e.code);
+    // Only reconnect if user is still logged in
+    if (!S.token || !S.user) return;
+    S._wsRetryCount = (S._wsRetryCount || 0) + 1;
+    var delay = Math.min(3000 * Math.pow(2, S._wsRetryCount - 1), 30000);
+    console.log("WS reconnecting in " + (delay/1000) + "s (attempt " + S._wsRetryCount + ")");
+    setTimeout(function () {
+      if (S.token && S.user) connectGlobalWS();
+    }, delay);
   };
 
   ws.onerror = function () {
@@ -11252,7 +11280,6 @@ function handleRemoteControlRequest(data) {
   }
   var el = document.createElement("div");
   el.id = "rc-incoming";
-  el.setAttribute("data-name", fromName);
   el.style.cssText =
     "position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#1f2937;color:#fff;padding:28px 32px;border-radius:20px;text-align:center;z-index:10010;min-width:270px;box-shadow:0 20px 60px rgba(0,0,0,0.6);";
   el.innerHTML =
@@ -11274,9 +11301,6 @@ function handleRemoteControlRequest(data) {
 
 function acceptRemoteControl(fromId) {
   var el = document.getElementById("rc-incoming");
-  RemoteCtrl.controllerName = el
-    ? el.getAttribute("data-name") || "User"
-    : "User";
   if (el) el.remove();
   RemoteCtrl.isBeingControlled = true;
   RemoteCtrl.controlledBy = fromId;
@@ -11314,21 +11338,6 @@ function handleRemoteControlAccepted(data) {
   var waitEl = document.getElementById("rc-wait");
   if (waitEl) waitEl.remove();
   RemoteCtrl.isControlling = true;
-
-  // ── WebSocket keepalive during RC session ──
-  // Sends a lightweight ping every 15s to keep connection alive
-  if (RemoteCtrl._keepaliveTimer) clearInterval(RemoteCtrl._keepaliveTimer);
-  RemoteCtrl._keepaliveTimer = setInterval(function () {
-    if (!RemoteCtrl.isControlling) {
-      clearInterval(RemoteCtrl._keepaliveTimer);
-      RemoteCtrl._keepaliveTimer = null;
-      return;
-    }
-    var ws = S.globalWs || S.ws;
-    if (ws && ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: "ping" }));
-    }
-  }, 15000);
   enableRCKeyboard();
 
   // ✅ Fix — screen share ke liye dedicated overlay banana
@@ -11399,93 +11408,31 @@ function attachRCToVideo(vid) {
     vid.style.display = "block";
     vid.play().catch(function () {});
   }
-
-  // ── Hide system cursor, show named custom cursor (TeamViewer style) ──
-  vid.style.cursor = "none";
-  var _myCursorEl = document.getElementById("rc-my-cursor");
-  if (!_myCursorEl) {
-    _myCursorEl = document.createElement("div");
-    _myCursorEl.id = "rc-my-cursor";
-    var _myName = (S.user && (S.user.first_name || S.user.username)) || "You";
-    _myCursorEl.style.cssText =
-      "position:fixed;pointer-events:none;z-index:99998;display:none;align-items:flex-start;gap:2px;";
-    _myCursorEl.innerHTML =
-      '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#10b981" stroke="#fff" stroke-width="1.5"/></svg>' +
-      '<span style="background:#10b981;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:10px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' +
-      esc(_myName) +
-      "</span>";
-    document.body.appendChild(_myCursorEl);
-  }
-  _myCursorEl.style.display = "flex";
-
-  // ── Video content rect (handles letterboxing + edge buffer) ──
-  function getVideoContentRect(videoEl) {
-    var rect = videoEl.getBoundingClientRect();
-    if (
-      videoEl.tagName !== "VIDEO" ||
-      !videoEl.videoWidth ||
-      !videoEl.videoHeight
-    )
-      return rect;
-    var vidAR = videoEl.videoWidth / videoEl.videoHeight;
-    var elAR = rect.width / rect.height;
-    var cW, cH, oX, oY;
-    if (vidAR > elAR) {
-      cW = rect.width;
-      cH = rect.width / vidAR;
-      oX = 0;
-      oY = (rect.height - cH) / 2;
-    } else {
-      cH = rect.height;
-      cW = rect.height * vidAR;
-      oX = (rect.width - cW) / 2;
-      oY = 0;
-    }
-    // 10px buffer: cursor reaches 0.0/1.0 before the pixel edge
-    var buf = 10;
-    return {
-      left: rect.left + oX + buf,
-      top: rect.top + oY + buf,
-      width: Math.max(1, cW - buf * 2),
-      height: Math.max(1, cH - buf * 2),
-    };
-  }
-
-  // ── Throttle at 50ms (20 events/sec) to prevent WebSocket flooding + call disconnect ──
+  vid.style.cursor = "crosshair";
   var throttleTimer = null;
 
   vid._rcMove = function (e) {
     if (!RemoteCtrl.isControlling) return;
-    // Update custom cursor position instantly (no throttle)
-    if (_myCursorEl) {
-      _myCursorEl.style.left = e.clientX + "px";
-      _myCursorEl.style.top = e.clientY + "px";
-    }
     if (throttleTimer) return;
     throttleTimer = setTimeout(function () {
       throttleTimer = null;
-    }, 50);
-    var cRect = getVideoContentRect(vid);
-    sendRCEvent(
-      "mousemove",
-      Math.max(0, Math.min(1, (e.clientX - cRect.left) / cRect.width)),
-      Math.max(0, Math.min(1, (e.clientY - cRect.top) / cRect.height)),
-    );
+    }, 16);
+
+    var rect = vid.getBoundingClientRect();
+    var normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    var normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+
+    sendRCEvent("mousemove", normX, normY);
   };
   vid._rcClick = function (e) {
     if (!RemoteCtrl.isControlling) return;
     e.preventDefault();
     e.stopPropagation();
     vid.focus();
-    var cRect = getVideoContentRect(vid);
-    var normX = Math.max(
-      0,
-      Math.min(1, (e.clientX - cRect.left) / cRect.width),
-    );
-    var normY = Math.max(
-      0,
-      Math.min(1, (e.clientY - cRect.top) / cRect.height),
-    );
+
+    var rect = vid.getBoundingClientRect();
+    var normX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    var normY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
 
     sendRCEvent("click", normX, normY);
 
@@ -11507,11 +11454,11 @@ function attachRCToVideo(vid) {
   vid._rcRightClick = function (e) {
     if (!RemoteCtrl.isControlling) return;
     e.preventDefault();
-    var cRect = getVideoContentRect(vid);
+    var rect = vid.getBoundingClientRect();
     sendRCEvent(
       "rightclick",
-      Math.max(0, Math.min(1, (e.clientX - cRect.left) / cRect.width)),
-      Math.max(0, Math.min(1, (e.clientY - cRect.top) / cRect.height)),
+      Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+      Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
     );
   };
 
@@ -11630,14 +11577,15 @@ function handleRemoteControlEvent(data) {
     if (!cur) {
       cur = document.createElement("div");
       cur.id = "rc-cursor";
-      var cName = RemoteCtrl.controllerName || "User";
       cur.style.cssText =
-        "position:fixed;pointer-events:none;z-index:99999;transition:left 0.03s linear,top 0.03s linear;display:flex;align-items:flex-start;gap:2px;";
+        "position:fixed;pointer-events:none;z-index:99999;" +
+        "transition:left 0.04s,top 0.04s;";
       cur.innerHTML =
-        '<svg width="20" height="20" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/></svg>' +
-        '<span style="background:#3b82f6;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:12px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' +
-        esc(cName) +
-        "</span>";
+        '<svg width="22" height="22" viewBox="0 0 24 24">' +
+        '<path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" ' +
+        'fill="#ff4444" stroke="white" stroke-width="1.5"/></svg>' +
+        '<span style="background:#ff4444;color:#fff;font-size:10px;' +
+        'padding:2px 6px;border-radius:8px;margin-left:2px;">Remote</span>';
       document.body.appendChild(cur);
     }
     cur.style.left = cursorX + "px";
@@ -11684,12 +11632,6 @@ function handleRemoteControlStopped() {
 }
 
 function cleanupRC() {
-  // Stop keepalive
-  if (RemoteCtrl._keepaliveTimer) {
-    clearInterval(RemoteCtrl._keepaliveTimer);
-    RemoteCtrl._keepaliveTimer = null;
-  }
-
   const el = RemoteCtrl.videoEl;
 
   if (el) {
@@ -11704,13 +11646,7 @@ function cleanupRC() {
   }
 
   // Use a more generic selector or loop to ensure clean state
-  const ids = [
-    "rc-wait",
-    "rc-incoming",
-    "rc-indicator",
-    "rc-cursor",
-    "rc-my-cursor",
-  ];
+  const ids = ["rc-wait", "rc-incoming", "rc-indicator", "rc-cursor"];
   ids.forEach((id) => {
     const node = document.getElementById(id);
     if (node) node.remove();
