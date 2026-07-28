@@ -881,7 +881,6 @@ function connectGlobalWS() {
     if (!S.token || !S.user) return;
     S._wsRetryCount = (S._wsRetryCount || 0) + 1;
     var delay = Math.min(3000 * Math.pow(2, S._wsRetryCount - 1), 30000);
-    console.log("WS reconnect in " + (delay/1000) + "s");
     setTimeout(function(){ if (S.token && S.user) connectGlobalWS(); }, delay);
   };
 
@@ -6091,9 +6090,7 @@ function handleScreenToggle(data) {
   }
 }
 
-function _applyScreenToggleOn(
-  remoteVideo, remoteScreenVideo, localVid, ongoingAv,
-) {
+function _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv) {
   if (!CallState.remoteScreenStream && remoteVideo && remoteVideo.srcObject) {
     var rvt = remoteVideo.srcObject.getVideoTracks();
     if (rvt.length > 0) CallState.remoteScreenStream = remoteVideo.srcObject;
@@ -6101,20 +6098,14 @@ function _applyScreenToggleOn(
   if (remoteScreenVideo && CallState.remoteScreenStream) {
     remoteScreenVideo.style.display = "block";
     remoteScreenVideo.style.objectFit = "contain";
-    remoteScreenVideo.style.background = "#0f172a";
     remoteScreenVideo.srcObject = CallState.remoteScreenStream;
     remoteScreenVideo.play().catch(function (e) {});
   }
   var hasRemoteCam = remoteVideo && CallState.remoteStream &&
     CallState.remoteStream !== CallState.remoteScreenStream &&
     CallState.remoteStream.getVideoTracks().some(function(t){return t.readyState==="live";});
-  if (hasRemoteCam) {
-    remoteVideo.classList.add("screen-pip");
-    remoteVideo.style.display = "block";
-  } else if (remoteVideo) {
-    remoteVideo.style.display = "none";
-    remoteVideo.classList.remove("screen-pip");
-  }
+  if (hasRemoteCam) { remoteVideo.classList.add("screen-pip"); remoteVideo.style.display = "block"; }
+  else if (remoteVideo) { remoteVideo.style.display = "none"; remoteVideo.classList.remove("screen-pip"); }
 
   var hasLocalCam =
     localVid &&
@@ -6203,7 +6194,6 @@ function showOngoingCall() {
   if (ongoingName) ongoingName.textContent = CallState.remoteUserName;
 
   showCallOverlay("ongoing-call");
-  setTimeout(initDraggableControls, 500);
 
   CallState.callStartTime = Date.now();
   CallState.timerInterval = setInterval(updateCallTimer, 1000);
@@ -6524,7 +6514,6 @@ function showCallOverlay(id) {
 }
 
 function hideAllCallOverlays() {
-  resetCallBarPin();
   [
     "incoming-call",
     "outgoing-call",
@@ -11262,7 +11251,7 @@ function handleRemoteControlRequest(data) {
 
 function acceptRemoteControl(fromId) {
   var el = document.getElementById("rc-incoming");
-  RemoteCtrl.controllerName = el ? (el.getAttribute("data-name") || "User") : "User";
+  RemoteCtrl.controllerName = el ? (el.getAttribute("data-name") || "Controller") : "Controller";
   if (el) el.remove();
   RemoteCtrl.isBeingControlled = true;
   RemoteCtrl.controlledBy = fromId;
@@ -11283,47 +11272,6 @@ function acceptRemoteControl(fromId) {
     overlay.appendChild(ind);
   }
   toast("Remote control has been allowed!", "s");
-
-  // ── Start sending OUR cursor position back to controller ──
-  startCursorSync();
-}
-
-// ── Cursor Sync: send local cursor position to the other side ──
-var _cursorSyncTimer = null;
-var _cursorSyncHandler = null;
-
-function startCursorSync() {
-  if (_cursorSyncHandler) return;
-  var lastSent = 0;
-  _cursorSyncHandler = function (e) {
-    var now = Date.now();
-    if (now - lastSent < 100) return; // 10 updates/sec max
-    lastSent = now;
-    var normX = e.screenX / window.screen.width;
-    var normY = e.screenY / window.screen.height;
-    var ws = S.globalWs || S.ws;
-    var targetId = RemoteCtrl.controlledBy || RemoteCtrl.targetUserId;
-    if (ws && ws.readyState === 1 && targetId) {
-      ws.send(JSON.stringify({
-        type: "remote_control_event",
-        target_user_id: targetId,
-        event: "cursor_sync",
-        x: normX,
-        y: normY,
-        cursor_name: S.user.first_name || S.user.username || S.user.email || "User",
-      }));
-    }
-  };
-  document.addEventListener("mousemove", _cursorSyncHandler);
-}
-
-function stopCursorSync() {
-  if (_cursorSyncHandler) {
-    document.removeEventListener("mousemove", _cursorSyncHandler);
-    _cursorSyncHandler = null;
-  }
-  var el = document.getElementById("rc-remote-cursor");
-  if (el) el.remove();
 }
 
 function rejectRemoteControl(fromId) {
@@ -11343,11 +11291,10 @@ function handleRemoteControlAccepted(data) {
   RemoteCtrl.isControlling = true;
   if (RemoteCtrl._keepaliveTimer) clearInterval(RemoteCtrl._keepaliveTimer);
   RemoteCtrl._keepaliveTimer = setInterval(function(){
-    if(!RemoteCtrl.isControlling){clearInterval(RemoteCtrl._keepaliveTimer);RemoteCtrl._keepaliveTimer=null;return;}
+    if(!RemoteCtrl.isControlling){clearInterval(RemoteCtrl._keepaliveTimer);return;}
     var ws=S.globalWs||S.ws; if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"ping"}));
   }, 15000);
   enableRCKeyboard();
-  // Controller does NOT send cursor_sync — RC events already show their cursor on the controlled side
 
   function findAndAttach(attempt) {
     if (attempt > 40) { toast("Remote screen not found","e"); RemoteCtrl.isControlling=false; updateRCButton(); return; }
@@ -11380,25 +11327,21 @@ function attachRCToVideo(vid) {
   RemoteCtrl.videoEl = vid;
   if (vid.tagName === "VIDEO") { vid.style.display = "block"; vid.play().catch(function(){}); }
 
-  // ── DUAL CURSOR SYSTEM: hide system cursor, show named cursor ──
+  // ── CLEAN CURSOR: hide system cursor, show green named cursor ──
   vid.style.cursor = "none";
   var _myCur = document.getElementById("rc-my-cursor");
-  if (!_myCur) {
-    _myCur = document.createElement("div"); _myCur.id = "rc-my-cursor";
-    var _myN = (S.user && (S.user.first_name || S.user.username)) || "You";
-    _myCur.style.cssText = "position:fixed;pointer-events:none;z-index:99998;display:none;align-items:flex-start;gap:2px;";
-    _myCur.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#10b981" stroke="#fff" stroke-width="1.5"/></svg>' +
-      '<span style="background:#10b981;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:10px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + esc(_myN) + '</span>';
-    document.body.appendChild(_myCur);
-  }
-  _myCur.style.display = "flex";
+  if (_myCur) _myCur.remove(); // Remove any stale cursor from previous session
+  _myCur = document.createElement("div"); _myCur.id = "rc-my-cursor";
+  var _myN = (S.user && (S.user.first_name || S.user.username)) || "Me";
+  _myCur.style.cssText = "position:fixed;pointer-events:none;z-index:99998;display:flex;align-items:flex-start;gap:2px;";
+  _myCur.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#10b981" stroke="#fff" stroke-width="1.5"/></svg>' +
+    '<span style="background:#10b981;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:10px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + esc(_myN) + '</span>';
+  document.body.appendChild(_myCur);
 
-  // ── Video content rect (handles letterboxing + 10px edge buffer) ──
   function getVideoContentRect(v) {
     var r = v.getBoundingClientRect();
     if (v.tagName !== "VIDEO" || !v.videoWidth || !v.videoHeight) return r;
-    var vAR = v.videoWidth / v.videoHeight, eAR = r.width / r.height;
-    var cW,cH,oX,oY;
+    var vAR = v.videoWidth / v.videoHeight, eAR = r.width / r.height, cW, cH, oX, oY;
     if (vAR > eAR) { cW=r.width; cH=r.width/vAR; oX=0; oY=(r.height-cH)/2; }
     else { cH=r.height; cW=r.height*vAR; oX=(r.width-cW)/2; oY=0; }
     var b=10;
@@ -11529,61 +11472,9 @@ function handleRemoteControlRejected() {
   toast("Remote control request was rejected.", "e");
 }
 
-// ── Show the other user's cursor (works on BOTH sides) ──
-function showRemoteUserCursor(data) {
-  var cursorName = data.cursor_name || "User";
-  var normX = data.x || 0;
-  var normY = data.y || 0;
-
-  // If we're the CONTROLLER: show on the shared screen video
-  if (RemoteCtrl.isControlling) {
-    var vid = RemoteCtrl.videoEl || document.getElementById("remote-screen-video") || document.getElementById("remote-video");
-    if (!vid) return;
-    var rect = vid.getBoundingClientRect();
-    // Map normalized screen coords to video position
-    var vw = vid.videoWidth, vh = vid.videoHeight;
-    if (vid.tagName === "VIDEO" && vw && vh) {
-      var vidAR = vw / vh, elAR = rect.width / rect.height;
-      var cW, cH, oX, oY;
-      if (vidAR > elAR) { cW = rect.width; cH = rect.width / vidAR; oX = 0; oY = (rect.height - cH) / 2; }
-      else { cH = rect.height; cW = rect.height * vidAR; oX = (rect.width - cW) / 2; oY = 0; }
-      var px = rect.left + oX + normX * cW;
-      var py = rect.top + oY + normY * cH;
-    } else {
-      var px = rect.left + normX * rect.width;
-      var py = rect.top + normY * rect.height;
-    }
-  }
-  // If we're BEING CONTROLLED: show on our own screen
-  else if (RemoteCtrl.isBeingControlled) {
-    var px = normX * window.innerWidth;
-    var py = normY * window.innerHeight;
-  }
-  else return;
-
-  var cur = document.getElementById("rc-remote-cursor");
-  if (!cur) {
-    cur = document.createElement("div");
-    cur.id = "rc-remote-cursor";
-    cur.style.cssText = "position:fixed;pointer-events:none;z-index:99997;transition:left 0.06s linear,top 0.06s linear;display:flex;align-items:flex-start;gap:2px;";
-    // Orange cursor for the OTHER user
-    cur.innerHTML =
-      '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#f59e0b" stroke="#fff" stroke-width="1.5"/></svg>' +
-      '<span style="background:#f59e0b;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:10px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + esc(cursorName) + '</span>';
-    document.body.appendChild(cur);
-  }
-  cur.style.left = px + "px";
-  cur.style.top = py + "px";
-  cur.style.display = "flex";
-}
-
 function handleRemoteControlEvent(data) {
-  // ── Handle cursor_sync: show the OTHER user's cursor ──
-  if (data.event === "cursor_sync") {
-    showRemoteUserCursor(data);
-    return;
-  }
-
+  // Ignore cursor_sync (removed — not needed)
+  if (data.event === "cursor_sync") return;
   if (!RemoteCtrl.isBeingControlled) return;
   console.log(
     "[RC DEBUG] received event:",
@@ -11594,58 +11485,38 @@ function handleRemoteControlEvent(data) {
     !!window.DesktopBridge,
   );
 
-  // ── Show controller's cursor indicator ──
-  // On CONTROLLER side: show name badge on video (controller's system cursor is hidden)  
-  // On CONTROLLED side: just show a small name tag — the SYSTEM cursor (moved by robotjs) IS the controller's cursor
-  var isControlledSide = RemoteCtrl.isBeingControlled;
-
+  // Cursor dikhao screen pe
   var targetVid = null;
-  if (!isControlledSide) {
-    var ssVid = $("remote-screen-video");
-    if (ssVid && ssVid.style.display !== "none" && ssVid.srcObject) targetVid = ssVid;
-    if (!targetVid) { var mainView = $("gc-main-view"); if (mainView) { var v = mainView.querySelector("video"); if (v && v.srcObject) targetVid = v; } }
-    if (!targetVid) targetVid = $("remote-video");
+  var ssVid = $("remote-screen-video");
+  if (ssVid && ssVid.style.display !== "none" && ssVid.srcObject) {
+    targetVid = ssVid;
   }
+  if (!targetVid) {
+    var mainView = $("gc-main-view");
+    if (mainView) {
+      var v = mainView.querySelector("video");
+      if (v && v.srcObject) targetVid = v;
+    }
+  }
+  if (!targetVid) targetVid = $("remote-video");
 
-  var cursorX, cursorY;
   if (targetVid) {
     var vidRect = targetVid.getBoundingClientRect();
-    cursorX = data.x * vidRect.width + vidRect.left;
-    cursorY = data.y * vidRect.height + vidRect.top;
-  } else {
-    cursorX = data.x * window.innerWidth;
-    cursorY = data.y * window.innerHeight;
-  }
+    var cursorX = data.x * vidRect.width + vidRect.left;
+    var cursorY = data.y * vidRect.height + vidRect.top;
 
-  if (isControlledSide) {
-    // ── CONTROLLED SIDE: name-only badge (no arrow — system cursor IS the arrow) ──
+    // Show name-only badge (NO arrow — system cursor IS the arrow moved by robotjs)
     var badge = document.getElementById("rc-cursor");
     if (!badge) {
       badge = document.createElement("div"); badge.id = "rc-cursor";
       var cN = RemoteCtrl.controllerName || "Controller";
       badge.style.cssText = "position:fixed;pointer-events:none;z-index:99999;transition:left 0.03s linear,top 0.03s linear;";
-      badge.innerHTML = '<span style="background:#3b82f6;color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.3);display:inline-block;">' + esc(cN) + '</span>';
+      badge.innerHTML = '<span style="background:#3b82f6;color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + esc(cN) + '</span>';
       document.body.appendChild(badge);
     }
-    // Position badge slightly below and right of cursor
-    badge.style.left = (cursorX + 16) + "px";
-    badge.style.top = (cursorY + 20) + "px";
+    badge.style.left = (cursorX + 18) + "px";
+    badge.style.top = (cursorY + 22) + "px";
     badge.style.display = "block";
-  } else {
-    // ── CONTROLLER SIDE: this normally isn't reached (controller uses rc-my-cursor instead)
-    // But just in case, show full cursor on video
-    var cur = document.getElementById("rc-cursor");
-    if (!cur) {
-      cur = document.createElement("div"); cur.id = "rc-cursor";
-      var cN2 = "Remote";
-      cur.style.cssText = "position:fixed;pointer-events:none;z-index:99999;transition:left 0.03s linear,top 0.03s linear;display:flex;align-items:flex-start;gap:2px;";
-      cur.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/></svg>' +
-        '<span style="background:#3b82f6;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:12px;">' + esc(cN2) + '</span>';
-      document.body.appendChild(cur);
-    }
-    cur.style.left = cursorX + "px";
-    cur.style.top = cursorY + "px";
-    cur.style.display = "flex";
   }
 
   // ACTUAL PC CONTROL - Desktop app pe robotjs se
@@ -11701,9 +11572,7 @@ function cleanupRC() {
   }
 
   // Use a more generic selector or loop to ensure clean state
-  if(RemoteCtrl._keepaliveTimer){clearInterval(RemoteCtrl._keepaliveTimer);RemoteCtrl._keepaliveTimer=null;}
-  stopCursorSync();
-  const ids = ["rc-wait", "rc-incoming", "rc-indicator", "rc-cursor", "rc-my-cursor", "rc-remote-cursor"];
+  const ids = ["rc-wait", "rc-incoming", "rc-indicator", "rc-cursor", "rc-my-cursor"];
   ids.forEach((id) => {
     const node = document.getElementById(id);
     if (node) node.remove();
@@ -11771,34 +11640,6 @@ function disableRCKeyboard() {
     _rcKeyHandler = null;
   }
 }
-
-// ─── Pin/Unpin + Draggable Call Controls ──────────────────
-var _ctrlBarPinned=true,_ctrlHideTimer=null,_ctrlHoverZone=null,_ctrlDragging=false,_ctrlDragOffset={x:0,y:0};
-function toggleCallBarPin(){
-  _ctrlBarPinned=!_ctrlBarPinned;
-  var c=document.querySelector("#ongoing-call .call-controls"),o=document.getElementById("ongoing-call"),p=document.getElementById("pin-btn");
-  if(!c)return;
-  if(_ctrlBarPinned){c.classList.remove("ctrl-unpinned","ctrl-show");if(o)o.classList.remove("ctrl-bar-unpinned");if(p){p.classList.add("pinned");p.title="Unpin Controls";}
-    _removeCtrlHZ();c.style.left="50%";c.style.top="";c.style.bottom="48px";c.style.transform="translateX(-50%)";
-  }else{c.classList.add("ctrl-unpinned");c.classList.remove("ctrl-show");if(o)o.classList.add("ctrl-bar-unpinned");if(p){p.classList.remove("pinned");p.title="Pin Controls";}
-    _createCtrlHZ();}
-}
-function _createCtrlHZ(){if(_ctrlHoverZone)return;var o=document.getElementById("ongoing-call"),c=o&&o.querySelector(".call-controls");if(!o||!c)return;
-  _ctrlHoverZone=document.createElement("div");_ctrlHoverZone.className="ctrl-hover-zone";
-  _ctrlHoverZone.addEventListener("mouseenter",function(){c.classList.add("ctrl-show");if(_ctrlHideTimer)clearTimeout(_ctrlHideTimer);});
-  _ctrlHoverZone.addEventListener("mouseleave",function(){_schH(c);});o.appendChild(_ctrlHoverZone);
-  c.addEventListener("mouseenter",function(){if(_ctrlHideTimer)clearTimeout(_ctrlHideTimer);});
-  c.addEventListener("mouseleave",function(){if(!_ctrlBarPinned)_schH(c);});}
-function _removeCtrlHZ(){if(_ctrlHoverZone){_ctrlHoverZone.remove();_ctrlHoverZone=null;}if(_ctrlHideTimer){clearTimeout(_ctrlHideTimer);_ctrlHideTimer=null;}}
-function _schH(c){if(_ctrlHideTimer)clearTimeout(_ctrlHideTimer);_ctrlHideTimer=setTimeout(function(){if(!_ctrlBarPinned)c.classList.remove("ctrl-show");},2000);}
-function resetCallBarPin(){_ctrlBarPinned=true;_ctrlDragging=false;_removeCtrlHZ();
-  var c=document.querySelector("#ongoing-call .call-controls");if(c){c.classList.remove("ctrl-unpinned","ctrl-show");c.style.left="50%";c.style.top="";c.style.bottom="48px";c.style.transform="translateX(-50%)";}
-  var o=document.getElementById("ongoing-call");if(o)o.classList.remove("ctrl-bar-unpinned");
-  var p=document.getElementById("pin-btn");if(p){p.classList.add("pinned");p.title="Unpin Controls";}}
-function initDraggableControls(){var c=document.querySelector("#ongoing-call .call-controls");if(!c||c._dragInit)return;c._dragInit=true;
-  c.addEventListener("mousedown",function(e){if(e.target.closest(".ctrl-btn")||e.target.closest("button"))return;_ctrlDragging=true;var r=c.getBoundingClientRect();_ctrlDragOffset.x=e.clientX-r.left;_ctrlDragOffset.y=e.clientY-r.top;c.style.transition="none";c.style.cursor="grabbing";e.preventDefault();});
-  document.addEventListener("mousemove",function(e){if(!_ctrlDragging)return;var cc=document.querySelector("#ongoing-call .call-controls");if(!cc)return;cc.style.left=Math.max(0,Math.min(window.innerWidth-200,e.clientX-_ctrlDragOffset.x))+"px";cc.style.top=Math.max(0,Math.min(window.innerHeight-80,e.clientY-_ctrlDragOffset.y))+"px";cc.style.bottom="auto";cc.style.transform="none";});
-  document.addEventListener("mouseup",function(){if(_ctrlDragging){_ctrlDragging=false;var cc=document.querySelector("#ongoing-call .call-controls");if(cc){cc.style.transition="";cc.style.cursor="";}}});}
 
 function updateRCButton() {
   var btn = document.getElementById("rc-btn");
