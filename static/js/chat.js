@@ -11310,7 +11310,7 @@ function startCursorSync() {
         event: "cursor_sync",
         x: normX,
         y: normY,
-        cursor_name: (S.user && (S.user.first_name || S.user.username)) || "User",
+        cursor_name: S.user.first_name || S.user.username || S.user.email || "User",
       }));
     }
   };
@@ -11347,8 +11347,7 @@ function handleRemoteControlAccepted(data) {
     var ws=S.globalWs||S.ws; if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"ping"}));
   }, 15000);
   enableRCKeyboard();
-  // Start sending OUR cursor to the controlled side too
-  startCursorSync();
+  // Controller does NOT send cursor_sync — RC events already show their cursor on the controlled side
 
   function findAndAttach(attempt) {
     if (attempt > 40) { toast("Remote screen not found","e"); RemoteCtrl.isControlling=false; updateRCButton(); return; }
@@ -11595,43 +11594,53 @@ function handleRemoteControlEvent(data) {
     !!window.DesktopBridge,
   );
 
-  // Cursor dikhao screen pe
-  var targetVid = null;
-  var ssVid = $("remote-screen-video");
-  if (ssVid && ssVid.style.display !== "none" && ssVid.srcObject) {
-    targetVid = ssVid;
-  }
-  if (!targetVid) {
-    var mainView = $("gc-main-view");
-    if (mainView) {
-      var v = mainView.querySelector("video");
-      if (v && v.srcObject) targetVid = v;
-    }
-  }
-  if (!targetVid) targetVid = $("remote-video");
+  // ── Show controller's cursor indicator ──
+  // On CONTROLLER side: show name badge on video (controller's system cursor is hidden)  
+  // On CONTROLLED side: just show a small name tag — the SYSTEM cursor (moved by robotjs) IS the controller's cursor
+  var isControlledSide = RemoteCtrl.isBeingControlled;
 
-  // Calculate cursor position
+  var targetVid = null;
+  if (!isControlledSide) {
+    var ssVid = $("remote-screen-video");
+    if (ssVid && ssVid.style.display !== "none" && ssVid.srcObject) targetVid = ssVid;
+    if (!targetVid) { var mainView = $("gc-main-view"); if (mainView) { var v = mainView.querySelector("video"); if (v && v.srcObject) targetVid = v; } }
+    if (!targetVid) targetVid = $("remote-video");
+  }
+
   var cursorX, cursorY;
   if (targetVid) {
-    // Controller side: map to video element
     var vidRect = targetVid.getBoundingClientRect();
     cursorX = data.x * vidRect.width + vidRect.left;
     cursorY = data.y * vidRect.height + vidRect.top;
   } else {
-    // Controlled side: no video — map to screen/window
     cursorX = data.x * window.innerWidth;
     cursorY = data.y * window.innerHeight;
   }
 
-  // Show/create the controller's named cursor
-  {
+  if (isControlledSide) {
+    // ── CONTROLLED SIDE: name-only badge (no arrow — system cursor IS the arrow) ──
+    var badge = document.getElementById("rc-cursor");
+    if (!badge) {
+      badge = document.createElement("div"); badge.id = "rc-cursor";
+      var cN = RemoteCtrl.controllerName || "Controller";
+      badge.style.cssText = "position:fixed;pointer-events:none;z-index:99999;transition:left 0.03s linear,top 0.03s linear;";
+      badge.innerHTML = '<span style="background:#3b82f6;color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.3);display:inline-block;">' + esc(cN) + '</span>';
+      document.body.appendChild(badge);
+    }
+    // Position badge slightly below and right of cursor
+    badge.style.left = (cursorX + 16) + "px";
+    badge.style.top = (cursorY + 20) + "px";
+    badge.style.display = "block";
+  } else {
+    // ── CONTROLLER SIDE: this normally isn't reached (controller uses rc-my-cursor instead)
+    // But just in case, show full cursor on video
     var cur = document.getElementById("rc-cursor");
     if (!cur) {
       cur = document.createElement("div"); cur.id = "rc-cursor";
-      var cN = RemoteCtrl.controllerName || "Controller";
+      var cN2 = "Remote";
       cur.style.cssText = "position:fixed;pointer-events:none;z-index:99999;transition:left 0.03s linear,top 0.03s linear;display:flex;align-items:flex-start;gap:2px;";
       cur.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/></svg>' +
-        '<span style="background:#3b82f6;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:12px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + esc(cN) + '</span>';
+        '<span style="background:#3b82f6;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:12px;">' + esc(cN2) + '</span>';
       document.body.appendChild(cur);
     }
     cur.style.left = cursorX + "px";
