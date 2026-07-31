@@ -22,7 +22,7 @@ djangorestframework==3.16.1
 djangorestframework_simplejwt==5.5.1
 firebase_admin==7.4.0
 frozenlist==1.8.0
-google-api-core==2.30.3
+google-api-core==2.30.3f
 google-auth==2.49.2
 google-cloud-core==2.5.1
 google-cloud-firestore==2.27.0

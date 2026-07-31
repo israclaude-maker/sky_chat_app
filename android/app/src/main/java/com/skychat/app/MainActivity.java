@@ -15,6 +15,7 @@ import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.AudioAttributes;
+import android.media.AudioManager;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.RingtoneManager;
@@ -70,6 +71,9 @@ public class MainActivity extends Activity {
     private String pendingCallAction = null; // saved until WebView is ready
     private Intent pendingCallIntent = null; // full intent with call data
 
+    // Audio routing (earpiece/speaker control for calls)
+    private AudioManager audioManager;
+
     // Screen capture fields
     private MediaProjectionManager projectionManager;
     private MediaProjection mediaProjection;
@@ -124,6 +128,8 @@ public class MainActivity extends Activity {
                 requestPermissions(perms, PERMISSION_REQUEST_CODE);
             }
         }
+
+        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
 
         webView = findViewById(com.skychat.app.R.id.webView);
         webViewRef = webView;
@@ -544,6 +550,56 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public boolean isBackground() {
             return !isAppInForeground;
+        }
+
+        // ── Audio routing for calls (fixes "sound always on speaker" issue) ──
+        @JavascriptInterface
+        public void startCallAudio() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (audioManager != null) {
+                        audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                        audioManager.setSpeakerphoneOn(false); // default: earpiece
+                        try {
+                            audioManager.requestAudioFocus(null,
+                                AudioManager.STREAM_VOICE_CALL,
+                                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+                        } catch (Exception e) {
+                            Log.e("SkyChat", "requestAudioFocus failed: " + e.getMessage());
+                        }
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void setSpeaker(final boolean on) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (audioManager != null) {
+                        audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                        audioManager.setSpeakerphoneOn(on);
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void endCallAudio() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (audioManager != null) {
+                        audioManager.setSpeakerphoneOn(false);
+                        audioManager.setMode(AudioManager.MODE_NORMAL);
+                        try {
+                            audioManager.abandonAudioFocus(null);
+                        } catch (Exception e) { /* ignore */ }
+                    }
+                }
+            });
         }
 
         @JavascriptInterface
