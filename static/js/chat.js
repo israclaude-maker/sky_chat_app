@@ -11282,6 +11282,21 @@ function acceptRemoteControl(fromId) {
   }
   toast("Remote control has been allowed!", "s");
   startCursorSync(); // Send our cursor position to controller
+
+  // ── Sharer: hide system cursor, show OWN named cursor ──
+  document.body.style.cursor = "none";
+  var _sharerCur = document.getElementById("rc-sharer-self");
+  if (_sharerCur) _sharerCur.remove();
+  _sharerCur = document.createElement("div"); _sharerCur.id = "rc-sharer-self";
+  var _sharerName = S.user.first_name || S.user.username || "Me";
+  _sharerCur.style.cssText = "position:fixed;pointer-events:none;z-index:99997;display:flex;align-items:flex-start;gap:2px;";
+  _sharerCur.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#f59e0b" stroke="#fff" stroke-width="1.5"/></svg>' +
+    '<span style="background:#f59e0b;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:10px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + esc(_sharerName) + '</span>';
+  document.body.appendChild(_sharerCur);
+  RemoteCtrl._sharerCurHandler = function(e) {
+    if (_sharerCur) { _sharerCur.style.left = e.clientX + "px"; _sharerCur.style.top = e.clientY + "px"; }
+  };
+  document.addEventListener("mousemove", RemoteCtrl._sharerCurHandler);
 }
 
 function rejectRemoteControl(fromId) {
@@ -11341,6 +11356,7 @@ function attachRCToVideo(vid) {
 
   // ── CLEAN CURSOR: hide system cursor, show green named cursor ──
   vid.style.cursor = "none";
+  document.body.style.cursor = "none"; // Hide system cursor everywhere during RC
   var _myCur = document.getElementById("rc-my-cursor");
   if (_myCur) _myCur.remove(); // Remove any stale cursor from previous session
   _myCur = document.createElement("div"); _myCur.id = "rc-my-cursor";
@@ -11498,7 +11514,7 @@ function startCursorSync() {
       ws.send(JSON.stringify({
         type: "remote_control_event", target_user_id: tid, event: "cursor_sync",
         x: e.screenX / window.screen.width, y: e.screenY / window.screen.height,
-        cursor_name: S.user.first_name || S.user.username || "User",
+        key: S.user.first_name || S.user.username || "User",
       }));
     }
   };
@@ -11526,7 +11542,7 @@ function _showSharerCursor(data) {
   var cur = document.getElementById("rc-sharer-cursor");
   if (!cur) {
     cur = document.createElement("div"); cur.id = "rc-sharer-cursor";
-    var nm = data.cursor_name || "Sharer";
+    var nm = data.key || data.cursor_name || "User";
     cur.style.cssText = "position:fixed;pointer-events:none;z-index:99997;transition:left 0.06s linear,top 0.06s linear;display:flex;align-items:flex-start;gap:2px;";
     cur.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#f59e0b" stroke="#fff" stroke-width="1.5"/></svg>' +
       '<span style="background:#f59e0b;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:10px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + esc(nm) + '</span>';
@@ -11625,6 +11641,7 @@ function handleRemoteControlStopped() {
 }
 
 function cleanupRC() {
+  document.body.style.cursor = ""; // Restore system cursor
   const el = RemoteCtrl.videoEl;
 
   if (el) {
@@ -11639,7 +11656,8 @@ function cleanupRC() {
   }
 
   stopCursorSync();
-  const ids = ["rc-wait", "rc-incoming", "rc-indicator", "rc-cursor", "rc-my-cursor", "rc-sharer-cursor"];
+  if (RemoteCtrl._sharerCurHandler) { document.removeEventListener("mousemove", RemoteCtrl._sharerCurHandler); RemoteCtrl._sharerCurHandler = null; }
+  const ids = ["rc-wait", "rc-incoming", "rc-indicator", "rc-cursor", "rc-my-cursor", "rc-sharer-cursor", "rc-sharer-self"];
   ids.forEach((id) => {
     const node = document.getElementById(id);
     if (node) node.remove();
