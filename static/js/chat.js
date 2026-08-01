@@ -11284,7 +11284,13 @@ function acceptRemoteControl(fromId) {
   startCursorSync(); // Send our cursor position to controller
 
   // ── Sharer: hide system cursor, show OWN named cursor ──
-  document.body.style.cursor = "none";
+  var rcStyle = document.getElementById("rc-hide-cursor-style");
+  if (!rcStyle) {
+    rcStyle = document.createElement("style");
+    rcStyle.id = "rc-hide-cursor-style";
+    rcStyle.textContent = "* { cursor: none !important; }";
+    document.head.appendChild(rcStyle);
+  }
   var _sharerCur = document.getElementById("rc-sharer-self");
   if (_sharerCur) _sharerCur.remove();
   _sharerCur = document.createElement("div"); _sharerCur.id = "rc-sharer-self";
@@ -11356,7 +11362,14 @@ function attachRCToVideo(vid) {
 
   // ── CLEAN CURSOR: hide system cursor, show green named cursor ──
   vid.style.cursor = "none";
-  document.body.style.cursor = "none"; // Hide system cursor everywhere during RC
+  // Inject CSS to force-hide system cursor everywhere during RC
+  var rcStyle = document.getElementById("rc-hide-cursor-style");
+  if (!rcStyle) {
+    rcStyle = document.createElement("style");
+    rcStyle.id = "rc-hide-cursor-style";
+    rcStyle.textContent = "* { cursor: none !important; }";
+    document.head.appendChild(rcStyle);
+  }
   var _myCur = document.getElementById("rc-my-cursor");
   if (_myCur) _myCur.remove(); // Remove any stale cursor from previous session
   _myCur = document.createElement("div"); _myCur.id = "rc-my-cursor";
@@ -11641,7 +11654,10 @@ function handleRemoteControlStopped() {
 }
 
 function cleanupRC() {
-  document.body.style.cursor = ""; // Restore system cursor
+  // Restore system cursor
+  var rcStyle = document.getElementById("rc-hide-cursor-style");
+  if (rcStyle) rcStyle.remove();
+  document.body.style.cursor = "";
   const el = RemoteCtrl.videoEl;
 
   if (el) {
