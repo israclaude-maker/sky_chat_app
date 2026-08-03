@@ -11283,26 +11283,7 @@ function acceptRemoteControl(fromId) {
   toast("Remote control has been allowed!", "s");
   startCursorSync(); // Send our cursor position to controller
 
-  // ── Sharer: hide system cursor, show OWN named cursor ──
-  var rcStyle = document.getElementById("rc-hide-cursor-style");
-  if (!rcStyle) {
-    rcStyle = document.createElement("style");
-    rcStyle.id = "rc-hide-cursor-style";
-    rcStyle.textContent = "* { cursor: none !important; }";
-    document.head.appendChild(rcStyle);
-  }
-  var _sharerCur = document.getElementById("rc-sharer-self");
-  if (_sharerCur) _sharerCur.remove();
-  _sharerCur = document.createElement("div"); _sharerCur.id = "rc-sharer-self";
-  var _sharerName = S.user.first_name || S.user.username || "Me";
-  _sharerCur.style.cssText = "position:fixed;pointer-events:none;z-index:99997;display:flex;align-items:flex-start;gap:2px;";
-  _sharerCur.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#f59e0b" stroke="#fff" stroke-width="1.5"/></svg>' +
-    '<span style="background:#f59e0b;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:10px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + esc(_sharerName) + '</span>';
-  document.body.appendChild(_sharerCur);
-  RemoteCtrl._sharerCurHandler = function(e) {
-    if (_sharerCur) { _sharerCur.style.left = e.clientX + "px"; _sharerCur.style.top = e.clientY + "px"; }
-  };
-  document.addEventListener("mousemove", RemoteCtrl._sharerCurHandler);
+  // Sharer keeps their normal system cursor — no custom cursor needed
 }
 
 function rejectRemoteControl(fromId) {
@@ -11361,15 +11342,7 @@ function attachRCToVideo(vid) {
   if (vid.tagName === "VIDEO") { vid.style.display = "block"; vid.play().catch(function(){}); }
 
   // ── CLEAN CURSOR: hide system cursor, show green named cursor ──
-  vid.style.cursor = "none";
-  // Inject CSS to force-hide system cursor everywhere during RC
-  var rcStyle = document.getElementById("rc-hide-cursor-style");
-  if (!rcStyle) {
-    rcStyle = document.createElement("style");
-    rcStyle.id = "rc-hide-cursor-style";
-    rcStyle.textContent = "* { cursor: none !important; }";
-    document.head.appendChild(rcStyle);
-  }
+  vid.style.cursor = "default"; // Keep system cursor as controller's pointer
   var _myCur = document.getElementById("rc-my-cursor");
   if (_myCur) _myCur.remove(); // Remove any stale cursor from previous session
   _myCur = document.createElement("div"); _myCur.id = "rc-my-cursor";
@@ -11392,7 +11365,6 @@ function attachRCToVideo(vid) {
   var throttleTimer = null;
   vid._rcMove = function (e) {
     if (!RemoteCtrl.isControlling) return;
-    if (_myCur) { _myCur.style.left=e.clientX+"px"; _myCur.style.top=e.clientY+"px"; }
     if (throttleTimer) return;
     throttleTimer = setTimeout(function(){throttleTimer=null;}, 50);
     var cr = getVideoContentRect(vid);
@@ -11565,12 +11537,7 @@ function _showSharerCursor(data) {
 }
 
 function handleRemoteControlEvent(data) {
-  // Handle cursor_sync: show the SHARER's cursor on controller's video
-  if (data.event === "cursor_sync" && RemoteCtrl.isControlling) {
-    _showSharerCursor(data);
-    return;
-  }
-  if (data.event === "cursor_sync") return; // Ignore if not controlling
+  if (data.event === "cursor_sync") return; // Not needed — sharer cursor visible in video
   if (!RemoteCtrl.isBeingControlled) return;
   console.log(
     "[RC DEBUG] received event:",
@@ -11654,10 +11621,6 @@ function handleRemoteControlStopped() {
 }
 
 function cleanupRC() {
-  // Restore system cursor
-  var rcStyle = document.getElementById("rc-hide-cursor-style");
-  if (rcStyle) rcStyle.remove();
-  document.body.style.cursor = "";
   const el = RemoteCtrl.videoEl;
 
   if (el) {
@@ -11672,7 +11635,8 @@ function cleanupRC() {
   }
 
   stopCursorSync();
-  if (RemoteCtrl._sharerCurHandler) { document.removeEventListener("mousemove", RemoteCtrl._sharerCurHandler); RemoteCtrl._sharerCurHandler = null; }
+  var rcStyle = document.getElementById("rc-hide-cursor-style"); if (rcStyle) rcStyle.remove();
+  document.body.style.cursor = "";
   const ids = ["rc-wait", "rc-incoming", "rc-indicator", "rc-cursor", "rc-my-cursor", "rc-sharer-cursor", "rc-sharer-self"];
   ids.forEach((id) => {
     const node = document.getElementById(id);
