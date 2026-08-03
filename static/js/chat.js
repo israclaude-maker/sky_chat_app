@@ -11342,7 +11342,7 @@ function attachRCToVideo(vid) {
   if (vid.tagName === "VIDEO") { vid.style.display = "block"; vid.play().catch(function(){}); }
 
   // ── CLEAN CURSOR: hide system cursor, show green named cursor ──
-  vid.style.cursor = "default"; // Keep system cursor as controller's pointer
+  vid.style.cursor = "none"; // Hide system cursor on video
   var _myCur = document.getElementById("rc-my-cursor");
   if (_myCur) _myCur.remove(); // Remove any stale cursor from previous session
   _myCur = document.createElement("div"); _myCur.id = "rc-my-cursor";
@@ -11365,6 +11365,7 @@ function attachRCToVideo(vid) {
   var throttleTimer = null;
   vid._rcMove = function (e) {
     if (!RemoteCtrl.isControlling) return;
+    if (_myCur) { _myCur.style.left = e.clientX + "px"; _myCur.style.top = e.clientY + "px"; }
     if (throttleTimer) return;
     throttleTimer = setTimeout(function(){throttleTimer=null;}, 50);
     var cr = getVideoContentRect(vid);
