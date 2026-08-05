@@ -5444,6 +5444,9 @@ function doInitWebRTC(isInitiator, callback) {
     console.log("Remote track received:", e.track.kind);
 
     if (e.track.kind === "audio") {
+      if (window.AndroidBridge && AndroidBridge.startCallAudio) {
+        try { AndroidBridge.startCallAudio(); } catch (e) {}
+      }
       CallState.remoteStream = e.streams[0];
       var remoteAudio = $("remote-audio");
       if (remoteAudio) {
@@ -6629,6 +6632,9 @@ function initCallButtons() {
 }
 
 function cleanupCall() {
+  if (window.AndroidBridge && AndroidBridge.endCallAudio) {
+    try { AndroidBridge.endCallAudio(); } catch (e) {}
+  }
   cleanupCamFx();
   if (CallState.ringTimeout) {
     clearTimeout(CallState.ringTimeout);
