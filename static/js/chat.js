@@ -11326,7 +11326,7 @@ function handleRemoteControlAccepted(data) {
 function attachRCToVideo(vid) {
   if (RemoteCtrl.videoEl && RemoteCtrl.videoEl !== vid) {
     var old = RemoteCtrl.videoEl;
-    if (old._rcMove) old.removeEventListener("mousemove", old._rcMove);
+    if (old._rcMove) document.removeEventListener("mousemove", old._rcMove);  // <-- fix: document
     if (old._rcClick) old.removeEventListener("click", old._rcClick);
     if (old._rcRightClick)
       old.removeEventListener("contextmenu", old._rcRightClick);
@@ -11360,15 +11360,19 @@ function attachRCToVideo(vid) {
 
   var throttleTimer = null;
   vid._rcMove = function (e) {
-    if (!RemoteCtrl.isControlling) return;
-    if (_myCur) { _myCur.style.left=e.clientX+"px"; _myCur.style.top=e.clientY+"px"; }
-    if (throttleTimer) return;
-    throttleTimer = setTimeout(function(){throttleTimer=null;}, 50);
-    var cr = getVideoContentRect(vid);
+  if (!RemoteCtrl.isControlling) return;
+  if (_myCur) { _myCur.style.left = e.clientX + "px"; _myCur.style.top = e.clientY + "px"; }
+  if (throttleTimer) return;
+  throttleTimer = setTimeout(function(){throttleTimer=null;}, 50);
+  var cr = getVideoContentRect(vid);
+  // sirf jab mouse video ke andar ho tabhi remote command bhejo
+  if (e.clientX >= cr.left && e.clientX <= cr.left+cr.width && e.clientY >= cr.top && e.clientY <= cr.top+cr.height) {
     sendRCEvent("mousemove",
       Math.max(0,Math.min(1,(e.clientX-cr.left)/cr.width)),
       Math.max(0,Math.min(1,(e.clientY-cr.top)/cr.height)));
-  };
+  }
+};
+document.addEventListener("mousemove", vid._rcMove);
   vid._rcClick = function (e) {
     if (!RemoteCtrl.isControlling) return;
     e.preventDefault(); e.stopPropagation(); vid.focus();
@@ -11569,16 +11573,14 @@ function handleRemoteControlStopped() {
 
 function cleanupRC() {
   const el = RemoteCtrl.videoEl;
-
   if (el) {
-    // Ensure you use the exact function reference that was used to add them
-    if (el._rcMove) el.removeEventListener("mousemove", el._rcMove);
+    if (el._rcMove) document.removeEventListener("mousemove", el._rcMove); // fix: document
     if (el._rcClick) el.removeEventListener("click", el._rcClick);
+    if (el._rcRightClick) el.removeEventListener("contextmenu", el._rcRightClick); // ADD THIS
     if (el._rcKeydown) document.removeEventListener("keydown", el._rcKeydown);
     if (el._rcScroll) el.removeEventListener("wheel", el._rcScroll);
-
     el.style.cursor = "";
-    RemoteCtrl.videoEl = null; // Important: Clear the reference
+    RemoteCtrl.videoEl = null;
   }
 
   // Use a more generic selector or loop to ensure clean state
