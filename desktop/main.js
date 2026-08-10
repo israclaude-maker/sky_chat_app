@@ -10,7 +10,15 @@ const {
   desktopCapturer,
 } = require("electron");
 const path = require("path");
+
+// ─── Debug logging to file (kyunki packaged .exe mein terminal nahi dikhta) ───
 const fs = require("fs");
+const logFile = path.join(app.getPath("userData"), "rc-debug.log");
+function rcLog(...args) {
+  const line = "[" + new Date().toISOString() + "] " + args.join(" ") + "\n";
+  try { fs.appendFileSync(logFile, line); } catch (e) {}
+  console.log(...args);
+}
 
 let mainWindow;
 let tray;
@@ -214,7 +222,7 @@ function injectDesktopHelpers() {
     })();
   `,
     )
-    .catch(() => {});
+    .catch(() => { });
 }
 
 // ─── System tray ──────────────────────────────────────────────
@@ -403,6 +411,95 @@ app.on("window-all-closed", () => {
 });
 
 const robot = require("@jitsi/robotjs");
+const { screen } = require("electron");
+const koffi = require("koffi");
+
+// ─── Native Windows cursor hide/restore ───────────────────────
+let overlayWindow = null;
+let cursorHidden = false;
+let user32, SetSystemCursor, SystemParametersInfoW, CreateCursorFn, CopyIconFn, blankCursor;
+
+function initNativeCursorAPI() {
+  if (user32) return true;
+  try {
+    user32 = koffi.load("user32.dll");
+    SetSystemCursor = user32.func("__stdcall", "SetSystemCursor", "bool", ["void*", "uint32"]);
+    SystemParametersInfoW = user32.func("__stdcall", "SystemParametersInfoW", "bool", ["uint32", "uint32", "void*", "uint32"]);
+    CreateCursorFn = user32.func("__stdcall", "CreateCursor", "void*", ["void*", "int", "int", "int", "int", "void*", "void*"]);
+    CopyIconFn = user32.func("__stdcall", "CopyIcon", "void*", ["void*"]);
+
+    // Fully transparent 32x32 cursor (AND mask all 1s = invisible, XOR mask all 0s)
+    const AND = Buffer.alloc(128, 0xff);
+    const XOR = Buffer.alloc(128, 0x00);
+    blankCursor = CreateCursorFn(null, 0, 0, 32, 32, AND, XOR);
+    return !!blankCursor;
+  } catch (e) {
+    rcLog("[RC] Native cursor API init failed:", e.message);
+    return false;
+  }
+}
+
+// Standard Windows system cursor IDs (OCR_*)
+const OCR_IDS = [32512, 32513, 32514, 32515, 32516, 32640, 32641, 32642, 32643, 32644, 32645, 32646, 32648, 32649, 32650, 32651];
+
+function hideSystemCursor() {
+  if (cursorHidden) return;
+  if (!initNativeCursorAPI() || !blankCursor) return;
+  OCR_IDS.forEach((id) => {
+    try {
+      const copy = CopyIconFn(blankCursor); // SetSystemCursor consumes the handle, so copy each time
+      SetSystemCursor(copy, id);
+    } catch (e) { }
+  });
+  cursorHidden = true;
+}
+
+function restoreSystemCursor() {
+  if (!cursorHidden) return;
+  try {
+    SystemParametersInfoW(0x0057 /* SPI_SETCURSORS */, 0, null, 0);
+  } catch (e) { }
+  cursorHidden = false;
+}
+
+// ─── Cursor overlay window (shows the moving "Controller" cursor) ───
+function createCursorOverlay(name) {
+  if (overlayWindow) return;
+  const display = screen.getPrimaryDisplay();
+  overlayWindow = new BrowserWindow({
+    x: 0, y: 0,
+    width: display.bounds.width,
+    height: display.bounds.height,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: false,
+    hasShadow: false,
+    resizable: false,
+    webPreferences: { contextIsolation: false, nodeIntegration: true },
+  });
+  overlayWindow.setIgnoreMouseEvents(true);
+  overlayWindow.setAlwaysOnTop(true, "screen-saver");
+  overlayWindow.loadFile(path.join(__dirname, "cursor-overlay.html"));
+  overlayWindow.webContents.once("did-finish-load", () => {
+    overlayWindow.webContents.send("set-name", name || "Controller");
+  });
+  overlayWindow.on("closed", () => { overlayWindow = null; });
+}
+
+function destroyCursorOverlay() {
+  if (overlayWindow) {
+    try { overlayWindow.close(); } catch (e) { }
+    overlayWindow = null;
+  }
+}
+
+function updateOverlayCursor(x, y) {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.webContents.send("move-cursor", { x, y });
+  }
+}
 
 // ─── Key name mapping for robotjs ────────────────────────────
 const keyMap = {
@@ -445,7 +542,7 @@ const keyMap = {
 };
 
 ipcMain.on("rc-event", (event, rawData) => {
-  console.log("[RC] Raw data received:", rawData);
+  rcLog("[RC] Raw data received:", rawData);
   try {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
 
@@ -459,11 +556,14 @@ ipcMain.on("rc-event", (event, rawData) => {
 
     if (data.event === "mousemove") {
       robot.moveMouse(x, y);
+      updateOverlayCursor(x, y);
     } else if (data.event === "click") {
       robot.moveMouse(x, y);
+      updateOverlayCursor(x, y);
       setTimeout(() => robot.mouseClick("left"), 30);
     } else if (data.event === "rightclick") {
       robot.moveMouse(x, y);
+      updateOverlayCursor(x, y);
       setTimeout(() => robot.mouseClick("right"), 30);
     } else if (data.event === "scroll") {
       // ── Scroll: correct API + fast speed ──
@@ -478,7 +578,7 @@ ipcMain.on("rc-event", (event, rawData) => {
         // Keyboard fallback
         try {
           robot.keyTap(dir === "up" ? "pageup" : "pagedown");
-        } catch (e2) {}
+        } catch (e2) { }
       }
     } else if (data.event === "keypress") {
       const k = data.key;
@@ -495,7 +595,7 @@ ipcMain.on("rc-event", (event, rawData) => {
         if (data.ctrl || data.alt) {
           try {
             robot.keyTap(k.toLowerCase(), modifiers);
-          } catch (e) {}
+          } catch (e) { }
         } else {
           // Normal characters — clipboard method use karo
           // (yeh symbols, capitals, sab handle karta hai)
@@ -508,23 +608,35 @@ ipcMain.on("rc-event", (event, rawData) => {
           } catch (e) {
             try {
               robot.typeString(k);
-            } catch (e2) {}
+            } catch (e2) { }
           }
         }
       } else if (keyMap[k]) {
         // Special keys: Enter, Backspace, ArrowLeft, Tab, etc.
         try {
           robot.keyTap(keyMap[k], modifiers);
-        } catch (e) {}
+        } catch (e) { }
       }
     }
   } catch (e) {
     console.error("[RC] Error:", e.message);
   }
 });
+ipcMain.on("rc-start-overlay", (event, data) => {
+  rcLog("[RC] rc-start-overlay IPC received, name:", data && data.name);
+  createCursorOverlay(data && data.name);
+  hideSystemCursor();
+  rcLog("[RC] after start -> cursorHidden:", cursorHidden, "overlayWindow created:", !!overlayWindow);
+});
 
+ipcMain.on("rc-stop-overlay", () => {
+  rcLog("[RC] rc-stop-overlay IPC received");
+  destroyCursorOverlay();
+  restoreSystemCursor();
+});
 app.on("before-quit", () => {
   isQuitting = true;
+  restoreSystemCursor();
 });
 
 // Accept self-signed certs in dev

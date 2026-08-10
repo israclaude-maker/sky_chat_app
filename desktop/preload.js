@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld("DesktopBridge", {
   // Remote Control
   sendRCEvent: (data) => ipcRenderer.send("rc-event", data),
 
+  // Remote Control
+  sendRCEvent: (data) => ipcRenderer.send("rc-event", data),
+  startCursorOverlay: (name) => ipcRenderer.send("rc-start-overlay", { name }),
+  stopCursorOverlay: () => ipcRenderer.send("rc-stop-overlay"),
   // Callbacks from main process
   onCallAction: (callback) => {
     ipcRenderer.on("call-action", (event, action) => callback(action));

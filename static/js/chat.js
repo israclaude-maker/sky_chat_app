@@ -11263,6 +11263,9 @@ function acceptRemoteControl(fromId) {
   if (el) el.remove();
   RemoteCtrl.isBeingControlled = true;
   RemoteCtrl.controlledBy = fromId;
+  if (window.DesktopBridge && window.DesktopBridge.startCursorOverlay) {
+    window.DesktopBridge.startCursorOverlay(RemoteCtrl.controllerName);
+  }
   var ws = S.globalWs || S.ws;
   if (ws && ws.readyState === 1)
     ws.send(
@@ -11499,40 +11502,6 @@ function handleRemoteControlEvent(data) {
     !!window.DesktopBridge,
   );
 
-  // Cursor dikhao screen pe
-  var targetVid = null;
-  var ssVid = $("remote-screen-video");
-  if (ssVid && ssVid.style.display !== "none" && ssVid.srcObject) {
-    targetVid = ssVid;
-  }
-  if (!targetVid) {
-    var mainView = $("gc-main-view");
-    if (mainView) {
-      var v = mainView.querySelector("video");
-      if (v && v.srcObject) targetVid = v;
-    }
-  }
-  if (!targetVid) targetVid = $("remote-video");
-
-  if (targetVid) {
-    var vidRect = targetVid.getBoundingClientRect();
-    var cursorX = data.x * vidRect.width + vidRect.left;
-    var cursorY = data.y * vidRect.height + vidRect.top;
-
-    // Show name-only badge (NO arrow — system cursor IS the arrow moved by robotjs)
-    var badge = document.getElementById("rc-cursor");
-    if (!badge) {
-      badge = document.createElement("div"); badge.id = "rc-cursor";
-      var cN = RemoteCtrl.controllerName || "Controller";
-      badge.style.cssText = "position:fixed;pointer-events:none;z-index:99999;transition:left 0.03s linear,top 0.03s linear;";
-      badge.innerHTML = '<span style="background:#3b82f6;color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + esc(cN) + '</span>';
-      document.body.appendChild(badge);
-    }
-    badge.style.left = (cursorX + 18) + "px";
-    badge.style.top = (cursorY + 22) + "px";
-    badge.style.display = "block";
-  }
-
   // ACTUAL PC CONTROL - Desktop app pe robotjs se
   if (window.DesktopBridge && window.DesktopBridge.sendRCEvent) {
     DesktopBridge.sendRCEvent(
@@ -11572,6 +11541,9 @@ function handleRemoteControlStopped() {
 }
 
 function cleanupRC() {
+  if (window.DesktopBridge && window.DesktopBridge.stopCursorOverlay) {
+    window.DesktopBridge.stopCursorOverlay();
+  }
   const el = RemoteCtrl.videoEl;
   if (el) {
     if (el._rcMove) document.removeEventListener("mousemove", el._rcMove); // fix: document
