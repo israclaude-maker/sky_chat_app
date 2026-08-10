@@ -2580,56 +2580,20 @@ body {
   border-radius: 40px;
   backdrop-filter: blur(10px);
   cursor: grab;
-  transition:
-    opacity 0.3s ease,
-    transform 0.3s ease;
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
-
-/* Unpinned: hidden, slide up on hover */
-.call-controls.ctrl-unpinned {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-50%) translateY(30px);
-}
-.call-controls.ctrl-unpinned.ctrl-show {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* Pin button active state */
-.ctrl-btn.pinned {
-  background: rgba(59, 130, 246, 0.5);
-}
-
-/* Hover zone at bottom to trigger controls */
-.ctrl-hover-zone {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 60px;
-  z-index: 9;
-}
-
-/* When unpinned: hide all overlay chrome for full mouse/screen access */
+.call-controls.ctrl-unpinned { opacity:0; pointer-events:none; transform:translateX(-50%) translateY(30px); }
+.call-controls.ctrl-unpinned.ctrl-show { opacity:1; pointer-events:auto; }
+.ctrl-btn.pinned { background:rgba(59,130,246,0.5); }
+.ctrl-hover-zone { position:absolute; bottom:0; left:0; right:0; height:60px; z-index:9; }
 #ongoing-call.ctrl-bar-unpinned .call-minimize-btn,
 #ongoing-call.ctrl-bar-unpinned .call-info,
 #ongoing-call.ctrl-bar-unpinned #remote-screen-label,
 #ongoing-call.ctrl-bar-unpinned #local-video,
 #ongoing-call.ctrl-bar-unpinned .screen-pip,
-#gc-ongoing-call.ctrl-bar-unpinned .call-minimize-btn,
-#gc-ongoing-call.ctrl-bar-unpinned .gc-header {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s;
-}
+#gc-ongoing-call.ctrl-bar-unpinned .gc-header { opacity:0; pointer-events:none; transition:opacity 0.3s; }
 #ongoing-call.ctrl-bar-unpinned #remote-screen-video {
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  bottom: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
+  top:0!important;left:0!important;right:0!important;bottom:0!important;width:100%!important;height:100%!important;
 }
 
 .ctrl-btn {

@@ -558,6 +558,7 @@ public class MainActivity extends Activity {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
+                    android.widget.Toast.makeText(MainActivity.this, "startCallAudio CALLED", android.widget.Toast.LENGTH_SHORT).show();
                     if (audioManager != null) {
                         audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
                         audioManager.setSpeakerphoneOn(false); // default: earpiece
