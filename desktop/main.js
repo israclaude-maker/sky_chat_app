@@ -511,42 +511,62 @@ function updateOverlayCursor(x, y) {
   }
 }
 
-// ─── Real cursor position (GetCursorPos) — used to track the screen
-//     owner's OWN physical mouse, independent of anything robot.moveMouse
-//     does. Because we now only call robot.moveMouse at click-time (see
-//     rc-event handler below), GetCursorPos reliably reflects the real
-//     user's hand between clicks — no low-level hook needed. ───────────
-let GetCursorPosFn;
-function initGetCursorPos() {
-  if (GetCursorPosFn) return true;
-  try {
-    if (!user32) user32 = koffi.load("user32.dll");
-    GetCursorPosFn = user32.func("__stdcall", "GetCursorPos", "bool", ["void*"]);
-    return true;
-  } catch (e) {
-    rcLog("[RC] GetCursorPos init failed:", e.message);
-    return false;
-  }
+// Performs a real click at (x,y) on the screen-owner's machine, then
+// snaps the real OS cursor back to wherever the screen-owner had last
+// actually left it — so their real cursor doesn't visibly "stick" at
+// the click point afterward. `suppressSelfTrackUntil` stops the self
+// poll from mistaking this teleport-and-restore for genuine movement.
+function performRemoteClick(x, y, button) {
+  const restoreTo = lastKnownSelfPos; // where Isra genuinely left it
+  suppressSelfTrackUntil = Date.now() + 250;
+  robot.moveMouse(x, y);
+  updateOverlayCursor(x, y);
+  setTimeout(() => {
+    try { robot.mouseClick(button); } catch (e) { }
+    setTimeout(() => {
+      if (restoreTo) {
+        try { robot.moveMouse(restoreTo.x, restoreTo.y); } catch (e) { }
+      }
+    }, 25);
+  }, 30);
 }
+
+// ─── Real cursor position — used to track the screen owner's OWN
+//     physical mouse, independent of anything robot.moveMouse does.
+//     Uses robotjs's own getMousePos() (already a proven dependency in
+//     this file for moveMouse/click/scroll) instead of a hand-rolled
+//     koffi/GetCursorPos buffer call, which was unreliable. ───────────
 function getRealCursorPos() {
-  if (!initGetCursorPos()) return null;
   try {
-    const buf = Buffer.alloc(8);
-    const ok = GetCursorPosFn(buf);
-    if (!ok) return null;
-    return { x: buf.readInt32LE(0), y: buf.readInt32LE(4) };
+    const p = robot.getMousePos();
+    if (!p || typeof p.x !== "number") return null;
+    return { x: p.x, y: p.y };
   } catch (e) {
+    rcLog("[RC] getRealCursorPos failed:", e.message);
     return null;
   }
 }
 
+// Tracks the screen-owner's last known REAL position, i.e. wherever they
+// themselves actually left the mouse. Updated by the poll below whenever
+// we're NOT in the middle of a robot-driven click teleport (see
+// `suppressSelfTrackUntil`), and used to snap the real OS cursor back
+// after a remote click so it doesn't visibly "stick" at the click point.
+let lastKnownSelfPos = null;
+let suppressSelfTrackUntil = 0; // Date.now() timestamp
+
 let selfCursorPollTimer = null;
 function startSelfCursorPoll() {
   if (selfCursorPollTimer) return;
+  lastKnownSelfPos = getRealCursorPos();
   selfCursorPollTimer = setInterval(() => {
     if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    if (Date.now() < suppressSelfTrackUntil) return; // mid-click teleport — don't record this as "real"
     const pos = getRealCursorPos();
-    if (pos) overlayWindow.webContents.send("move-self-cursor", pos);
+    if (pos) {
+      lastKnownSelfPos = pos;
+      overlayWindow.webContents.send("move-self-cursor", pos);
+    }
   }, 40); // ~25fps — smooth enough, cheap enough
 }
 function stopSelfCursorPoll() {
@@ -554,6 +574,8 @@ function stopSelfCursorPoll() {
     clearInterval(selfCursorPollTimer);
     selfCursorPollTimer = null;
   }
+  lastKnownSelfPos = null;
+  suppressSelfTrackUntil = 0;
 }
 
 // ─── Key name mapping for robotjs ────────────────────────────
@@ -613,18 +635,14 @@ ipcMain.on("rc-event", (event, rawData) => {
       // IMPORTANT: do NOT move the real OS cursor here — only update the
       // visual "Controller" badge in the overlay window. This keeps the
       // real system cursor free to reflect the screen-owner's own hand,
-      // so GetCursorPos() (used for the "self" badge) stays trustworthy.
-      // The real cursor is only teleported at actual click time, right
-      // below, which is when a real interaction needs to happen.
+      // so the self-cursor poll (used for the "self" badge) stays
+      // trustworthy. The real cursor only teleports at actual click time
+      // (below), and is restored right after — see performRemoteClick().
       updateOverlayCursor(x, y);
     } else if (data.event === "click") {
-      robot.moveMouse(x, y);
-      updateOverlayCursor(x, y);
-      setTimeout(() => robot.mouseClick("left"), 30);
+      performRemoteClick(x, y, "left");
     } else if (data.event === "rightclick") {
-      robot.moveMouse(x, y);
-      updateOverlayCursor(x, y);
-      setTimeout(() => robot.mouseClick("right"), 30);
+      performRemoteClick(x, y, "right");
     } else if (data.event === "scroll") {
       // ── Scroll: correct API + fast speed ──
       // Adjust SCROLL_MULTIPLIER to control speed (higher = faster)
