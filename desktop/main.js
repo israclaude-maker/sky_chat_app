@@ -491,7 +491,8 @@ function createCursorOverlay(controllerName, selfName) {
     // Seed the "self" badge at wherever the real cursor already is,
     // so it doesn't default to (0,0) before the first poll tick.
     const seed = getRealCursorPos();
-    if (seed) overlayWindow.webContents.send("move-self-cursor", seed);
+    rcLog("[RC] overlay loaded, seed self pos:", JSON.stringify(seed), "scaleFactor:", getScaleFactor());
+    if (seed) overlayWindow.webContents.send("move-self-cursor", toOverlayCoords(seed.x, seed.y));
   });
   overlayWindow.on("closed", () => { overlayWindow = null; });
 }
@@ -505,9 +506,30 @@ function destroyCursorOverlay() {
 
 // Controller's (remote) cursor — driven purely by incoming RC coordinates,
 // never touches the real OS pointer.
+//
+// IMPORTANT — DPI SCALING: robotjs (getMousePos/moveMouse/getScreenSize)
+// works in PHYSICAL pixels, but the Electron overlay BrowserWindow lays
+// out in DIP/logical pixels. On any display where Windows scaling isn't
+// exactly 100% (125%, 150% are very common), sending raw robot-space
+// coordinates straight to the overlay puts the badge off-canvas —
+// which looks exactly like "badge never appears". We convert every
+// position through toOverlayCoords() before sending it to the HTML.
+function getScaleFactor() {
+  try {
+    return screen.getPrimaryDisplay().scaleFactor || 1;
+  } catch (e) {
+    return 1;
+  }
+}
+function toOverlayCoords(x, y) {
+  const sf = getScaleFactor();
+  return { x: x / sf, y: y / sf };
+}
+
 function updateOverlayCursor(x, y) {
   if (overlayWindow && !overlayWindow.isDestroyed()) {
-    overlayWindow.webContents.send("move-cursor", { x, y });
+    const p = toOverlayCoords(x, y);
+    overlayWindow.webContents.send("move-cursor", p);
   }
 }
 
@@ -519,13 +541,19 @@ function updateOverlayCursor(x, y) {
 function performRemoteClick(x, y, button) {
   const restoreTo = lastKnownSelfPos; // where Isra genuinely left it
   suppressSelfTrackUntil = Date.now() + 250;
+  rcLog("[RC] performRemoteClick", button, "target:", x, y, "will restore to:", JSON.stringify(restoreTo));
   robot.moveMouse(x, y);
   updateOverlayCursor(x, y);
   setTimeout(() => {
-    try { robot.mouseClick(button); } catch (e) { }
+    try { robot.mouseClick(button); } catch (e) { rcLog("[RC] mouseClick failed:", e.message); }
     setTimeout(() => {
       if (restoreTo) {
-        try { robot.moveMouse(restoreTo.x, restoreTo.y); } catch (e) { }
+        try {
+          robot.moveMouse(restoreTo.x, restoreTo.y);
+          rcLog("[RC] restored real cursor to:", JSON.stringify(restoreTo));
+        } catch (e) { rcLog("[RC] restore moveMouse failed:", e.message); }
+      } else {
+        rcLog("[RC] no restoreTo position available — lastKnownSelfPos was null");
       }
     }, 25);
   }, 30);
@@ -556,16 +584,24 @@ let lastKnownSelfPos = null;
 let suppressSelfTrackUntil = 0; // Date.now() timestamp
 
 let selfCursorPollTimer = null;
+let _selfPollTickCount = 0;
 function startSelfCursorPoll() {
   if (selfCursorPollTimer) return;
   lastKnownSelfPos = getRealCursorPos();
+  rcLog("[RC] startSelfCursorPoll, initial real pos:", JSON.stringify(lastKnownSelfPos), "scaleFactor:", getScaleFactor());
   selfCursorPollTimer = setInterval(() => {
     if (!overlayWindow || overlayWindow.isDestroyed()) return;
     if (Date.now() < suppressSelfTrackUntil) return; // mid-click teleport — don't record this as "real"
     const pos = getRealCursorPos();
     if (pos) {
       lastKnownSelfPos = pos;
-      overlayWindow.webContents.send("move-self-cursor", pos);
+      const p = toOverlayCoords(pos.x, pos.y);
+      overlayWindow.webContents.send("move-self-cursor", p);
+      _selfPollTickCount++;
+      if (_selfPollTickCount % 50 === 1) {
+        // log roughly every ~2s so the file doesn't explode, but confirms it's alive
+        rcLog("[RC] self poll tick, real:", JSON.stringify(pos), "sent(overlay-space):", JSON.stringify(p));
+      }
     }
   }, 40); // ~25fps — smooth enough, cheap enough
 }
@@ -576,6 +612,7 @@ function stopSelfCursorPoll() {
   }
   lastKnownSelfPos = null;
   suppressSelfTrackUntil = 0;
+  _selfPollTickCount = 0;
 }
 
 // ─── Key name mapping for robotjs ────────────────────────────
