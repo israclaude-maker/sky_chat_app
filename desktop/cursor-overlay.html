@@ -9,7 +9,7 @@
     overflow: hidden;
     width: 100vw; height: 100vh;
   }
-  #cur {
+  .cur {
     position: absolute;
     left: -100px; top: -100px;
     display: flex;
@@ -17,9 +17,9 @@
     gap: 2px;
     pointer-events: none;
     will-change: left, top;
+    transition: left 0.03s linear, top 0.03s linear;
   }
-  #label {
-    background: #3b82f6;
+  .cur-label {
     color: #fff;
     font-family: Segoe UI, sans-serif;
     font-size: 11px;
@@ -30,28 +30,64 @@
     margin-top: 10px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.4);
   }
+
+  /* Controller cursor — blue, driven by remote RC coordinates */
+  #cur-controller .cur-label { background: #3b82f6; }
+  #cur-controller svg path { fill: #3b82f6; }
+
+  /* Self cursor — green, driven by the screen-owner's own real mouse
+     (GetCursorPos polling in main.js). Freezes whenever they're not
+     actually moving their own physical mouse. */
+  #cur-self .cur-label { background: #22c55e; }
+  #cur-self svg path { fill: #22c55e; }
 </style>
 </head>
 <body>
-  <div id="cur">
+  <!-- Screen-owner's OWN real cursor (e.g. "Isra") -->
+  <div class="cur" id="cur-self">
     <svg width="20" height="20" viewBox="0 0 24 24">
-      <path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#3b82f6" stroke="#fff" stroke-width="1.5"/>
+      <path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" stroke="#fff" stroke-width="1.5"/>
     </svg>
-    <span id="label">Controller</span>
+    <span class="cur-label" id="label-self">Me</span>
+  </div>
+
+  <!-- Controller's cursor (e.g. "Tuba") -->
+  <div class="cur" id="cur-controller">
+    <svg width="20" height="20" viewBox="0 0 24 24">
+      <path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" stroke="#fff" stroke-width="1.5"/>
+    </svg>
+    <span class="cur-label" id="label-controller">Controller</span>
   </div>
 
 <script>
   const { ipcRenderer } = require("electron");
-  const cur = document.getElementById("cur");
-  const label = document.getElementById("label");
 
-  ipcRenderer.on("set-name", (event, name) => {
-    label.textContent = name || "Controller";
+  const curSelf = document.getElementById("cur-self");
+  const labelSelf = document.getElementById("label-self");
+  const curController = document.getElementById("cur-controller");
+  const labelController = document.getElementById("label-controller");
+
+  // Sets both labels at overlay startup: { controllerName, selfName }
+  ipcRenderer.on("set-names", (event, data) => {
+    data = data || {};
+    labelController.textContent = data.controllerName || "Controller";
+    labelSelf.textContent = data.selfName || "Me";
   });
 
+  // Controller's cursor — updates on every remote mousemove (visual only,
+  // never touches the real OS pointer — see main.js).
   ipcRenderer.on("move-cursor", (event, pos) => {
-    cur.style.left = pos.x + "px";
-    cur.style.top = pos.y + "px";
+    curController.style.left = pos.x + "px";
+    curController.style.top = pos.y + "px";
+  });
+
+  // Screen-owner's own real cursor — updates only when GetCursorPos()
+  // polling (main.js, ~25fps) detects the real position changed, i.e.
+  // only when they actually move their own physical mouse. Between real
+  // moves this simply doesn't fire, so the badge stays frozen in place.
+  ipcRenderer.on("move-self-cursor", (event, pos) => {
+    curSelf.style.left = pos.x + "px";
+    curSelf.style.top = pos.y + "px";
   });
 </script>
 </body>

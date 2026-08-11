@@ -462,8 +462,9 @@ function restoreSystemCursor() {
   cursorHidden = false;
 }
 
-// ─── Cursor overlay window (shows the moving "Controller" cursor) ───
-function createCursorOverlay(name) {
+// ─── Cursor overlay window (shows BOTH the "Controller" cursor AND the
+//     screen-owner's own real cursor, labeled separately) ───────────
+function createCursorOverlay(controllerName, selfName) {
   if (overlayWindow) return;
   const display = screen.getPrimaryDisplay();
   overlayWindow = new BrowserWindow({
@@ -483,7 +484,14 @@ function createCursorOverlay(name) {
   overlayWindow.setAlwaysOnTop(true, "screen-saver");
   overlayWindow.loadFile(path.join(__dirname, "cursor-overlay.html"));
   overlayWindow.webContents.once("did-finish-load", () => {
-    overlayWindow.webContents.send("set-name", name || "Controller");
+    overlayWindow.webContents.send("set-names", {
+      controllerName: controllerName || "Controller",
+      selfName: selfName || "Me",
+    });
+    // Seed the "self" badge at wherever the real cursor already is,
+    // so it doesn't default to (0,0) before the first poll tick.
+    const seed = getRealCursorPos();
+    if (seed) overlayWindow.webContents.send("move-self-cursor", seed);
   });
   overlayWindow.on("closed", () => { overlayWindow = null; });
 }
@@ -495,9 +503,56 @@ function destroyCursorOverlay() {
   }
 }
 
+// Controller's (remote) cursor — driven purely by incoming RC coordinates,
+// never touches the real OS pointer.
 function updateOverlayCursor(x, y) {
   if (overlayWindow && !overlayWindow.isDestroyed()) {
     overlayWindow.webContents.send("move-cursor", { x, y });
+  }
+}
+
+// ─── Real cursor position (GetCursorPos) — used to track the screen
+//     owner's OWN physical mouse, independent of anything robot.moveMouse
+//     does. Because we now only call robot.moveMouse at click-time (see
+//     rc-event handler below), GetCursorPos reliably reflects the real
+//     user's hand between clicks — no low-level hook needed. ───────────
+let GetCursorPosFn;
+function initGetCursorPos() {
+  if (GetCursorPosFn) return true;
+  try {
+    if (!user32) user32 = koffi.load("user32.dll");
+    GetCursorPosFn = user32.func("__stdcall", "GetCursorPos", "bool", ["void*"]);
+    return true;
+  } catch (e) {
+    rcLog("[RC] GetCursorPos init failed:", e.message);
+    return false;
+  }
+}
+function getRealCursorPos() {
+  if (!initGetCursorPos()) return null;
+  try {
+    const buf = Buffer.alloc(8);
+    const ok = GetCursorPosFn(buf);
+    if (!ok) return null;
+    return { x: buf.readInt32LE(0), y: buf.readInt32LE(4) };
+  } catch (e) {
+    return null;
+  }
+}
+
+let selfCursorPollTimer = null;
+function startSelfCursorPoll() {
+  if (selfCursorPollTimer) return;
+  selfCursorPollTimer = setInterval(() => {
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    const pos = getRealCursorPos();
+    if (pos) overlayWindow.webContents.send("move-self-cursor", pos);
+  }, 40); // ~25fps — smooth enough, cheap enough
+}
+function stopSelfCursorPoll() {
+  if (selfCursorPollTimer) {
+    clearInterval(selfCursorPollTimer);
+    selfCursorPollTimer = null;
   }
 }
 
@@ -555,7 +610,12 @@ ipcMain.on("rc-event", (event, rawData) => {
     );
 
     if (data.event === "mousemove") {
-      robot.moveMouse(x, y);
+      // IMPORTANT: do NOT move the real OS cursor here — only update the
+      // visual "Controller" badge in the overlay window. This keeps the
+      // real system cursor free to reflect the screen-owner's own hand,
+      // so GetCursorPos() (used for the "self" badge) stays trustworthy.
+      // The real cursor is only teleported at actual click time, right
+      // below, which is when a real interaction needs to happen.
       updateOverlayCursor(x, y);
     } else if (data.event === "click") {
       robot.moveMouse(x, y);
@@ -623,16 +683,23 @@ ipcMain.on("rc-event", (event, rawData) => {
   }
 });
 ipcMain.on("rc-start-overlay", (event, data) => {
-  rcLog("[RC] rc-start-overlay IPC received, name:", data && data.name);
-  createCursorOverlay(data && data.name);
-  hideSystemCursor();
-  rcLog("[RC] after start -> cursorHidden:", cursorHidden, "overlayWindow created:", !!overlayWindow);
+  rcLog("[RC] rc-start-overlay IPC received, name:", data && data.name, "selfName:", data && data.selfName);
+  createCursorOverlay(data && data.name, data && data.selfName);
+  startSelfCursorPoll();
+  // Note: we intentionally do NOT call hideSystemCursor() anymore. It was
+  // unreliable (screen-capture on Windows composites the pointer at a
+  // level SetSystemCursor doesn't reach — see cursor:"never" fix in
+  // chat.js's getDisplayMedia calls, which is the actual fix for hiding
+  // the native cursor from the shared video). Keeping the real cursor
+  // alive & untouched here is also required for GetCursorPos() to track
+  // the screen-owner's genuine mouse position for the "self" badge.
+  rcLog("[RC] after start -> overlayWindow created:", !!overlayWindow);
 });
 
 ipcMain.on("rc-stop-overlay", () => {
   rcLog("[RC] rc-stop-overlay IPC received");
   destroyCursorOverlay();
-  restoreSystemCursor();
+  stopSelfCursorPoll();
 });
 app.on("before-quit", () => {
   isQuitting = true;

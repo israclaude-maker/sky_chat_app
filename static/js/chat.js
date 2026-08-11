@@ -6298,7 +6298,11 @@ function startScreenShare() {
 
   navigator.mediaDevices
     .getDisplayMedia({
-      video: true,
+      video: {
+        cursor: "never", // real OS pointer stays out of the captured video —
+        // our own "Controller"/"self" overlay badges (main.js) represent
+        // both cursors instead, so we don't get a 3rd, unlabeled arrow.
+      },
       audio: false,
       selfBrowserSurface: "exclude",
       monitorTypeSurfaces: "include",
@@ -9202,7 +9206,7 @@ function gcStartScreenShare() {
         width: { ideal: window.screen.width },
         height: { ideal: window.screen.height },
         frameRate: { ideal: 30 },
-        cursor: "always",
+        cursor: "never", // see note in startScreenShare() above
         logicalSurface: true,
       },
       audio: false,
@@ -11264,7 +11268,8 @@ function acceptRemoteControl(fromId) {
   RemoteCtrl.isBeingControlled = true;
   RemoteCtrl.controlledBy = fromId;
   if (window.DesktopBridge && window.DesktopBridge.startCursorOverlay) {
-    window.DesktopBridge.startCursorOverlay(RemoteCtrl.controllerName);
+    var _mySelfName = (S.user && (S.user.first_name || S.user.username)) || "Me";
+    window.DesktopBridge.startCursorOverlay(RemoteCtrl.controllerName, _mySelfName);
   }
   var ws = S.globalWs || S.ws;
   if (ws && ws.readyState === 1)
