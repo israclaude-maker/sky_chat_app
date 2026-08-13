@@ -11345,16 +11345,14 @@ function attachRCToVideo(vid) {
   RemoteCtrl.videoEl = vid;
   if (vid.tagName === "VIDEO") { vid.style.display = "block"; vid.play().catch(function(){}); }
 
-  // ── CLEAN CURSOR: hide system cursor, show green named cursor ──
-  vid.style.cursor = "none";
-  var _myCur = document.getElementById("rc-my-cursor");
-  if (_myCur) _myCur.remove(); // Remove any stale cursor from previous session
-  _myCur = document.createElement("div"); _myCur.id = "rc-my-cursor";
-  var _myN = (S.user && (S.user.first_name || S.user.username)) || "Me";
-  _myCur.style.cssText = "position:fixed;pointer-events:none;z-index:99998;display:flex;align-items:flex-start;gap:2px;";
-  _myCur.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 2L4 18L8 14L11 20L13 19L10 13L16 13Z" fill="#10b981" stroke="#fff" stroke-width="1.5"/></svg>' +
-    '<span style="background:#10b981;color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;white-space:nowrap;margin-top:10px;box-shadow:0 1px 4px rgba(0,0,0,0.3);">' + esc(_myN) + '</span>';
-  document.body.appendChild(_myCur);
+  // NOTE: we intentionally do NOT create a local "_myCur" green badge here
+  // anymore. It used to duplicate the controller badge that's already
+  // baked into the shared video (rendered on the screen-owner's side via
+  // main.js's overlay window) — since both were driven by Tuba's same
+  // real mouse position, they'd visually overlap/appear as "2 mice" right
+  // on top of each other. The video's own blue controller badge is the
+  // single source of truth now; Tuba's normal browser cursor is left
+  // alone (not hidden) so she still has an immediate local pointer.
 
   function getVideoContentRect(v) {
     var r = v.getBoundingClientRect();
@@ -11369,7 +11367,6 @@ function attachRCToVideo(vid) {
   var throttleTimer = null;
   vid._rcMove = function (e) {
   if (!RemoteCtrl.isControlling) return;
-  if (_myCur) { _myCur.style.left = e.clientX + "px"; _myCur.style.top = e.clientY + "px"; }
   if (throttleTimer) return;
   throttleTimer = setTimeout(function(){throttleTimer=null;}, 50);
   var cr = getVideoContentRect(vid);
