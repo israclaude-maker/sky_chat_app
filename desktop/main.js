@@ -432,9 +432,10 @@ function initNativeCursorAPI() {
     const AND = Buffer.alloc(128, 0xff);
     const XOR = Buffer.alloc(128, 0x00);
     blankCursor = CreateCursorFn(null, 0, 0, 32, 32, AND, XOR);
+    rcLog("[RC] initNativeCursorAPI ok, blankCursor handle:", blankCursor);
     return !!blankCursor;
   } catch (e) {
-    rcLog("[RC] Native cursor API init failed:", e.message);
+    rcLog("[RC] Native cursor API init failed:", e.message, e.stack);
     return false;
   }
 }
@@ -443,22 +444,32 @@ function initNativeCursorAPI() {
 const OCR_IDS = [32512, 32513, 32514, 32515, 32516, 32640, 32641, 32642, 32643, 32644, 32645, 32646, 32648, 32649, 32650, 32651];
 
 function hideSystemCursor() {
-  if (cursorHidden) return;
-  if (!initNativeCursorAPI() || !blankCursor) return;
+  if (cursorHidden) { rcLog("[RC] hideSystemCursor: already hidden, skipping"); return; }
+  if (!initNativeCursorAPI()) { rcLog("[RC] hideSystemCursor: initNativeCursorAPI failed"); return; }
+  if (!blankCursor) { rcLog("[RC] hideSystemCursor: blankCursor handle is falsy:", blankCursor); return; }
+  let okCount = 0, failCount = 0;
   OCR_IDS.forEach((id) => {
     try {
       const copy = CopyIconFn(blankCursor); // SetSystemCursor consumes the handle, so copy each time
-      SetSystemCursor(copy, id);
-    } catch (e) { }
+      const result = SetSystemCursor(copy, id);
+      if (result) okCount++; else failCount++;
+    } catch (e) {
+      failCount++;
+      rcLog("[RC] SetSystemCursor threw for id", id, ":", e.message);
+    }
   });
+  rcLog("[RC] hideSystemCursor done — ok:", okCount, "failed:", failCount, "of", OCR_IDS.length);
   cursorHidden = true;
 }
 
 function restoreSystemCursor() {
   if (!cursorHidden) return;
   try {
-    SystemParametersInfoW(0x0057 /* SPI_SETCURSORS */, 0, null, 0);
-  } catch (e) { }
+    const r = SystemParametersInfoW(0x0057 /* SPI_SETCURSORS */, 0, null, 0);
+    rcLog("[RC] restoreSystemCursor SystemParametersInfoW result:", r);
+  } catch (e) {
+    rcLog("[RC] restoreSystemCursor failed:", e.message);
+  }
   cursorHidden = false;
 }
 
@@ -584,6 +595,7 @@ let lastKnownSelfPos = null;
 let suppressSelfTrackUntil = 0; // Date.now() timestamp
 
 let selfCursorPollTimer = null;
+let cursorReassertTimer = null;
 let _selfPollTickCount = 0;
 function startSelfCursorPoll() {
   if (selfCursorPollTimer) return;
@@ -604,11 +616,23 @@ function startSelfCursorPoll() {
       }
     }
   }, 40); // ~25fps — smooth enough, cheap enough
+
+  // Windows sometimes silently resets the system cursor scheme mid-session
+  // (theme/display events, or another app calling SystemParametersInfoW).
+  // Re-apply the blank cursor every 3s while RC is active as a safety net.
+  cursorReassertTimer = setInterval(() => {
+    cursorHidden = false; // force hideSystemCursor() to actually re-run, not skip
+    hideSystemCursor();
+  }, 3000);
 }
 function stopSelfCursorPoll() {
   if (selfCursorPollTimer) {
     clearInterval(selfCursorPollTimer);
     selfCursorPollTimer = null;
+  }
+  if (cursorReassertTimer) {
+    clearInterval(cursorReassertTimer);
+    cursorReassertTimer = null;
   }
   lastKnownSelfPos = null;
   suppressSelfTrackUntil = 0;
