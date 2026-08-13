@@ -442,23 +442,42 @@ function initNativeCursorAPI() {
 
 // Standard Windows system cursor IDs (OCR_*)
 const OCR_IDS = [32512, 32513, 32514, 32515, 32516, 32640, 32641, 32642, 32643, 32644, 32645, 32646, 32648, 32649, 32650, 32651];
+const OCR_NAMES = {
+  32512: "OCR_NORMAL (default arrow)",
+  32513: "OCR_IBEAM",
+  32514: "OCR_WAIT",
+  32515: "OCR_CROSS",
+  32516: "OCR_UP",
+  32640: "OCR_SIZE",
+  32641: "OCR_ICON",
+  32642: "OCR_SIZENWSE",
+  32643: "OCR_SIZENESW",
+  32644: "OCR_SIZEWE",
+  32645: "OCR_SIZENS",
+  32646: "OCR_SIZEALL",
+  32648: "OCR_NO",
+  32649: "OCR_HAND",
+  32650: "OCR_APPSTARTING",
+  32651: "OCR_HELP",
+};
 
 function hideSystemCursor() {
   if (cursorHidden) { rcLog("[RC] hideSystemCursor: already hidden, skipping"); return; }
   if (!initNativeCursorAPI()) { rcLog("[RC] hideSystemCursor: initNativeCursorAPI failed"); return; }
   if (!blankCursor) { rcLog("[RC] hideSystemCursor: blankCursor handle is falsy:", blankCursor); return; }
   let okCount = 0, failCount = 0;
+  const failedNames = [];
   OCR_IDS.forEach((id) => {
     try {
       const copy = CopyIconFn(blankCursor); // SetSystemCursor consumes the handle, so copy each time
       const result = SetSystemCursor(copy, id);
-      if (result) okCount++; else failCount++;
+      if (result) okCount++; else { failCount++; failedNames.push(OCR_NAMES[id] || id); }
     } catch (e) {
       failCount++;
-      rcLog("[RC] SetSystemCursor threw for id", id, ":", e.message);
+      failedNames.push((OCR_NAMES[id] || id) + " (threw: " + e.message + ")");
     }
   });
-  rcLog("[RC] hideSystemCursor done — ok:", okCount, "failed:", failCount, "of", OCR_IDS.length);
+  rcLog("[RC] hideSystemCursor done — ok:", okCount, "failed:", failCount, "of", OCR_IDS.length, "| failed IDs:", failedNames.join(", "));
   cursorHidden = true;
 }
 
