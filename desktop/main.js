@@ -741,20 +741,26 @@ ipcMain.on("rc-start-overlay", (event, data) => {
   rcLog("[RC] rc-start-overlay IPC received, name:", data && data.name, "selfName:", data && data.selfName);
   createCursorOverlay(data && data.name, data && data.selfName);
   startSelfCursorPoll();
-  // Note: we intentionally do NOT call hideSystemCursor() anymore. It was
-  // unreliable (screen-capture on Windows composites the pointer at a
-  // level SetSystemCursor doesn't reach — see cursor:"never" fix in
-  // chat.js's getDisplayMedia calls, which is the actual fix for hiding
-  // the native cursor from the shared video). Keeping the real cursor
-  // alive & untouched here is also required for GetCursorPos() to track
-  // the screen-owner's genuine mouse position for the "self" badge.
-  rcLog("[RC] after start -> overlayWindow created:", !!overlayWindow);
+  // Hide the real OS cursor (Windows-level, via SetSystemCursor). This IS
+  // still needed: Electron's desktopCapturer-based screen share (used via
+  // setDisplayMediaRequestHandler) does NOT respect the `cursor: "never"`
+  // MediaTrackConstraint set in chat.js's getDisplayMedia calls — that
+  // constraint only applies to Chromium's native picker flow, not
+  // Electron's custom desktopCapturer flow. Without this, the real native
+  // cursor gets burned into the captured frame right next to our overlay
+  // badges, looking like "2 mice" per badge. This only hides Isra's own
+  // LOCAL system cursor while RC is active — self-cursor badge tracking
+  // (via robot.getMousePos()) still works fine since it reads real cursor
+  // position regardless of its visibility.
+  hideSystemCursor();
+  rcLog("[RC] after start -> overlayWindow created:", !!overlayWindow, "cursorHidden:", cursorHidden);
 });
 
 ipcMain.on("rc-stop-overlay", () => {
   rcLog("[RC] rc-stop-overlay IPC received");
   destroyCursorOverlay();
   stopSelfCursorPoll();
+  restoreSystemCursor();
 });
 app.on("before-quit", () => {
   isQuitting = true;
