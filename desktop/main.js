@@ -495,7 +495,16 @@ function restoreSystemCursor() {
 // ─── Cursor overlay window (shows BOTH the "Controller" cursor AND the
 //     screen-owner's own real cursor, labeled separately) ───────────
 function createCursorOverlay(controllerName, selfName) {
-  if (overlayWindow) return;
+  // Defensive: if overlayWindow points to an already-destroyed window
+  // (stale reference), treat it as gone and proceed to create a fresh one.
+  if (overlayWindow && overlayWindow.isDestroyed()) {
+    rcLog("[RC] createCursorOverlay: clearing stale destroyed overlayWindow reference");
+    overlayWindow = null;
+  }
+  if (overlayWindow) {
+    rcLog("[RC] createCursorOverlay: overlay already exists and is alive, skipping");
+    return;
+  }
   const display = screen.getPrimaryDisplay();
   overlayWindow = new BrowserWindow({
     x: 0, y: 0,
@@ -514,6 +523,7 @@ function createCursorOverlay(controllerName, selfName) {
   overlayWindow.setAlwaysOnTop(true, "screen-saver");
   overlayWindow.loadFile(path.join(__dirname, "cursor-overlay.html"));
   overlayWindow.webContents.once("did-finish-load", () => {
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
     overlayWindow.webContents.send("set-names", {
       controllerName: controllerName || "Controller",
       selfName: selfName || "Me",
@@ -528,10 +538,22 @@ function createCursorOverlay(controllerName, selfName) {
 }
 
 function destroyCursorOverlay() {
-  if (overlayWindow) {
-    try { overlayWindow.close(); } catch (e) { }
-    overlayWindow = null;
+  if (!overlayWindow) return;
+  try {
+    if (!overlayWindow.isDestroyed()) {
+      // .destroy() is synchronous/forceful and guaranteed to remove the
+      // window immediately — unlike .close(), which is async and can be
+      // slow or silently fail to actually go away, leaving an orphaned
+      // "zombie" overlay window behind that a later createCursorOverlay()
+      // call won't know about (since we'd have already nulled the
+      // reference). That zombie window is exactly what was causing extra
+      // stale badges to show up across sessions.
+      overlayWindow.destroy();
+    }
+  } catch (e) {
+    rcLog("[RC] destroyCursorOverlay error:", e.message);
   }
+  overlayWindow = null;
 }
 
 // Controller's (remote) cursor — driven purely by incoming RC coordinates,
@@ -782,6 +804,11 @@ ipcMain.on("rc-event", (event, rawData) => {
 });
 ipcMain.on("rc-start-overlay", (event, data) => {
   rcLog("[RC] rc-start-overlay IPC received, name:", data && data.name, "selfName:", data && data.selfName);
+  // Guaranteed clean slate: force-destroy any overlay that might still be
+  // hanging around (e.g. from a previous RC session in this same running
+  // app that didn't get torn down cleanly) before creating a fresh one.
+  // This prevents stale "zombie" overlay windows from ever stacking up.
+  destroyCursorOverlay();
   createCursorOverlay(data && data.name, data && data.selfName);
   startSelfCursorPoll();
   // Hide the real OS cursor (Windows-level, via SetSystemCursor). This IS
