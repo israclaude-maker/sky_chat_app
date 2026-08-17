@@ -11345,14 +11345,23 @@ function attachRCToVideo(vid) {
   RemoteCtrl.videoEl = vid;
   if (vid.tagName === "VIDEO") { vid.style.display = "block"; vid.play().catch(function(){}); }
 
+  // Hide Tuba's own real cursor while hovering the video. Without this,
+  // her instant local mouse and the video's blue controller badge (which
+  // has natural WebRTC/network latency before it catches up) visually
+  // "race" each other — confusing and distracting. Hiding the local
+  // cursor makes the blue badge the single, unambiguous thing to look at.
+  // (We do NOT recreate a local "_myCur" badge here — see below — since
+  // that duplicated the video's own controller badge and caused the
+  // earlier "2 mice" bug.)
+  vid.style.cursor = "none";
+
   // NOTE: we intentionally do NOT create a local "_myCur" green badge here
   // anymore. It used to duplicate the controller badge that's already
   // baked into the shared video (rendered on the screen-owner's side via
   // main.js's overlay window) — since both were driven by Tuba's same
   // real mouse position, they'd visually overlap/appear as "2 mice" right
-  // on top of each other. The video's own blue controller badge is the
-  // single source of truth now; Tuba's normal browser cursor is left
-  // alone (not hidden) so she still has an immediate local pointer.
+  // on top of each other. The video's own blue controller badge is now
+  // the single source of truth for where Tuba is pointing.
 
   function getVideoContentRect(v) {
     var r = v.getBoundingClientRect();
