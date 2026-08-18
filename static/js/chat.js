@@ -6217,6 +6217,7 @@ function showOngoingCall() {
     if (localVid) localVid.style.display = "none";
     if (remoteVideo) remoteVideo.style.display = "none";
   }
+  toast("AndroidBridge exists: " + !!window.AndroidBridge + ", method exists: " + !!(window.AndroidBridge && AndroidBridge.showOngoingCallNotification), "i");
     if (window.AndroidBridge && AndroidBridge.showOngoingCallNotification) {
     AndroidBridge.showOngoingCallNotification(
       CallState.remoteUserName || "Call",
