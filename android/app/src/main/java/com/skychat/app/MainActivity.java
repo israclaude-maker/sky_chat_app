@@ -641,6 +641,28 @@ public class MainActivity extends Activity {
             // Stop the service on logout
             stopService(new Intent(MainActivity.this, KeepAliveService.class));
         }
+
+        // ── Ongoing call notification (WhatsApp-style, shown while call is active) ──
+        @JavascriptInterface
+        public void showOngoingCallNotification(final String callerName, final String callType) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    showOngoingCallNotif(callerName, callType);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void hideOngoingCallNotification() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                    nm.cancel(CallActionReceiver.ONGOING_CALL_NOTIFICATION_ID);
+                }
+            });
+        }
     }
 
     // ── WhatsApp-style CALL notification with Answer/Decline ──
@@ -693,6 +715,44 @@ public class MainActivity extends Activity {
 
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.notify(CallActionReceiver.CALL_NOTIFICATION_ID, builder.build());
+    }
+
+    // ── WhatsApp-style ONGOING CALL notification (with Hang Up button) ──
+    private void showOngoingCallNotif(String callerName, String callType) {
+        Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent openPi = PendingIntent.getActivity(this, 4, openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        Intent hangupIntent = new Intent(this, CallActionReceiver.class);
+        hangupIntent.setAction(CallActionReceiver.ACTION_HANGUP);
+        PendingIntent hangupPi = PendingIntent.getBroadcast(this, 5, hangupIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        Bitmap largeIcon = BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_CALL)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setLargeIcon(largeIcon)
+            .setContentTitle(callerName)
+            .setContentText(callType)
+            .setSubText("SkyChat")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(openPi)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setColor(Color.parseColor("#25D366"))
+            .setColorized(true)
+            .setSilent(true) // koi vibrate/sound nahi, call already jaari hai
+            .setUsesChronometer(true)
+            .setWhen(System.currentTimeMillis())
+            .addAction(new NotificationCompat.Action.Builder(
+                android.R.drawable.ic_menu_close_clear_cancel, "Hang Up", hangupPi).build());
+
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        nm.notify(CallActionReceiver.ONGOING_CALL_NOTIFICATION_ID, builder.build());
     }
 
     // ── WhatsApp-style MESSAGE notification ──

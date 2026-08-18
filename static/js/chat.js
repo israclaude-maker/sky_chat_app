@@ -1316,6 +1316,9 @@ function showChatView(user) {
   updateSendBtn();
   // Update group call banner (show if any active call exists)
   updateGroupCallBanner();
+    if (window.AndroidBridge && AndroidBridge.hideOngoingCallNotification) {
+    AndroidBridge.hideOngoingCallNotification();
+  }
 }
 
 // Show group view
@@ -6214,6 +6217,12 @@ function showOngoingCall() {
     if (localVid) localVid.style.display = "none";
     if (remoteVideo) remoteVideo.style.display = "none";
   }
+    if (window.AndroidBridge && AndroidBridge.showOngoingCallNotification) {
+    AndroidBridge.showOngoingCallNotification(
+      CallState.remoteUserName || "Call",
+      CallState.callType === "video" ? "Video Call" : "Voice Call"
+    );
+  }
 }
 
 function updateCallTimer() {
@@ -6679,6 +6688,9 @@ function cleanupCall() {
   }
 
   resetCallState();
+    if (window.AndroidBridge && AndroidBridge.hideOngoingCallNotification) {
+    AndroidBridge.hideOngoingCallNotification();
+  }
 }
 
 function resetCallState() {
@@ -8928,6 +8940,13 @@ function showGroupCallUI() {
 
   // Sync all toolbar button visuals to current state
   syncGcButtonStates();
+
+    if (window.AndroidBridge && AndroidBridge.showOngoingCallNotification) {
+    AndroidBridge.showOngoingCallNotification(
+      getGroupCallTitle(),
+      GC.callType === "video" ? "Group Video Call" : "Group Voice Call"
+    );
+  }
 }
 
 function syncGcButtonStates() {
@@ -9064,6 +9083,9 @@ function cleanupGroupCall() {
   GC.isCamOff = false;
   GC.pendingIceByUser = {};
   updateGroupCallBanner();
+    if (window.AndroidBridge && AndroidBridge.hideOngoingCallNotification) {
+    AndroidBridge.hideOngoingCallNotification();
+  }
 }
 
 function gcToggleMic() {
