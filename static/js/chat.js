@@ -9993,199 +9993,215 @@ document.head.appendChild(notifStyle);
 // Initialize on load
 requestNotificationPermission();
 
-// ═══ SCREEN SHARE ZOOM/PAN ═══
+// ═══ SCREEN SHARE ZOOM CONTROLS (scroll / pinch / drag + buttons) ═══
+var ScreenZoom = { states: {}, MIN: 1, MAX: 5, STEP: 0.3 };
+
+function _szTargetVideos() {
+  var list = [];
+  var rsv = document.getElementById("remote-screen-video");
+  if (rsv && rsv.style.display !== "none" && rsv.srcObject) list.push(rsv);
+  var mainView = document.getElementById("gc-main-view");
+  if (mainView && mainView.classList.contains("screen-share")) {
+    var v = mainView.querySelector("video");
+    if (v) list.push(v);
+  }
+  document.querySelectorAll(".gc-split-panel video").forEach(function (v) {
+    list.push(v);
+  });
+  return list;
+}
+
+function _szGetState(vid) {
+  if (!vid.id) vid.id = "sz-" + Date.now() + Math.random().toString(36).slice(2, 6);
+  if (!ScreenZoom.states[vid.id]) ScreenZoom.states[vid.id] = { scale: 1, panX: 0, panY: 0 };
+  return ScreenZoom.states[vid.id];
+}
+
+function _szClampPan(vid, st) {
+  var maxOffset = (st.scale - 1) * 300;
+  st.panX = Math.max(-maxOffset, Math.min(maxOffset, st.panX));
+  st.panY = Math.max(-maxOffset, Math.min(maxOffset, st.panY));
+}
+
+function _szApply(vid) {
+  var st = _szGetState(vid);
+  vid.style.transformOrigin = "center center";
+  vid.style.transition = "transform 0.15s ease-out";
+  vid.style.transform = "scale(" + st.scale + ") translate(" + st.panX + "px," + st.panY + "px)";
+  vid.style.cursor = st.scale > 1 ? "grab" : "";
+  document.querySelectorAll('[id^="sz-badge-"]').forEach(function (b) {
+    b.textContent = Math.round(st.scale * 100) + "%";
+  });
+}
+
+function _szActiveVideo() {
+  var vids = _szTargetVideos();
+  return vids.length ? vids[0] : null;
+}
+
+function szZoomIn(vid) {
+  vid = vid || _szActiveVideo();
+  if (!vid) return;
+  var st = _szGetState(vid);
+  st.scale = Math.min(ScreenZoom.MAX, +(st.scale + ScreenZoom.STEP).toFixed(2));
+  if (st.scale <= 1) { st.panX = 0; st.panY = 0; }
+  _szClampPan(vid, st);
+  _szApply(vid);
+}
+
+function szZoomOut(vid) {
+  vid = vid || _szActiveVideo();
+  if (!vid) return;
+  var st = _szGetState(vid);
+  st.scale = Math.max(ScreenZoom.MIN, +(st.scale - ScreenZoom.STEP).toFixed(2));
+  if (st.scale <= 1) { st.panX = 0; st.panY = 0; }
+  _szClampPan(vid, st);
+  _szApply(vid);
+}
+
+function szZoomReset(vid) {
+  vid = vid || _szActiveVideo();
+  if (!vid) return;
+  var st = _szGetState(vid);
+  st.scale = 1; st.panX = 0; st.panY = 0;
+  _szApply(vid);
+}
+
+function _szEnsureControls(overlayId) {
+  var overlay = document.getElementById(overlayId);
+  if (!overlay) return;
+  var barId = "sz-controls-" + overlayId;
+  var existing = document.getElementById(barId);
+  var vid = _szActiveVideo();
+
+  if (!vid) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing) return;
+
+  var bar = document.createElement("div");
+  bar.id = barId;
+  bar.style.cssText =
+    "position:absolute;bottom:100px;right:16px;display:flex;flex-direction:column;gap:6px;z-index:10005;";
+  bar.innerHTML =
+    '<button style="width:38px;height:38px;border-radius:10px;background:rgba(0,0,0,0.65);color:#fff;border:none;font-size:16px;cursor:pointer;" onclick="szZoomIn()"><i class="fa-solid fa-plus"></i></button>' +
+    '<button style="width:38px;height:38px;border-radius:10px;background:rgba(0,0,0,0.65);color:#fff;border:none;font-size:16px;cursor:pointer;" onclick="szZoomOut()"><i class="fa-solid fa-minus"></i></button>' +
+    '<button style="width:38px;height:38px;border-radius:10px;background:rgba(0,0,0,0.65);color:#fff;border:none;font-size:13px;cursor:pointer;" onclick="szZoomReset()" title="Reset"><i class="fa-solid fa-compress"></i></button>' +
+    '<div id="sz-badge-' + overlayId + '" style="text-align:center;color:#fff;font-size:11px;background:rgba(0,0,0,0.55);border-radius:8px;padding:3px 4px;">100%</div>';
+  overlay.appendChild(bar);
+}
+
 (function initScreenShareZoom() {
-  var zoomState = {};
-
-  function getState(el) {
-    if (!zoomState[el.id])
-      zoomState[el.id] = {
-        scale: 1,
-        panX: 0,
-        panY: 0,
-        dragging: false,
-        startX: 0,
-        startY: 0,
-      };
-    return zoomState[el.id];
+  function isTargetVideo(el) {
+    if (!el || el.tagName !== "VIDEO") return false;
+    if (el.id === "remote-screen-video") return true;
+    var mv = document.getElementById("gc-main-view");
+    if (mv && mv.contains(el) && mv.classList.contains("screen-share")) return true;
+    if (el.closest(".gc-split-panel")) return true;
+    return false;
   }
 
-  function applyTransform(el, st) {
-    el.style.transform =
-      "scale(" + st.scale + ") translate(" + st.panX + "px, " + st.panY + "px)";
-  }
-
-  function resetZoom(el) {
-    var st = getState(el);
-    st.scale = 1;
-    st.panX = 0;
-    st.panY = 0;
-    el.style.transform = "";
-  }
-
-  // Wheel zoom on any screen-share video
+  // Wheel zoom
   document.addEventListener(
     "wheel",
     function (e) {
       var el = e.target.closest("video");
-      if (!el) return;
-      // Only zoom on screen share videos
-      var isScreenShare =
-        el.id === "remote-video" && el.classList.contains("screen-share");
-      var isGcScreenShare = el.closest(".gc-peer-tile.screen-share");
-      if (!isScreenShare && !isGcScreenShare) return;
-
+      if (!isTargetVideo(el)) return;
       e.preventDefault();
-      if (!el.id) el.id = "zv-" + Date.now();
-      var st = getState(el);
-      var delta = e.deltaY > 0 ? -0.15 : 0.15;
-      st.scale = Math.max(1, Math.min(5, st.scale + delta));
-      if (st.scale <= 1) {
-        st.panX = 0;
-        st.panY = 0;
-      }
-      applyTransform(el, st);
+      var st = _szGetState(el);
+      var delta = e.deltaY > 0 ? -ScreenZoom.STEP : ScreenZoom.STEP;
+      st.scale = Math.max(ScreenZoom.MIN, Math.min(ScreenZoom.MAX, st.scale + delta));
+      if (st.scale <= 1) { st.panX = 0; st.panY = 0; }
+      _szClampPan(el, st);
+      _szApply(el);
     },
     { passive: false },
   );
 
-  // Touch pinch-to-zoom
-  var pinchDist = 0;
-  document.addEventListener(
-    "touchstart",
-    function (e) {
-      if (e.touches.length !== 2) return;
-      var el = e.target.closest("video");
-      if (!el) return;
-      var isScreenShare =
-        el.id === "remote-video" && el.classList.contains("screen-share");
-      var isGcScreenShare = el.closest(".gc-peer-tile.screen-share");
-      if (!isScreenShare && !isGcScreenShare) return;
-      pinchDist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY,
-      );
-    },
-    { passive: true },
-  );
+  // Pinch zoom (touch)
+  var pinchDist = 0, pinchEl = null;
+  document.addEventListener("touchstart", function (e) {
+    if (e.touches.length !== 2) return;
+    var el = e.target.closest("video");
+    if (!isTargetVideo(el)) return;
+    pinchEl = el;
+    pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  }, { passive: true });
 
-  document.addEventListener(
-    "touchmove",
-    function (e) {
-      if (e.touches.length !== 2 || !pinchDist) return;
-      var el = e.target.closest("video");
-      if (!el) return;
-      var isScreenShare =
-        el.id === "remote-video" && el.classList.contains("screen-share");
-      var isGcScreenShare = el.closest(".gc-peer-tile.screen-share");
-      if (!isScreenShare && !isGcScreenShare) return;
+  document.addEventListener("touchmove", function (e) {
+    if (e.touches.length !== 2 || !pinchDist || !pinchEl) return;
+    e.preventDefault();
+    var st = _szGetState(pinchEl);
+    var newDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    var ratio = newDist / pinchDist;
+    st.scale = Math.max(ScreenZoom.MIN, Math.min(ScreenZoom.MAX, st.scale * ratio));
+    if (st.scale <= 1) { st.panX = 0; st.panY = 0; }
+    pinchDist = newDist;
+    _szClampPan(pinchEl, st);
+    _szApply(pinchEl);
+  }, { passive: false });
 
-      e.preventDefault();
-      if (!el.id) el.id = "zv-" + Date.now();
-      var st = getState(el);
-      var newDist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY,
-      );
-      var ratio = newDist / pinchDist;
-      st.scale = Math.max(1, Math.min(5, st.scale * ratio));
-      if (st.scale <= 1) {
-        st.panX = 0;
-        st.panY = 0;
-      }
-      pinchDist = newDist;
-      applyTransform(el, st);
-    },
-    { passive: false },
-  );
+  document.addEventListener("touchend", function () { pinchDist = 0; pinchEl = null; });
 
-  document.addEventListener("touchend", function () {
-    pinchDist = 0;
-  });
-
-  // Mouse drag to pan when zoomed
+  // Mouse drag pan
+  var dragEl = null, dragging = false, startX, startY;
   document.addEventListener("mousedown", function (e) {
     var el = e.target.closest("video");
-    if (!el) return;
-    var isScreenShare =
-      el.id === "remote-video" && el.classList.contains("screen-share");
-    var isGcScreenShare = el.closest(".gc-peer-tile.screen-share");
-    if (!isScreenShare && !isGcScreenShare) return;
-    if (!el.id) el.id = "zv-" + Date.now();
-    var st = getState(el);
+    if (!isTargetVideo(el)) return;
+    var st = _szGetState(el);
     if (st.scale <= 1) return;
-    st.dragging = true;
-    st.startX = e.clientX - st.panX;
-    st.startY = e.clientY - st.panY;
+    dragEl = el; dragging = true;
+    startX = e.clientX - st.panX;
+    startY = e.clientY - st.panY;
     e.preventDefault();
   });
-
   document.addEventListener("mousemove", function (e) {
+    if (!dragging || !dragEl) return;
+    var st = _szGetState(dragEl);
+    st.panX = e.clientX - startX;
+    st.panY = e.clientY - startY;
+    _szClampPan(dragEl, st);
+    _szApply(dragEl);
+  });
+  document.addEventListener("mouseup", function () { dragging = false; dragEl = null; });
+
+  // Touch drag pan (1 finger)
+  var touchPanEl = null;
+  document.addEventListener("touchstart", function (e) {
+    if (e.touches.length !== 1) return;
     var el = e.target.closest("video");
-    if (!el || !el.id) return;
-    var st = zoomState[el.id];
-    if (!st || !st.dragging) return;
-    st.panX = e.clientX - st.startX;
-    st.panY = e.clientY - st.startY;
-    applyTransform(el, st);
-  });
+    if (!isTargetVideo(el)) return;
+    var st = _szGetState(el);
+    if (st.scale <= 1) return;
+    touchPanEl = el;
+    st.startX = e.touches[0].clientX - st.panX;
+    st.startY = e.touches[0].clientY - st.panY;
+  }, { passive: true });
+  document.addEventListener("touchmove", function (e) {
+    if (!touchPanEl || e.touches.length !== 1) return;
+    var st = _szGetState(touchPanEl);
+    if (st.scale <= 1) return;
+    e.preventDefault();
+    st.panX = e.touches[0].clientX - st.startX;
+    st.panY = e.touches[0].clientY - st.startY;
+    _szClampPan(touchPanEl, st);
+    _szApply(touchPanEl);
+  }, { passive: false });
+  document.addEventListener("touchend", function () { touchPanEl = null; });
 
-  document.addEventListener("mouseup", function () {
-    Object.keys(zoomState).forEach(function (k) {
-      zoomState[k].dragging = false;
-    });
-  });
-
-  // Double-click to reset zoom
+  // Double-click reset
   document.addEventListener("dblclick", function (e) {
     var el = e.target.closest("video");
-    if (!el) return;
-    var isScreenShare =
-      el.id === "remote-video" && el.classList.contains("screen-share");
-    var isGcScreenShare = el.closest(".gc-peer-tile.screen-share");
-    if (!isScreenShare && !isGcScreenShare) return;
-    resetZoom(el);
+    if (!isTargetVideo(el)) return;
+    szZoomReset(el);
   });
 
-  // Touch pan (single finger when zoomed)
-  var touchPanEl = null;
-  document.addEventListener(
-    "touchstart",
-    function (e) {
-      if (e.touches.length !== 1) return;
-      var el = e.target.closest("video");
-      if (!el) return;
-      var isScreenShare =
-        el.id === "remote-video" && el.classList.contains("screen-share");
-      var isGcScreenShare = el.closest(".gc-peer-tile.screen-share");
-      if (!isScreenShare && !isGcScreenShare) return;
-      if (!el.id) el.id = "zv-" + Date.now();
-      var st = getState(el);
-      if (st.scale <= 1) return;
-      touchPanEl = el;
-      st.startX = e.touches[0].clientX - st.panX;
-      st.startY = e.touches[0].clientY - st.panY;
-    },
-    { passive: true },
-  );
-
-  document.addEventListener(
-    "touchmove",
-    function (e) {
-      if (!touchPanEl || e.touches.length !== 1) return;
-      var st = zoomState[touchPanEl.id];
-      if (!st || st.scale <= 1) return;
-      e.preventDefault();
-      st.panX = e.touches[0].clientX - st.startX;
-      st.panY = e.touches[0].clientY - st.panY;
-      applyTransform(touchPanEl, st);
-    },
-    { passive: false },
-  );
-
-  document.addEventListener("touchend", function () {
-    touchPanEl = null;
-  });
+  // Auto show/hide floating +/- buttons
+  setInterval(function () {
+    _szEnsureControls("ongoing-call");
+    _szEnsureControls("gc-ongoing-call");
+  }, 800);
 })();
 
 // ═══ ANDROID WEBVIEW SCREEN SHARE POLYFILL ═══
