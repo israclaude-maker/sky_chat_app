@@ -1316,9 +1316,6 @@ function showChatView(user) {
   updateSendBtn();
   // Update group call banner (show if any active call exists)
   updateGroupCallBanner();
-    if (window.AndroidBridge && AndroidBridge.hideOngoingCallNotification) {
-    AndroidBridge.hideOngoingCallNotification();
-  }
 }
 
 // Show group view
@@ -6217,13 +6214,6 @@ function showOngoingCall() {
     if (localVid) localVid.style.display = "none";
     if (remoteVideo) remoteVideo.style.display = "none";
   }
-  toast("AndroidBridge exists: " + !!window.AndroidBridge + ", method exists: " + !!(window.AndroidBridge && AndroidBridge.showOngoingCallNotification), "i");
-    if (window.AndroidBridge && AndroidBridge.showOngoingCallNotification) {
-    AndroidBridge.showOngoingCallNotification(
-      CallState.remoteUserName || "Call",
-      CallState.callType === "video" ? "Video Call" : "Voice Call"
-    );
-  }
 }
 
 function updateCallTimer() {
@@ -6689,9 +6679,6 @@ function cleanupCall() {
   }
 
   resetCallState();
-    if (window.AndroidBridge && AndroidBridge.hideOngoingCallNotification) {
-    AndroidBridge.hideOngoingCallNotification();
-  }
 }
 
 function resetCallState() {
@@ -6942,26 +6929,7 @@ function gcToggleCam() {
     Object.keys(GC.peers).forEach(function (pid) {
       var peer = GC.peers[pid];
       if (!peer || !peer.pc) return;
-      peer.pc
-        .createOffer()
-        .then(function (offer) {
-          return peer.pc.setLocalDescription(offer);
-        })
-        .then(function () {
-          if (S.globalWs && S.globalWs.readyState === 1) {
-            S.globalWs.send(
-              JSON.stringify({
-                type: "group_call_offer",
-                group_call_id: GC.groupCallId,
-                target_user_id: parseInt(pid),
-                sdp: peer.pc.localDescription,
-              }),
-            );
-          }
-        })
-        .catch(function (e) {
-          console.error("GC cam off renegotiate:", e);
-        });
+      gcRenegotiate(pid, peer);
     });
     syncGcButtonStates();
     buildLocalThumb();
@@ -6984,26 +6952,7 @@ function gcToggleCam() {
           var peer = GC.peers[pid];
           if (!peer || !peer.pc) return;
           peer.pc.addTrack(videoTrack, GC.localStream);
-          peer.pc
-            .createOffer()
-            .then(function (offer) {
-              return peer.pc.setLocalDescription(offer);
-            })
-            .then(function () {
-              if (S.globalWs && S.globalWs.readyState === 1) {
-                S.globalWs.send(
-                  JSON.stringify({
-                    type: "group_call_offer",
-                    group_call_id: GC.groupCallId,
-                    target_user_id: parseInt(pid),
-                    sdp: peer.pc.localDescription,
-                  }),
-                );
-              }
-            })
-            .catch(function (e) {
-              console.error("GC cam on renegotiate:", e);
-            });
+          gcRenegotiate(pid, peer);
         });
         syncGcButtonStates();
         buildLocalThumb();
@@ -7939,10 +7888,44 @@ function handleGroupCallOffer(data) {
     existingPeer.pc.connectionState !== "disconnected";
 
   if (isRenegotiation) {
-    console.log("[GC] handleGroupCallOffer: RENEGOTIATION for peer " + fromId);
     var pc = existingPeer.pc;
+    var peer = existingPeer;
 
-    pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
+    // ── Perfect Negotiation glare handling ─────────────────────
+    // A collision means: an offer just arrived from fromId while WE are
+    // also either mid-way through sending our own offer (makingOffer) or
+    // already have one pending locally (signalingState !== "stable").
+    // Without this check, both sides can send offers at once and one
+    // side's setRemoteDescription() throws (wrong signaling state) —
+    // which previously fell through to _gcCreateFreshPeer(), tearing
+    // down and rebuilding the whole connection (the visible "freeze").
+    var offerCollision =
+      peer.makingOffer || pc.signalingState !== "stable";
+    var ignoreOffer = !peer.polite && offerCollision;
+
+    if (ignoreOffer) {
+      console.log(
+        "[GC] ignoring colliding offer from " +
+          fromId +
+          " (we're impolite, backing off is the other side's job)",
+      );
+      return;
+    }
+
+    console.log(
+      "[GC] handleGroupCallOffer: RENEGOTIATION for peer " +
+        fromId +
+        (offerCollision ? " (collision — rolling back, we're polite)" : ""),
+    );
+
+    var rollbackPromise = offerCollision
+      ? pc.setLocalDescription({ type: "rollback" })
+      : Promise.resolve();
+
+    rollbackPromise
+      .then(function () {
+        return pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      })
       .then(function () {
         return pc.createAnswer();
       })
@@ -8147,6 +8130,7 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
 
   if (isInitiator) {
     var pc = peer.pc;
+    peer.makingOffer = true;
     // Use offerToReceiveAudio/Video like 1-on-1 calls (proven to work)
     // No extra recvonly transceivers — screen share handled via renegotiation
     pc.createOffer({
@@ -8185,6 +8169,9 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
       })
       .catch(function (err) {
         console.error("Group offer create error:", err);
+      })
+      .finally(function () {
+        peer.makingOffer = false;
       });
   }
   return peer;
@@ -8198,6 +8185,17 @@ function createGroupPeerConnection(peerId) {
     screenStream: null,
     pendingIce: [],
     _pendingScreenStream: null,
+    // ── Perfect Negotiation state ──────────────────────────────
+    // "polite" is a stable tie-breaker both sides compute independently
+    // and always land on OPPOSITE answers for the same pair, so no extra
+    // signaling is needed to agree on who backs off during an offer
+    // collision. Whoever has the numerically smaller user id is polite.
+    polite: !!(S.user && S.user.id != null && S.user.id < peerId),
+    makingOffer: false,
+    _restarting: false, // guards against oniceconnectionstatechange AND
+    // onconnectionstatechange both calling restartIce() for the same
+    // failure at nearly the same time, which can make ICE recovery itself
+    // fail/hang instead of actually recovering.
   };
 
   // Global ICE queue se transfer karo
@@ -8228,6 +8226,53 @@ function createGroupPeerConnection(peerId) {
 
   setupGroupPeerHandlers(pc, peer, peerId);
   return peer;
+}
+
+// ── Single shared renegotiation entrypoint ──────────────────────────
+// Every place that needs to renegotiate (cam on/off, screen share
+// start/stop) should call this instead of duplicating createOffer/
+// setLocalDescription/send inline. Sets `makingOffer` around the whole
+// attempt so handleGroupCallOffer can correctly detect a collision if an
+// offer arrives from the same peer while we're mid-flight.
+function gcRenegotiate(pid, peer) {
+  if (!peer || !peer.pc) return;
+  // If we're already mid-offer for this peer, don't fire a second
+  // overlapping createOffer/setLocalDescription — queue it and replay
+  // once the in-flight one finishes. Two overlapping local offers is a
+  // self-inflicted version of the same "invalid state" problem the
+  // remote-glare handling protects against.
+  if (peer.makingOffer) {
+    peer._renegotiatePending = true;
+    return;
+  }
+  var pc = peer.pc;
+  peer.makingOffer = true;
+  pc.createOffer()
+    .then(function (offer) {
+      return pc.setLocalDescription(offer);
+    })
+    .then(function () {
+      if (S.globalWs && S.globalWs.readyState === 1) {
+        S.globalWs.send(
+          JSON.stringify({
+            type: "group_call_offer",
+            group_call_id: GC.groupCallId,
+            target_user_id: parseInt(pid),
+            sdp: pc.localDescription,
+          }),
+        );
+      }
+    })
+    .catch(function (err) {
+      console.error("[GC] gcRenegotiate error for " + pid + ":", err);
+    })
+    .finally(function () {
+      peer.makingOffer = false;
+      if (peer._renegotiatePending) {
+        peer._renegotiatePending = false;
+        gcRenegotiate(pid, peer);
+      }
+    });
 }
 
 function setupGroupPeerHandlers(pc, peer, peerId) {
@@ -8321,8 +8366,7 @@ function setupGroupPeerHandlers(pc, peer, peerId) {
       "[GC] peer " + peerId + " iceConnectionState: " + pc.iceConnectionState,
     );
     if (pc.iceConnectionState === "failed") {
-      console.log("[GC] ICE failed for peer " + peerId + " - restarting");
-      pc.restartIce();
+      gcSafeRestartIce(pc, peer, peerId, "iceConnectionState failed");
     }
   };
 
@@ -8342,19 +8386,37 @@ function setupGroupPeerHandlers(pc, peer, peerId) {
       renderGroupCallPeer(peerId, peer);
       gcStartTalkingDetection();
     } else if (pc.connectionState === "failed") {
-      console.log(
-        "[GC] Peer " + peerId + " connection failed — restarting ICE",
-      );
-      pc.restartIce();
+      gcSafeRestartIce(pc, peer, peerId, "connectionState failed");
     } else if (pc.connectionState === "disconnected") {
       console.log("[GC] Peer " + peerId + " disconnected — waiting...");
       setTimeout(function () {
         if (peer.pc && peer.pc.connectionState === "disconnected") {
-          peer.pc.restartIce();
+          gcSafeRestartIce(pc, peer, peerId, "still disconnected after 5s");
         }
       }, 5000);
     }
   };
+}
+
+// oniceconnectionstatechange and onconnectionstatechange can BOTH fire
+// "failed" for the same underlying problem within milliseconds of each
+// other. Calling pc.restartIce() twice back-to-back can make the ICE
+// restart itself fail/hang rather than actually recovering — this guard
+// makes sure only one restart attempt happens per peer per failure.
+function gcSafeRestartIce(pc, peer, peerId, reason) {
+  if (peer._restarting) return;
+  peer._restarting = true;
+  console.log("[GC] Restarting ICE for peer " + peerId + " (" + reason + ")");
+  try {
+    pc.restartIce();
+  } catch (e) {
+    console.error("[GC] restartIce threw for " + peerId + ":", e);
+  }
+  // Give the restart a window to actually happen before allowing another
+  // one to be triggered for a subsequent failure.
+  setTimeout(function () {
+    peer._restarting = false;
+  }, 4000);
 }
 
 // Zoom-like focused participant
@@ -8941,13 +9003,6 @@ function showGroupCallUI() {
 
   // Sync all toolbar button visuals to current state
   syncGcButtonStates();
-
-    if (window.AndroidBridge && AndroidBridge.showOngoingCallNotification) {
-    AndroidBridge.showOngoingCallNotification(
-      getGroupCallTitle(),
-      GC.callType === "video" ? "Group Video Call" : "Group Voice Call"
-    );
-  }
 }
 
 function syncGcButtonStates() {
@@ -9084,9 +9139,6 @@ function cleanupGroupCall() {
   GC.isCamOff = false;
   GC.pendingIceByUser = {};
   updateGroupCallBanner();
-    if (window.AndroidBridge && AndroidBridge.hideOngoingCallNotification) {
-    AndroidBridge.hideOngoingCallNotification();
-  }
 }
 
 function gcToggleMic() {
@@ -9254,26 +9306,7 @@ function gcStartScreenShare() {
 
       // Saare peers ke saath renegotiate karo
       Object.keys(GC.peers).forEach(function (pid) {
-        var pc = GC.peers[pid].pc;
-        pc.createOffer()
-          .then(function (offer) {
-            return pc.setLocalDescription(offer);
-          })
-          .then(function () {
-            if (S.globalWs && S.globalWs.readyState === 1) {
-              S.globalWs.send(
-                JSON.stringify({
-                  type: "group_call_offer",
-                  group_call_id: GC.groupCallId,
-                  target_user_id: parseInt(pid),
-                  sdp: pc.localDescription,
-                }),
-              );
-            }
-          })
-          .catch(function (err) {
-            console.error("GC screen share renegotiation error:", err);
-          });
+        gcRenegotiate(pid, GC.peers[pid]);
       });
 
       // Saare peers ko batao ke screen share shuru ho gayi
@@ -9329,26 +9362,7 @@ function gcStopScreenShare() {
 
   // Renegotiate with all peers
   Object.keys(GC.peers).forEach(function (pid) {
-    var pc = GC.peers[pid].pc;
-    pc.createOffer()
-      .then(function (offer) {
-        return pc.setLocalDescription(offer);
-      })
-      .then(function () {
-        if (S.globalWs && S.globalWs.readyState === 1) {
-          S.globalWs.send(
-            JSON.stringify({
-              type: "group_call_offer",
-              group_call_id: GC.groupCallId,
-              target_user_id: pid,
-              sdp: pc.localDescription,
-            }),
-          );
-        }
-      })
-      .catch(function (err) {
-        console.error("GC screen stop renegotiation error:", err);
-      });
+    gcRenegotiate(pid, GC.peers[pid]);
   });
 
   // Notify all peers screen share stopped
@@ -11456,25 +11470,15 @@ document.addEventListener("mousemove", vid._rcMove);
     if (!RemoteCtrl.isControlling) return;
     var activeEl = document.activeElement;
     var activeTag = activeEl ? activeEl.tagName.toLowerCase() : "";
-    console.log(
-      "[RC DEBUG] keydown fired:",
-      e.key,
-      "activeTag:",
-      activeTag,
-      "isVid:",
-      activeEl === vid,
-    );
     // Sirf apna message box block karo, baaki sab allow
     if (
       (activeTag === "input" || activeTag === "textarea") &&
       activeEl !== vid
     ) {
-      console.log("[RC DEBUG] BLOCKED - local input focused");
       return;
     }
     e.preventDefault();
     e.stopPropagation();
-    console.log("[RC DEBUG] sending keypress to remote:", e.key);
     sendRCEvent("keypress", 0, 0, {
       key: e.key,
       code: e.code,
@@ -11527,14 +11531,10 @@ function handleRemoteControlEvent(data) {
   // Ignore cursor_sync (removed — not needed)
   if (data.event === "cursor_sync") return;
   if (!RemoteCtrl.isBeingControlled) return;
-  console.log(
-    "[RC DEBUG] received event:",
-    data.event,
-    "key:",
-    data.key,
-    "DesktopBridge exists:",
-    !!window.DesktopBridge,
-  );
+  // NOTE: removed the per-event console.log here (used to fire on every
+  // single mousemove, 15-20x/sec) — it was adding real overhead and
+  // contributing to the RC lag. No longer needed now that the pipeline
+  // is confirmed working.
 
   // ACTUAL PC CONTROL - Desktop app pe robotjs se
   if (window.DesktopBridge && window.DesktopBridge.sendRCEvent) {
