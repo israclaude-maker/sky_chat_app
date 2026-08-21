@@ -32,12 +32,14 @@ contextBridge.exposeInMainWorld("DesktopBridge", {
 
   // Remote Control
   sendRCEvent: (data) => ipcRenderer.send("rc-event", data),
-
-  // Remote Control
-  sendRCEvent: (data) => ipcRenderer.send("rc-event", data),
   startCursorOverlay: (name, selfName) =>
     ipcRenderer.send("rc-start-overlay", { name, selfName }),
   stopCursorOverlay: () => ipcRenderer.send("rc-stop-overlay"),
+
+  // Screen share border indicator
+  startScreenShareBorder: () => ipcRenderer.send("share-border-start"),
+  stopScreenShareBorder: () => ipcRenderer.send("share-border-stop"),
+
   // Callbacks from main process
   onCallAction: (callback) => {
     ipcRenderer.on("call-action", (event, action) => callback(action));

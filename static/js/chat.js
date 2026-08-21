@@ -411,6 +411,38 @@ function fmtFullTime(iso) {
     })
   );
 }
+// ─── Screen share visual indicator (browser-side) ───
+function showShareBorder() {
+  if (document.getElementById("share-border-indicator")) return;
+  var el = document.createElement("div");
+  el.id = "share-border-indicator";
+  el.style.cssText =
+    "position:fixed;top:0;left:0;right:0;bottom:0;" +
+    "border:6px solid #3b82f6;box-sizing:border-box;" +
+    "box-shadow:inset 0 0 30px rgba(59,130,246,0.6);" +
+    "pointer-events:none;z-index:999998;";
+  document.body.appendChild(el);
+
+  var label = document.createElement("div");
+  label.id = "share-border-label";
+  label.style.cssText =
+    "position:fixed;top:14px;left:50%;transform:translateX(-50%);" +
+    "background:#3b82f6;color:#fff;font-family:'Segoe UI',sans-serif;" +
+    "font-size:13px;font-weight:600;padding:7px 18px;border-radius:20px;" +
+    "box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:999999;" +
+    "display:flex;align-items:center;gap:8px;";
+  label.innerHTML =
+    '<span style="width:8px;height:8px;background:#fff;border-radius:50%;display:inline-block;animation:pulse 1s infinite;"></span>' +
+    "You are sharing your screen";
+  document.body.appendChild(label);
+}
+
+function hideShareBorder() {
+  var el = document.getElementById("share-border-indicator");
+  if (el) el.remove();
+  var label = document.getElementById("share-border-label");
+  if (label) label.remove();
+}
 
 function toast(msg, type) {
   var icons = {
@@ -6384,6 +6416,10 @@ function startScreenShare() {
       }
 
       updateScreenBtn(true);
+      showShareBorder();
+      if (window.DesktopBridge && window.DesktopBridge.startScreenShareBorder) {
+        window.DesktopBridge.startScreenShareBorder();
+      }
       screenTrack.onended = function () {
         stopScreenShare();
       };
@@ -6467,6 +6503,10 @@ function stopScreenShare() {
 
   CallState.originalVideoTrack = null;
   updateScreenBtn(false);
+  hideShareBorder();
+  if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+    window.DesktopBridge.stopScreenShareBorder();
+  }
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -9331,6 +9371,10 @@ function gcStartScreenShare() {
         btn.innerHTML =
           '<i class="fa-solid fa-display"></i><span class="screen-dot"></span>';
       }
+      showShareBorder();
+      if (window.DesktopBridge && window.DesktopBridge.startScreenShareBorder) {
+        window.DesktopBridge.startScreenShareBorder();
+      }
 
       screenTrack.onended = function () {
         gcStopScreenShare();
@@ -9385,6 +9429,10 @@ function gcStopScreenShare() {
   if (btn) {
     btn.classList.remove("screen-active");
     btn.innerHTML = '<i class="fa-solid fa-display"></i>';
+      hideShareBorder();
+  }
+  if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+    window.DesktopBridge.stopScreenShareBorder();
   }
 }
 

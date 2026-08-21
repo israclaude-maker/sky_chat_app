@@ -556,6 +556,41 @@ function destroyCursorOverlay() {
   overlayWindow = null;
 }
 
+// ─── Screen share border overlay ───────────────────────────────
+let shareBorderWindow = null;
+
+function createShareBorderOverlay() {
+  if (shareBorderWindow && !shareBorderWindow.isDestroyed()) return;
+  const display = screen.getPrimaryDisplay();
+  shareBorderWindow = new BrowserWindow({
+    x: 0, y: 0,
+    width: display.bounds.width,
+    height: display.bounds.height,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: false,
+    hasShadow: false,
+    resizable: false,
+    webPreferences: { contextIsolation: false, nodeIntegration: true },
+  });
+  shareBorderWindow.setIgnoreMouseEvents(true);
+  shareBorderWindow.setAlwaysOnTop(true, "screen-saver");
+  shareBorderWindow.loadFile(path.join(__dirname, "border-overlay.html"));
+  shareBorderWindow.on("closed", () => { shareBorderWindow = null; });
+}
+
+function destroyShareBorderOverlay() {
+  if (!shareBorderWindow) return;
+  try {
+    if (!shareBorderWindow.isDestroyed()) shareBorderWindow.destroy();
+  } catch (e) {
+    rcLog("[ShareBorder] destroy error:", e.message);
+  }
+  shareBorderWindow = null;
+}
+
 // Controller's (remote) cursor — driven purely by incoming RC coordinates,
 // never touches the real OS pointer.
 //
@@ -832,9 +867,19 @@ ipcMain.on("rc-stop-overlay", () => {
   stopSelfCursorPoll();
   restoreSystemCursor();
 });
+
+// ─── Screen share border indicator ──────────────────────────
+ipcMain.on("share-border-start", () => {
+  createShareBorderOverlay();
+});
+ipcMain.on("share-border-stop", () => {
+  destroyShareBorderOverlay();
+});
+
 app.on("before-quit", () => {
   isQuitting = true;
   restoreSystemCursor();
+  destroyShareBorderOverlay();
 });
 
 // Accept self-signed certs in dev
