@@ -874,59 +874,63 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ── Back button: agar call chal rahi hai to minimize karo (PIP), warna normal back ──
+    // ── Back handling: agar call chal rahi hai to minimize karo (PIP), warna normal back ──
+    // NOTE: onBackPressed() istemal ho raha hai (onKeyDown ki jagah) kyunke yeh
+    // hardware back button, 3-button nav bar, AUR gesture-navigation (swipe back)
+    // — teenon ke sath reliably chalta hai. onKeyDown sirf hardware/button back
+    // ke liye chalta tha; gesture-nav phones (Android 13+ predictive back) usay
+    // skip kar dete the, jis se call bina PIP dikhaye gayab ho jaati thi.
     @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK) {
-            if (webView == null) {
-                return super.onKeyDown(keyCode, event);
-            }
-
-            webView.evaluateJavascript(
-                "(function(){" +
-                "  try {" +
-                "    if (typeof CallState !== 'undefined' && CallState.isInCall) {" +
-                "      if (typeof callMinimized !== 'undefined' && !callMinimized && typeof minimizeCall === 'function') {" +
-                "        minimizeCall();" +
-                "      }" +
-                "      return 'call';" +
-                "    }" +
-                "    if (typeof GC !== 'undefined' && GC.active) {" +
-                "      if (typeof callMinimized !== 'undefined' && !callMinimized && typeof minimizeGroupCall === 'function') {" +
-                "        minimizeGroupCall();" +
-                "      }" +
-                "      return 'groupcall';" +
-                "    }" +
-                "    return 'none';" +
-                "  } catch(e) { return 'none'; }" +
-                "})()",
-                new android.webkit.ValueCallback<String>() {
-                    @Override
-                    public void onReceiveValue(String result) {
-                        String r = result != null ? result.replace("\"", "") : "none";
-                        if ("none".equals(r)) {
-                            // Koi call active nahi thi - normal back behavior
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    if (webView.canGoBack()) {
-                                        webView.goBack();
-                                    } else {
-                                        // History khatam - app ko close karne ki bajaye minimize karo
-                                        moveTaskToBack(true);
-                                    }
-                                }
-                            });
-                        }
-                        // Agar call active thi, to minimizeCall()/minimizeGroupCall() already
-                        // chal chuka hai upar wale JS mein - PIP widget dikh raha hoga, aur
-                        // koi navigation nahi karni.
-                    }
-                }
-            );
-            return true; // back press ko yahin consume karo, default WebView behavior mat chalao
+    public void onBackPressed() {
+        if (webView == null) {
+            super.onBackPressed();
+            return;
         }
-        return super.onKeyDown(keyCode, event);
+
+        webView.evaluateJavascript(
+            "(function(){" +
+            "  try {" +
+            "    if (typeof CallState !== 'undefined' && CallState.isInCall) {" +
+            "      if (typeof callMinimized !== 'undefined' && !callMinimized && typeof minimizeCall === 'function') {" +
+            "        minimizeCall();" +
+            "      }" +
+            "      return 'call';" +
+            "    }" +
+            "    if (typeof GC !== 'undefined' && GC.active) {" +
+            "      if (typeof callMinimized !== 'undefined' && !callMinimized && typeof minimizeGroupCall === 'function') {" +
+            "        minimizeGroupCall();" +
+            "      }" +
+            "      return 'groupcall';" +
+            "    }" +
+            "    return 'none';" +
+            "  } catch(e) { return 'none'; }" +
+            "})()",
+            new android.webkit.ValueCallback<String>() {
+                @Override
+                public void onReceiveValue(String result) {
+                    String r = result != null ? result.replace("\"", "") : "none";
+                    if ("none".equals(r)) {
+                        // Koi call active nahi thi - normal back behavior
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (webView.canGoBack()) {
+                                    webView.goBack();
+                                } else {
+                                    // History khatam - app ko close karne ki bajaye minimize karo
+                                    moveTaskToBack(true);
+                                }
+                            }
+                        });
+                    }
+                    // Agar call active thi, to minimizeCall()/minimizeGroupCall() already
+                    // chal chuka hai upar wale JS mein - PIP widget dikh raha hoga, aur
+                    // koi navigation nahi karni.
+                }
+            }
+        );
+        // Back press consume kar liya yahan - super.onBackPressed() (jo activity close
+        // kar deta) intentionally nahi bulaya jaa raha.
     }
 
     
