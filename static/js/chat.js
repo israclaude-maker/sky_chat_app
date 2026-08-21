@@ -6050,8 +6050,10 @@ function handleScreenToggle(data) {
     }
     waitForStream();
   } else {
-    if (remoteScreenVideo) {
+if (remoteScreenVideo) {
       remoteScreenVideo.style.display = "none";
+      remoteScreenVideo.style.border = "";
+      remoteScreenVideo.style.boxShadow = "";
       remoteScreenVideo.srcObject = null;
     }
     CallState.remoteScreenStream = null;
@@ -6095,9 +6097,11 @@ function _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingA
     var rvt = remoteVideo.srcObject.getVideoTracks();
     if (rvt.length > 0) CallState.remoteScreenStream = remoteVideo.srcObject;
   }
-  if (remoteScreenVideo && CallState.remoteScreenStream) {
+if (remoteScreenVideo && CallState.remoteScreenStream) {
     remoteScreenVideo.style.display = "block";
     remoteScreenVideo.style.objectFit = "contain";
+    remoteScreenVideo.style.border = "4px solid #3b82f6";
+    remoteScreenVideo.style.boxShadow = "0 0 24px rgba(59,130,246,0.7)";
     remoteScreenVideo.srcObject = CallState.remoteScreenStream;
     remoteScreenVideo.play().catch(function (e) {});
   }
