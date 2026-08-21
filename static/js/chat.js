@@ -9999,7 +9999,7 @@ var ScreenZoom = { states: {}, MIN: 1, MAX: 5, STEP: 0.3 };
 function _szTargetVideos() {
   var list = [];
   var rsv = document.getElementById("remote-screen-video");
-  if (rsv && rsv.style.display !== "none" && rsv.srcObject) list.push(rsv);
+  if (rsv && rsv.srcObject && getComputedStyle(rsv).display !== "none") list.push(rsv);
   var mainView = document.getElementById("gc-main-view");
   if (mainView && mainView.classList.contains("screen-share")) {
     var v = mainView.querySelector("video");
@@ -10069,10 +10069,10 @@ function szZoomReset(vid) {
 
 function _szEnsureControls(overlayId) {
   var overlay = document.getElementById(overlayId);
-  if (!overlay) return;
   var barId = "sz-controls-" + overlayId;
   var existing = document.getElementById(barId);
-  var vid = _szActiveVideo();
+  var visible = overlay && overlay.classList.contains("active");
+  var vid = visible ? _szActiveVideo() : null;
 
   if (!vid) {
     if (existing) existing.remove();
@@ -10083,13 +10083,13 @@ function _szEnsureControls(overlayId) {
   var bar = document.createElement("div");
   bar.id = barId;
   bar.style.cssText =
-    "position:absolute;bottom:100px;right:16px;display:flex;flex-direction:column;gap:6px;z-index:10005;";
+    "position:fixed;bottom:140px;right:20px;display:flex;flex-direction:column;gap:6px;z-index:999999;";
   bar.innerHTML =
-    '<button style="width:38px;height:38px;border-radius:10px;background:rgba(0,0,0,0.65);color:#fff;border:none;font-size:16px;cursor:pointer;" onclick="szZoomIn()"><i class="fa-solid fa-plus"></i></button>' +
-    '<button style="width:38px;height:38px;border-radius:10px;background:rgba(0,0,0,0.65);color:#fff;border:none;font-size:16px;cursor:pointer;" onclick="szZoomOut()"><i class="fa-solid fa-minus"></i></button>' +
-    '<button style="width:38px;height:38px;border-radius:10px;background:rgba(0,0,0,0.65);color:#fff;border:none;font-size:13px;cursor:pointer;" onclick="szZoomReset()" title="Reset"><i class="fa-solid fa-compress"></i></button>' +
-    '<div id="sz-badge-' + overlayId + '" style="text-align:center;color:#fff;font-size:11px;background:rgba(0,0,0,0.55);border-radius:8px;padding:3px 4px;">100%</div>';
-  overlay.appendChild(bar);
+    '<button style="width:42px;height:42px;border-radius:10px;background:rgba(0,0,0,0.75);color:#fff;border:none;font-size:18px;cursor:pointer;" onclick="szZoomIn()"><i class="fa-solid fa-plus"></i></button>' +
+    '<button style="width:42px;height:42px;border-radius:10px;background:rgba(0,0,0,0.75);color:#fff;border:none;font-size:18px;cursor:pointer;" onclick="szZoomOut()"><i class="fa-solid fa-minus"></i></button>' +
+    '<button style="width:42px;height:42px;border-radius:10px;background:rgba(0,0,0,0.75);color:#fff;border:none;font-size:14px;cursor:pointer;" onclick="szZoomReset()" title="Reset"><i class="fa-solid fa-compress"></i></button>' +
+    '<div id="sz-badge-' + overlayId + '" style="text-align:center;color:#fff;font-size:11px;background:rgba(0,0,0,0.65);border-radius:8px;padding:3px 4px;">100%</div>';
+  document.body.appendChild(bar);
 }
 
 (function initScreenShareZoom() {
