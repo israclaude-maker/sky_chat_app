@@ -6186,6 +6186,14 @@ if (remoteScreenVideo && CallState.remoteScreenStream) {
   }
 }
 function showOngoingCall() {
+  if (window.AndroidBridge && AndroidBridge.showOngoingCallNotification) {
+    try {
+      AndroidBridge.showOngoingCallNotification(
+        CallState.remoteUserName || "Unknown",
+        CallState.callType === "video" ? "Video Call" : "Voice Call"
+      );
+    } catch (e) {}
+  }
   if (callMinimized && minimizedOverlayId === "outgoing-call") {
     minimizedOverlayId = "ongoing-call";
     if (CallState.callType === "video" && CallState.remoteStream) {
@@ -6677,6 +6685,9 @@ function initCallButtons() {
 }
 
 function cleanupCall() {
+  if (window.AndroidBridge && AndroidBridge.hideOngoingCallNotification) {
+    try { AndroidBridge.hideOngoingCallNotification(); } catch (e) {}
+  }
   cleanupCamFx();
   if (CallState.ringTimeout) {
     clearTimeout(CallState.ringTimeout);
@@ -9034,6 +9045,15 @@ function showGroupCallUI() {
   $("gc-call-name").textContent = getGroupCallTitle();
   showCallOverlay("gc-ongoing-call");
     setTimeout(function(){initDraggableControls("gc-ongoing-call");gcStartHealthCheck();},500);
+
+  if (window.AndroidBridge && AndroidBridge.showOngoingCallNotification) {
+    try {
+      AndroidBridge.showOngoingCallNotification(
+        getGroupCallTitle(),
+        GC.callType === "video" ? "Group Video Call" : "Group Voice Call"
+      );
+    } catch (e) {}
+  }
   updateGcWaiting();
 
   GC.callStartTime = GC.callStartTime || Date.now();
@@ -9140,6 +9160,9 @@ function leaveGroupCall() {
 }
 
 function cleanupGroupCall() {
+  if (window.AndroidBridge && AndroidBridge.hideOngoingCallNotification) {
+    try { AndroidBridge.hideOngoingCallNotification(); } catch (e) {}
+  }
   cleanupCamFx();
   gcStopTalkingDetection();
   gcCloseScreenZoom();

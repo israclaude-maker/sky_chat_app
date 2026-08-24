@@ -27,7 +27,8 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.SkyChat"
         android:hardwareAccelerated="true"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="false"
+        android:enableOnBackInvokedCallback="false">
 
         <activity
             android:name=".MainActivity"

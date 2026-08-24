@@ -70,6 +70,7 @@ public class MainActivity extends Activity {
     public static boolean isAppInForeground = false;
     private String pendingCallAction = null; // saved until WebView is ready
     private Intent pendingCallIntent = null; // full intent with call data
+    public static volatile boolean isCallCurrentlyActive = false; // set by JS, checked synchronously on back-press
 
     // Audio routing (earpiece/speaker control for calls)
     private AudioManager audioManager;
@@ -552,6 +553,11 @@ public class MainActivity extends Activity {
             return !isAppInForeground;
         }
 
+        @JavascriptInterface
+        public void setCallActive(final boolean active) {
+            isCallCurrentlyActive = active;
+        }
+
         // ── Audio routing for calls (fixes "sound always on speaker" issue) ──
         @JavascriptInterface
         public void startCallAudio() {
@@ -877,9 +883,10 @@ public class MainActivity extends Activity {
     // ── Back handling: agar call chal rahi hai to minimize karo (PIP), warna normal back ──
     // NOTE: onBackPressed() istemal ho raha hai (onKeyDown ki jagah) kyunke yeh
     // hardware back button, 3-button nav bar, AUR gesture-navigation (swipe back)
-    // — teenon ke sath reliably chalta hai. onKeyDown sirf hardware/button back
-    // ke liye chalta tha; gesture-nav phones (Android 13+ predictive back) usay
-    // skip kar dete the, jis se call bina PIP dikhaye gayab ho jaati thi.
+    // — teenon ke sath reliably chalta hai. Manifest mein
+    // android:enableOnBackInvokedCallback="false" set kiya gaya hai taake Android 13+
+    // ka predictive-back (jo async/animated hai aur race condition create karta tha)
+    // bilkul disable rahe aur yeh classic synchronous callback hamesha use ho.
     @Override
     public void onBackPressed() {
         if (webView == null) {
