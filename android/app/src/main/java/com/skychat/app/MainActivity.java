@@ -564,7 +564,6 @@ public class MainActivity extends Activity {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    android.widget.Toast.makeText(MainActivity.this, "startCallAudio CALLED", android.widget.Toast.LENGTH_SHORT).show();
                     if (audioManager != null) {
                         audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
                         audioManager.setSpeakerphoneOn(false); // default: earpiece
@@ -654,7 +653,6 @@ public class MainActivity extends Activity {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    android.widget.Toast.makeText(MainActivity.this, "showOngoingCallNotification CALLED: " + callerName, android.widget.Toast.LENGTH_LONG).show();
                     showOngoingCallNotif(callerName, callType);
                 }
             });
@@ -739,29 +737,36 @@ public class MainActivity extends Activity {
         PendingIntent hangupPi = PendingIntent.getBroadcast(this, 5, hangupIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        android.app.Notification notification;
+        android.app.Notification notification = null;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // ── Android 12+ : CallStyle → status bar chip ──
-            android.app.Person caller = new android.app.Person.Builder()
-                .setName(callerName)
-                .setIcon(android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher))
-                .build();
+            try {
+                android.app.Person caller = new android.app.Person.Builder()
+                    .setName(callerName)
+                    .setIcon(android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher))
+                    .build();
 
-            notification = new android.app.Notification.Builder(this, CHANNEL_CALL)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle(callerName)
-                .setContentText(callType)
-                .setStyle(android.app.Notification.CallStyle.forOngoingCall(
-                    caller,
-                    hangupPi))
-                .setContentIntent(openPi)
-                .setOngoing(true)
-                .setColor(Color.parseColor("#25D366"))
-                .setColorized(true)
-                .build();
-        } else {
-            // ── Fallback for older Android: chronometer notification ──
+                notification = new android.app.Notification.Builder(this, CHANNEL_CALL)
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setContentTitle(callerName)
+                    .setContentText(callType)
+                    .setCategory(android.app.Notification.CATEGORY_CALL)
+                    .setStyle(android.app.Notification.CallStyle.forOngoingCall(
+                        caller,
+                        hangupPi))
+                    .setContentIntent(openPi)
+                    .setOngoing(true)
+                    .setColor(Color.parseColor("#25D366"))
+                    .setColorized(true)
+                    .build();
+            } catch (Exception e) {
+                Log.e("SkyChat", "CallStyle notification failed, using fallback: " + e.getMessage());
+                notification = null;
+            }
+        }
+
+        if (notification == null) {
+            // Fallback for older Android, or if CallStyle failed above
             Bitmap largeIcon = BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
             notification = new NotificationCompat.Builder(this, CHANNEL_CALL)
                 .setSmallIcon(R.mipmap.ic_launcher)

@@ -96,12 +96,12 @@ public class KeepAliveService extends Service {
             .setShowWhen(false)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build();
-
         if (Build.VERSION.SDK_INT >= 34) { // Android 14+
     startForeground(1, notification,
         android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC |
         android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE |
-        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK |
+        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL);
 } else {
     startForeground(1, notification);
 }
