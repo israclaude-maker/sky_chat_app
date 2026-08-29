@@ -654,6 +654,7 @@ public class MainActivity extends Activity {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
+                    android.widget.Toast.makeText(MainActivity.this, "showOngoingCallNotification CALLED: " + callerName, android.widget.Toast.LENGTH_LONG).show();
                     showOngoingCallNotif(callerName, callType);
                 }
             });
@@ -724,6 +725,9 @@ public class MainActivity extends Activity {
     }
 
     // ── WhatsApp-style ONGOING CALL notification (with Hang Up button) ──
+    // Android 12+ (API 31+): uses Notification.CallStyle so the compact
+    // phone-icon + live-timer chip shows in the status bar (like your screenshot).
+    // Older Android: falls back to a chronometer-based notification.
     private void showOngoingCallNotif(String callerName, String callType) {
         Intent openIntent = new Intent(this, MainActivity.class);
         openIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -735,30 +739,54 @@ public class MainActivity extends Activity {
         PendingIntent hangupPi = PendingIntent.getBroadcast(this, 5, hangupIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        Bitmap largeIcon = BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
+        android.app.Notification notification;
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_CALL)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setLargeIcon(largeIcon)
-            .setContentTitle(callerName)
-            .setContentText(callType)
-            .setSubText("SkyChat")
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setContentIntent(openPi)
-            .setOngoing(true)
-            .setAutoCancel(false)
-            .setColor(Color.parseColor("#25D366"))
-            .setColorized(true)
-            .setSilent(true) // koi vibrate/sound nahi, call already jaari hai
-            .setUsesChronometer(true)
-            .setWhen(System.currentTimeMillis())
-            .addAction(new NotificationCompat.Action.Builder(
-                android.R.drawable.ic_menu_close_clear_cancel, "Hang Up", hangupPi).build());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // ── Android 12+ : CallStyle → status bar chip ──
+            Person caller = new Person.Builder()
+                .setName(callerName)
+                .setIcon(IconCompat.createWithResource(this, R.mipmap.ic_launcher))
+                .build();
+
+            notification = new android.app.Notification.Builder(this, CHANNEL_CALL)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(callerName)
+                .setContentText(callType)
+                .setStyle(android.app.Notification.CallStyle.forOngoingCall(
+                    caller,
+                    hangupPi))
+                .setContentIntent(openPi)
+                .setOngoing(true)
+                .setColor(Color.parseColor("#25D366"))
+                .setColorized(true)
+                .build();
+        } else {
+            // ── Fallback for older Android: chronometer notification ──
+            Bitmap largeIcon = BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
+            notification = new NotificationCompat.Builder(this, CHANNEL_CALL)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setLargeIcon(largeIcon)
+                .setContentTitle(callerName)
+                .setContentText(callType)
+                .setSubText("SkyChat")
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setContentIntent(openPi)
+                .setOngoing(true)
+                .setAutoCancel(false)
+                .setColor(Color.parseColor("#25D366"))
+                .setColorized(true)
+                .setSilent(true)
+                .setUsesChronometer(true)
+                .setWhen(System.currentTimeMillis())
+                .addAction(new NotificationCompat.Action.Builder(
+                    android.R.drawable.ic_menu_close_clear_cancel, "Hang Up", hangupPi).build())
+                .build();
+        }
 
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        nm.notify(CallActionReceiver.ONGOING_CALL_NOTIFICATION_ID, builder.build());
+        nm.notify(CallActionReceiver.ONGOING_CALL_NOTIFICATION_ID, notification);
     }
 
     // ── WhatsApp-style MESSAGE notification ──

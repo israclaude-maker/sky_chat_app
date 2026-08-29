@@ -598,6 +598,54 @@ public class KeepAliveService extends Service {
         }
     }
 
+
+        private static final int ACTIVE_CALL_NOTIF_ID = 777;
+
+    public void showOngoingCallChip(String callerName) {
+        Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent contentPi = PendingIntent.getActivity(this, 300, openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        Intent hangupIntent = new Intent(this, CallActionReceiver.class);
+        hangupIntent.setAction(CallActionReceiver.ACTION_DECLINE);
+        PendingIntent hangupPi = PendingIntent.getBroadcast(this, 301, hangupIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        Notification notification;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Person caller = new Person.Builder().setName(callerName).build();
+            notification = new Notification.Builder(this, CHANNEL_CALL)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setStyle(Notification.CallStyle.forOngoingCall(caller, hangupPi))
+                .setContentIntent(contentPi)
+                .setOngoing(true)
+                .setColor(Color.parseColor("#25D366"))
+                .setColorized(true)
+                .build();
+        } else {
+            notification = new NotificationCompat.Builder(this, CHANNEL_CALL)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(callerName)
+                .setContentText("Ongoing call")
+                .setContentIntent(contentPi)
+                .setOngoing(true)
+                .setUsesChronometer(true)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setColor(Color.parseColor("#25D366"))
+                .build();
+        }
+
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        nm.notify(ACTIVE_CALL_NOTIF_ID, notification);
+    }
+
+    public void hideOngoingCallChip() {
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        nm.cancel(ACTIVE_CALL_NOTIF_ID);
+    }
+
     public void rejectCallViaWs() {
         cancelCallNotification();
         clearCallTimeout();
