@@ -6990,6 +6990,10 @@ function gcToggleCam() {
     buildLocalThumb();
     if (gcFocusedId === "local") focusGcParticipant("local");
   } else {
+    // Turn camera ON — confirm first
+    if (!confirm("Are you sure you want to turn on your camera?")) {
+      return;
+    }
     navigator.mediaDevices
       .getUserMedia({
         video: {
@@ -9268,7 +9272,10 @@ function toggleCam() {
     updateCamButton();
     updateVideoDisplay();
   } else {
-    // Turn camera ON
+    // Turn camera ON — confirm first
+    if (!confirm("Are you sure you want to turn on your camera?")) {
+      return;
+    }
     navigator.mediaDevices
       .getUserMedia({
         video: {

@@ -615,7 +615,7 @@ public class KeepAliveService extends Service {
         Notification notification;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Person caller = new Person.Builder().setName(callerName).build();
+                        android.app.Person caller = new android.app.Person.Builder().setName(callerName).build();
             notification = new Notification.Builder(this, CHANNEL_CALL)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setStyle(Notification.CallStyle.forOngoingCall(caller, hangupPi))

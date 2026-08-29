@@ -743,9 +743,9 @@ public class MainActivity extends Activity {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             // ── Android 12+ : CallStyle → status bar chip ──
-            Person caller = new Person.Builder()
+            android.app.Person caller = new android.app.Person.Builder()
                 .setName(callerName)
-                .setIcon(IconCompat.createWithResource(this, R.mipmap.ic_launcher))
+                .setIcon(android.graphics.drawable.Icon.createWithResource(this, R.mipmap.ic_launcher))
                 .build();
 
             notification = new android.app.Notification.Builder(this, CHANNEL_CALL)
