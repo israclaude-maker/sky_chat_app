@@ -25,6 +25,21 @@ contextBridge.exposeInMainWorld("DesktopBridge", {
     ipcRenderer.send("cancel-all-notifications");
   },
 
+    cancelAllNotifications: () => {
+    ipcRenderer.send("cancel-all-notifications");
+  },
+
+  // Remote Control request notification
+  showRCNotification: (requesterName, requesterId) => {
+    ipcRenderer.send("show-rc-notification", { requesterName, requesterId });
+  },
+  cancelRCNotification: () => {
+    ipcRenderer.send("cancel-rc-notification");
+  },
+  onRCNotificationAction: (callback) => {
+    ipcRenderer.on("rc-notification-action", (event, data) => callback(data));
+  },
+
   // Window control
   isBackground: () => ipcRenderer.sendSync("is-background"),
   flashWindow: () => ipcRenderer.send("flash-window"),

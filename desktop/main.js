@@ -16,7 +16,7 @@ const fs = require("fs");
 const logFile = path.join(app.getPath("userData"), "rc-debug.log");
 function rcLog(...args) {
   const line = "[" + new Date().toISOString() + "] " + args.join(" ") + "\n";
-  try { fs.appendFileSync(logFile, line); } catch (e) {}
+  try { fs.appendFileSync(logFile, line); } catch (e) { }
   console.log(...args);
 }
 
@@ -24,6 +24,7 @@ let mainWindow;
 let tray;
 let isQuitting = false;
 let activeCallNotification = null;
+let activeRCNotification = null;
 
 // ─── Config ───────────────────────────────────────────────────
 let config = {
@@ -142,9 +143,7 @@ function createWindow() {
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
-    mainWindow.webContents.openDevTools();
   });
-
   // ─── Inject DesktopBridge helpers after every page load ───
   mainWindow.webContents.on("did-finish-load", () => {
     injectDesktopHelpers();
@@ -315,6 +314,69 @@ ipcMain.on("show-call-notification", (event, data) => {
     mainWindow.flashFrame(true);
   }
 });
+// ─── Remote Control request notification (Allow/Decline) ──────
+ipcMain.on("show-rc-notification", (event, data) => {
+  if (activeRCNotification) {
+    try {
+      activeRCNotification.close();
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  const notif = new Notification({
+    title: data.requesterName || "Remote Control Request",
+    body: "wants to control your screen",
+    icon: getIcon(),
+    urgency: "critical",
+    silent: false,
+    timeoutType: "never",
+    actions: [
+      { type: "button", text: "Allow" },
+      { type: "button", text: "Decline" },
+    ],
+  });
+
+  notif.on("action", (ev, index) => {
+    if (index === 0) {
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.webContents.send("rc-notification-action", {
+        action: "accept",
+        requesterId: data.requesterId,
+      });
+    } else {
+      mainWindow.webContents.send("rc-notification-action", {
+        action: "decline",
+        requesterId: data.requesterId,
+      });
+    }
+  });
+
+  notif.on("click", () => {
+    mainWindow.show();
+    mainWindow.focus();
+  });
+
+  notif.show();
+  activeRCNotification = notif;
+
+  if (mainWindow && !mainWindow.isFocused()) {
+    mainWindow.flashFrame(true);
+  }
+});
+
+ipcMain.on("cancel-rc-notification", () => {
+  if (activeRCNotification) {
+    try {
+      activeRCNotification.close();
+    } catch (e) {
+      /* ignore */
+    }
+    activeRCNotification = null;
+  }
+});
+
 
 ipcMain.on("cancel-call-notification", () => {
   if (activeCallNotification) {
@@ -696,10 +758,26 @@ function startSelfCursorPoll() {
   // Windows sometimes silently resets the system cursor scheme mid-session
   // (theme/display events, or another app calling SystemParametersInfoW).
   // Re-apply the blank cursor every 3s while RC is active as a safety net.
+  //
+  // Same problem happens to the overlay window itself: when the screen-owner
+  // opens a native dialog (search box, taskbar popup, "Save As" window,
+  // etc.), Windows can quietly push that new window ABOVE our
+  // "always on top" overlay — even though we never lowered it. So on the
+  // same timer we force the overlay (and share-border, if active) back to
+  // the very top of the z-order.
   cursorReassertTimer = setInterval(() => {
     cursorHidden = false; // force hideSystemCursor() to actually re-run, not skip
     hideSystemCursor();
-  }, 3000);
+
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.setAlwaysOnTop(true, "screen-saver");
+      overlayWindow.moveTop();
+    }
+    if (shareBorderWindow && !shareBorderWindow.isDestroyed()) {
+      shareBorderWindow.setAlwaysOnTop(true, "screen-saver");
+      shareBorderWindow.moveTop();
+    }
+  }, 1500);
 }
 function stopSelfCursorPoll() {
   if (selfCursorPollTimer) {

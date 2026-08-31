@@ -51,9 +51,25 @@ const WS_URL =
   "/ws/chat/";
 
 // State
+// Token storage helpers — respects Remember Me choice from login
+function getStore() {
+  return localStorage.getItem("remember_me") === "0" ? sessionStorage : localStorage;
+}
+function getToken() {
+  return localStorage.getItem("access_token") || sessionStorage.getItem("access_token");
+}
+function getRefreshToken() {
+  return localStorage.getItem("refresh_token") || sessionStorage.getItem("refresh_token");
+}
+function saveTokens(access, refresh) {
+  var store = getStore();
+  if (access) store.setItem("access_token", access);
+  if (refresh) store.setItem("refresh_token", refresh);
+}
+
 const S = {
   user: null,
-  token: localStorage.getItem("access_token"),
+  token: getToken(),
   convs: [],
   groups: [],
   allUsers: [],
@@ -497,9 +513,10 @@ function lastSeenStr(iso) {
 var _refreshPromise = null;
 function refreshAccessToken() {
   if (_refreshPromise) return _refreshPromise;
-  var rt = localStorage.getItem("refresh_token");
+  var rt = getRefreshToken();
   if (!rt) {
     localStorage.clear();
+    sessionStorage.clear();
     window.location.href = "/login/";
     return Promise.reject("no refresh token");
   }
@@ -512,6 +529,7 @@ function refreshAccessToken() {
       _refreshPromise = null;
       if (!r.ok) {
         localStorage.clear();
+        sessionStorage.clear();
         go("/login/");
         throw new Error("refresh failed");
       }
@@ -519,11 +537,13 @@ function refreshAccessToken() {
     })
     .then(function (data) {
       S.token = data.access;
-      localStorage.setItem("access_token", data.access);
+      // Backend rotates refresh tokens — save the new one too, or the
+      // old one will be blacklisted and the NEXT refresh will fail.
+      saveTokens(data.access, data.refresh);
       // Update Android service with new token
       if (window.AndroidBridge && AndroidBridge.saveCredentials && S.user) {
-        var rt = localStorage.getItem("refresh_token") || "";
-        AndroidBridge.saveCredentials(data.access, S.user.id, rt);
+        var rt2 = getRefreshToken() || "";
+        AndroidBridge.saveCredentials(data.access, S.user.id, rt2);
       }
       return data.access;
     })
@@ -11368,6 +11388,15 @@ function _pickRemoteControlTarget(userId, name) {
 function handleRemoteControlRequest(data) {
   var fromName = data.requester_name || "Koi user";
   var fromId = data.requester_id;
+
+  function handleRemoteControlRequest(data) {
+  var fromName = data.requester_name || "Koi user";
+  var fromId = data.requester_id;
+
+  // Native OS notification — .exe minimized ho ya doosri tab pe ho, tab bhi dikhega
+  if (window.DesktopBridge && window.DesktopBridge.showRCNotification) {
+    window.DesktopBridge.showRCNotification(fromName, fromId);
+  }
   var overlay = $("ongoing-call") || $("gc-ongoing-call");
   if (!overlay) {
     toast(fromName + " asked for remote control", "i");
@@ -11397,7 +11426,12 @@ function handleRemoteControlRequest(data) {
 }
 
 function acceptRemoteControl(fromId) {
+  if (window.DesktopBridge && window.DesktopBridge.cancelRCNotification) {
+    window.DesktopBridge.cancelRCNotification();
+  }
   var el = document.getElementById("rc-incoming");
+
+  
   RemoteCtrl.controllerName = el ? (el.getAttribute("data-name") || "Controller") : "Controller";
   if (el) el.remove();
   RemoteCtrl.isBeingControlled = true;
@@ -11426,6 +11460,9 @@ function acceptRemoteControl(fromId) {
 }
 
 function rejectRemoteControl(fromId) {
+  if (window.DesktopBridge && window.DesktopBridge.cancelRCNotification) {
+    window.DesktopBridge.cancelRCNotification();
+  }
   var el = document.getElementById("rc-incoming");
   if (el) el.remove();
   var ws = S.globalWs || S.ws;
@@ -11842,6 +11879,17 @@ function keepAudioContextAlive() {
   } catch (e) {
     console.log("Audio keepalive skip:", e);
   }
+}
+
+// Native RC notification button actions (Allow/Decline from OS notification)
+if (window.DesktopBridge && window.DesktopBridge.onRCNotificationAction) {
+  window.DesktopBridge.onRCNotificationAction(function (data) {
+    if (data.action === "accept") {
+      acceptRemoteControl(data.requesterId);
+    } else {
+      rejectRemoteControl(data.requesterId);
+    }
+  });
 }
 
 init();

@@ -4,7 +4,7 @@ const API_URL = "/api/auth/users";
 
 // Check if already logged in — verify token is not expired before redirecting
 (function () {
-  var t = localStorage.getItem("access_token");
+  var t = localStorage.getItem("access_token") || sessionStorage.getItem("access_token");
   if (!t) return;
   // Decode JWT payload to check expiry (no crypto, just base64)
   try {
@@ -14,9 +14,11 @@ const API_URL = "/api/auth/users";
     } else {
       // Token expired — clear it so user sees login form
       localStorage.removeItem("access_token");
+      sessionStorage.removeItem("access_token");
     }
   } catch (e) {
     localStorage.removeItem("access_token");
+    sessionStorage.removeItem("access_token");
   }
 })();
 
@@ -98,8 +100,19 @@ async function handleLogin(event) {
     const data = await response.json();
 
     if (response.ok && data.access) {
-      localStorage.setItem("access_token", data.access);
-      localStorage.setItem("refresh_token", data.refresh);
+      var rememberMe = document.getElementById("remember-me")
+        ? document.getElementById("remember-me").checked
+        : true;
+
+      // Remember Me checked = localStorage (survives app restart, ~30 days)
+      // Unchecked = sessionStorage (cleared when app fully quits)
+      localStorage.setItem("remember_me", rememberMe ? "1" : "0");
+      var store = rememberMe ? localStorage : sessionStorage;
+      var other = rememberMe ? sessionStorage : localStorage;
+      other.removeItem("access_token");
+      other.removeItem("refresh_token");
+      store.setItem("access_token", data.access);
+      store.setItem("refresh_token", data.refresh);
       showMessage(
         "login-message",
         "Login successful! Redirecting...",

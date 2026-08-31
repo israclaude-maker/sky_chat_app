@@ -86,6 +86,26 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // ── TEMPORARY DIAGNOSTIC: write crash reason to a file (no USB debugging needed) ──
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread t, Throwable e) {
+                try {
+                    java.io.File f = new java.io.File(getExternalFilesDir(null), "skychat_crash.txt");
+                    java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.FileWriter(f, false));
+                    pw.println("Crash time: " + new java.util.Date().toString());
+                    e.printStackTrace(pw);
+                    pw.flush();
+                    pw.close();
+                } catch (Exception ex) {
+                    Log.e("SkyChat", "Failed to write crash log: " + ex.getMessage());
+                }
+                android.os.Process.killProcess(android.os.Process.myPid());
+                System.exit(1);
+            }
+        });
+
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         setContentView(com.skychat.app.R.layout.activity_main);
 
@@ -726,7 +746,7 @@ public class MainActivity extends Activity {
     // Android 12+ (API 31+): uses Notification.CallStyle so the compact
     // phone-icon + live-timer chip shows in the status bar (like your screenshot).
     // Older Android: falls back to a chronometer-based notification.
-    private void showOngoingCallNotif(String callerName, String callType) {
+        private void showOngoingCallNotif(String callerName, String callType) {
         Intent openIntent = new Intent(this, MainActivity.class);
         openIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent openPi = PendingIntent.getActivity(this, 4, openIntent,
@@ -755,6 +775,7 @@ public class MainActivity extends Activity {
                         caller,
                         hangupPi))
                     .setContentIntent(openPi)
+                    .setFullScreenIntent(openPi, true)
                     .setOngoing(true)
                     .setColor(Color.parseColor("#25D366"))
                     .setColorized(true)
@@ -794,7 +815,7 @@ public class MainActivity extends Activity {
         nm.notify(CallActionReceiver.ONGOING_CALL_NOTIFICATION_ID, notification);
     }
 
-    // ── WhatsApp-style MESSAGE notification ──
+
     private void showMessageNotif(String senderName, String message) {
         Intent openIntent = new Intent(this, MainActivity.class);
         openIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
