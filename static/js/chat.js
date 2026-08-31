@@ -11389,10 +11389,6 @@ function handleRemoteControlRequest(data) {
   var fromName = data.requester_name || "Koi user";
   var fromId = data.requester_id;
 
-  function handleRemoteControlRequest(data) {
-  var fromName = data.requester_name || "Koi user";
-  var fromId = data.requester_id;
-
   // Native OS notification — .exe minimized ho ya doosri tab pe ho, tab bhi dikhega
   if (window.DesktopBridge && window.DesktopBridge.showRCNotification) {
     window.DesktopBridge.showRCNotification(fromName, fromId);
