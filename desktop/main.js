@@ -675,10 +675,22 @@ function toOverlayCoords(x, y) {
   return { x: x / sf, y: y / sf };
 }
 
+let _lastCursorMoveTopAt = 0;
 function updateOverlayCursor(x, y) {
   if (overlayWindow && !overlayWindow.isDestroyed()) {
     const p = toOverlayCoords(x, y);
     overlayWindow.webContents.send("move-cursor", p);
+
+    // Force the overlay back to the very top on every mouse move, not just
+    // every 1.5s. Windows dialogs (search box, "Save As", etc.) can jump
+    // above a regular always-on-top window the instant they open — waiting
+    // for the periodic timer leaves a visible gap. Throttled to once per
+    // 150ms so this stays cheap even at ~20 moves/sec.
+    const now = Date.now();
+    if (now - _lastCursorMoveTopAt > 150) {
+      _lastCursorMoveTopAt = now;
+      overlayWindow.moveTop();
+    }
   }
 }
 
@@ -947,11 +959,24 @@ ipcMain.on("rc-stop-overlay", () => {
 });
 
 // ─── Screen share border indicator ──────────────────────────
+let shareBorderReassertTimer = null;
+
 ipcMain.on("share-border-start", () => {
   createShareBorderOverlay();
+  if (shareBorderReassertTimer) clearInterval(shareBorderReassertTimer);
+  shareBorderReassertTimer = setInterval(() => {
+    if (shareBorderWindow && !shareBorderWindow.isDestroyed()) {
+      shareBorderWindow.setAlwaysOnTop(true, "screen-saver");
+      shareBorderWindow.moveTop();
+    }
+  }, 1500);
 });
 ipcMain.on("share-border-stop", () => {
   destroyShareBorderOverlay();
+  if (shareBorderReassertTimer) {
+    clearInterval(shareBorderReassertTimer);
+    shareBorderReassertTimer = null;
+  }
 });
 
 app.on("before-quit", () => {
