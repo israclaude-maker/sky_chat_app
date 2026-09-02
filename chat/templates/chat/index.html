@@ -741,6 +741,9 @@
         <button class="ctrl-btn" id="gc-add-user-btn" onclick="openAddUserToCall()" title="Add User">
           <i class="fa-solid fa-user-plus"></i>
         </button>
+        <button class="ctrl-btn" id="gc-link-btn" onclick="copyGroupCallLink()" title="Copy Call Link">
+          <i class="fa-solid fa-link"></i>
+        </button>
         <button class="ctrl-btn end" onclick="leaveGroupCall()">
           <i class="fa-solid fa-phone-slash"></i>
         </button>
@@ -995,7 +998,7 @@
   <!-- TOASTS -->
   <div id="toasts"></div>
 
-  <script src="{% static 'js/chat.js' %}?v=20260824b"></script>
+    <script src="{% static 'js/chat.js' %}?v=20260902a"></script>
 
   <!-- Service Worker Registration -->
   <script>
