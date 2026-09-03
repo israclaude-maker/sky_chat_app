@@ -667,6 +667,19 @@ function init() {
           openGroup(parseInt(openGroupId));
         }, 800);
       }
+
+      // Handle join_call URL parameter (from a shared group-call link)
+      var joinGid = urlParams.get("gid");
+      var joinCallId = urlParams.get("join_call");
+      if (joinGid && joinCallId) {
+        history.replaceState(null, "", "/chat/");
+        setTimeout(function () {
+          openGroup(parseInt(joinGid));
+          setTimeout(function () {
+            attemptJoinFromLink();
+          }, 900);
+        }, 800);
+      }
     })
     .catch(function (err) {
       // Do not force-login on generic runtime errors; prevents redirect loops.
@@ -6978,11 +6991,6 @@ function pipToggleCam() {
 function gcToggleCam() {
   if (!GC.active || !GC.localStream) return;
 
-  if (GC.isScreenSharing) {
-    toast("Stop screen sharing before toggling camera", "e");
-    return;
-  }
-
   var videoTracks = GC.localStream.getVideoTracks();
 
   if (videoTracks.length > 0 && !GC.isCamOff) {
@@ -7824,7 +7832,52 @@ function fetchActiveGroupCalls() {
       console.log("Could not fetch active group calls:", e);
     });
 }
+// Copy a shareable link for the currently active group call
+function copyGroupCallLink() {
+  if (!GC.active || !GC.groupId || !GC.groupCallId) {
+    toast("No active call to share", "e");
+    return;
+  }
+  var link =
+    window.location.origin +
+    "/chat/?join_call=" +
+    GC.groupCallId +
+    "&gid=" +
+    GC.groupId;
+  navigator.clipboard
+    .writeText(link)
+    .then(function () {
+      toast("Call link copied!", "s");
+    })
+    .catch(function () {
+      toast("Could not copy link", "e");
+    });
+}
 
+// Called after opening the group from a shared link — checks if the
+// call is still active and joins it
+function attemptJoinFromLink() {
+  if (!S.activeGroup) return;
+  if (GC.active) return; // already in a call
+  api("/groups/" + S.activeGroup.id + "/active_call/")
+    .then(function (data) {
+      if (data && data.active) {
+        GC.activeGroupCalls[S.activeGroup.id] = {
+          group_call_id: data.group_call_id,
+          call_type: data.call_type,
+          caller_name: data.caller_name,
+          group_name: data.group_name,
+          caller_pic: data.caller_pic,
+        };
+        joinGroupCallFromBanner();
+      } else {
+        toast("This call has ended", "e");
+      }
+    })
+    .catch(function () {
+      toast("Could not check call status", "e");
+    });
+}
 function joinGroupCallFromBanner() {
   var banner = $("gc-join-banner");
   var targetGroupId = banner ? banner.dataset.groupId : null;
@@ -9313,12 +9366,6 @@ function gcToggleMic() {
 function toggleCam() {
   if (!CallState.isInCall || !CallState.localStream) return;
 
-  // If screen sharing is active, warn user first
-  if (CallState.isScreenSharing) {
-    toast("Stop screen sharing before toggling camera", "e");
-    return;
-  }
-
   var videoTracks = CallState.localStream.getVideoTracks();
 
   if (videoTracks.length > 0 && !CallState.isCamOff) {
@@ -9404,7 +9451,15 @@ function toggleCam() {
         var lv = $("local-video");
         if (lv) {
           lv.srcObject = CallState.localStream;
-          lv.style.cssText = ""; // clear any leftover overrides
+          if (CallState.isScreenSharing) {
+            // Screen share on hai — camera ko chhoti PIP ki tarah dikhao
+            lv.style.cssText =
+              "display:block;width:100px;height:140px;position:absolute;" +
+              "bottom:80px;right:16px;border-radius:10px;z-index:12;" +
+              "object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
+          } else {
+            lv.style.cssText = ""; // clear any leftover overrides
+          }
           lv.style.display = "block";
         }
       })
