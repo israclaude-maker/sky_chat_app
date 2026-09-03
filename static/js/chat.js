@@ -6444,9 +6444,10 @@ function startScreenShare() {
       }
 
       updateScreenBtn(true);
-      showShareBorder();
       if (window.DesktopBridge && window.DesktopBridge.startScreenShareBorder) {
         window.DesktopBridge.startScreenShareBorder();
+      } else {
+        showShareBorder();
       }
       screenTrack.onended = function () {
         stopScreenShare();
@@ -6531,9 +6532,10 @@ function stopScreenShare() {
 
   CallState.originalVideoTrack = null;
   updateScreenBtn(false);
-  hideShareBorder();
   if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
     window.DesktopBridge.stopScreenShareBorder();
+  } else {
+    hideShareBorder();
   }
 }
 
@@ -8195,6 +8197,8 @@ function handleGroupCallUserLeft(data) {
   }
   updateGroupCallParticipantCount();
   updateGcWaiting();
+  gcAdjustBitrates(); // fewer peers now — ease bitrate back up for the rest
+
 }
 
 function createGroupPeer(peerId, name, pic, isInitiator) {
@@ -8305,6 +8309,69 @@ function createGroupPeerConnection(peerId) {
 
   setupGroupPeerHandlers(pc, peer, peerId);
   return peer;
+}
+
+// ── Adaptive bitrate for mesh group calls ───────────────────────────
+// ROOT CAUSE of "3 log theek, 4+ log kharab": this is a full MESH call
+// (every client opens a direct RTCPeerConnection to every other client).
+// With 3 people that's only 2 outbound connections per client, and the
+// camera track (720p/30fps) was being sent to each one with NO bitrate
+// cap — unlike the 1:1 call path, which calls boostVideoBitrate() and
+// caps it at 1.5Mbps. Uncapped, Chrome/Firefox try to push full quality
+// to EVERY peer independently, so total upload need multiplies with peer
+// count (3 peers ≈ 3-6 Mbps just for video, 5 peers ≈ 6-12 Mbps+, plus
+// screen share on top). Most connections don't have that much upload,
+// so the encoder/network starts dropping — video freezes, audio glitches
+// or vanishes, and screen share frames never arrive intact for whoever
+// is bandwidth-starved. This scales each peer's video DOWN as more
+// people join, instead of sending full quality to everyone always.
+function gcVideoBitrateForCount(n) {
+  // n = number of OTHER connected peers (so total participants = n+1)
+  if (n <= 1) return { maxBitrate: 1200000, scale: 1, fps: 30 }; // 1-2 people
+  if (n === 2) return { maxBitrate: 700000, scale: 1, fps: 30 }; // 3 people
+  if (n === 3) return { maxBitrate: 450000, scale: 1.5, fps: 24 }; // 4 people
+  if (n === 4) return { maxBitrate: 300000, scale: 2, fps: 20 }; // 5 people
+  return { maxBitrate: 180000, scale: 2.5, fps: 15 }; // 6+ people
+}
+
+function gcApplySenderParams(sender, opts) {
+  if (!sender || !sender.getParameters) return;
+  try {
+    var params = sender.getParameters();
+    if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+    params.encodings[0].maxBitrate = opts.maxBitrate;
+    params.encodings[0].maxFramerate = opts.fps;
+    if (opts.scale) params.encodings[0].scaleResolutionDownBy = opts.scale;
+    sender.setParameters(params).catch(function (e) {
+      console.warn("[GC] setParameters failed:", e);
+    });
+  } catch (e) {
+    console.warn("[GC] gcApplySenderParams error:", e);
+  }
+}
+
+// Recompute + apply camera-video bitrate on every connected peer
+// connection based on the CURRENT peer count. Call this whenever the
+// mesh size changes: peer connects, peer leaves, screen share
+// starts/stops. Cheap to call — just adjusts existing senders.
+function gcAdjustBitrates() {
+  if (!GC.active) return;
+  var camTrack = GC.localStream && GC.localStream.getVideoTracks()[0];
+  var pids = Object.keys(GC.peers).filter(function (pid) {
+    return GC.peers[pid] && GC.peers[pid].pc;
+  });
+  var n = pids.length;
+  var opts = gcVideoBitrateForCount(n);
+  pids.forEach(function (pid) {
+    var pc = GC.peers[pid].pc;
+    if (!pc || !pc.getSenders) return;
+    pc.getSenders().forEach(function (sender) {
+      if (sender.track && sender.track.kind === "video" && sender.track === camTrack) {
+        gcApplySenderParams(sender, opts);
+      }
+    });
+  });
+  console.log("[GC] Adjusted camera bitrate for " + n + " peer(s):", opts);
 }
 
 // ── Single shared renegotiation entrypoint ──────────────────────────
@@ -8464,6 +8531,7 @@ function setupGroupPeerHandlers(pc, peer, peerId) {
     if (pc.connectionState === "connected") {
       renderGroupCallPeer(peerId, peer);
       gcStartTalkingDetection();
+      gcAdjustBitrates();
     } else if (pc.connectionState === "failed") {
       gcSafeRestartIce(pc, peer, peerId, "connectionState failed");
     } else if (pc.connectionState === "disconnected") {
@@ -9389,19 +9457,37 @@ function gcStartScreenShare() {
       var screenTrack = screenStream.getVideoTracks()[0];
       GC.screenSenders = {};
 
+      // Tell the encoder this is mostly static text/UI, not motion —
+      // it will spend bits on sharpness instead of framerate, which
+      // keeps shared screens legible at a much lower bitrate than
+      // camera video needs. Without this the browser encodes it like
+      // camera video (motion-optimized), which looks blurry/laggy and
+      // burns bandwidth that other peers' audio/video need.
+      try { screenTrack.contentHint = "detail"; } catch (e) {}
+
       // Screen track ko ALAG stream ke saath add karo
       // Isse receiver side pe stream IDs alag rahengi:
       //   stream1 = camera (GC.localStream)
       //   stream2 = screen (GC.screenStream)
       Object.keys(GC.peers).forEach(function (pid) {
         var pc = GC.peers[pid].pc;
-        GC.screenSenders[pid] = pc.addTrack(screenTrack, GC.screenStream);
+        var sender = pc.addTrack(screenTrack, GC.screenStream);
+        GC.screenSenders[pid] = sender;
+        // Cap screen bitrate per-viewer too — same uncapped-per-peer
+        // problem as camera video, just worse because screen frames
+        // are bigger. 1.2Mbps/12fps stays sharp for text while still
+        // being sustainable across several simultaneous viewers.
+        gcApplySenderParams(sender, { maxBitrate: 1200000, fps: 12 });
       });
 
       // Saare peers ke saath renegotiate karo
       Object.keys(GC.peers).forEach(function (pid) {
         gcRenegotiate(pid, GC.peers[pid]);
       });
+
+      // Screen share adds real load on top of camera video — pull
+      // camera bitrate down further while it's active.
+      gcAdjustBitrates();
 
       // Saare peers ko batao ke screen share shuru ho gayi
       gcSendScreenToggle(true);
@@ -9421,9 +9507,10 @@ function gcStartScreenShare() {
         btn.innerHTML =
           '<i class="fa-solid fa-display"></i><span class="screen-dot"></span>';
       }
-      showShareBorder();
       if (window.DesktopBridge && window.DesktopBridge.startScreenShareBorder) {
         window.DesktopBridge.startScreenShareBorder();
+      } else {
+        showShareBorder();
       }
 
       screenTrack.onended = function () {
@@ -9466,6 +9553,9 @@ function gcStopScreenShare() {
   // Notify all peers screen share stopped
   gcSendScreenToggle(false);
 
+  // Screen share load is gone — ease camera bitrate back up.
+  gcAdjustBitrates();
+
   GC.originalVideoTrack = null;
   // Remove local screen thumb
   var localScreenThumb = document.getElementById("gc-thumb-local_screen");
@@ -9479,10 +9569,11 @@ function gcStopScreenShare() {
   if (btn) {
     btn.classList.remove("screen-active");
     btn.innerHTML = '<i class="fa-solid fa-display"></i>';
-      hideShareBorder();
   }
   if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
     window.DesktopBridge.stopScreenShareBorder();
+  } else {
+    hideShareBorder();
   }
 }
 
