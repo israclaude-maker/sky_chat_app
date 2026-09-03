@@ -114,7 +114,7 @@ function createWindow() {
         callback({});
       }
     },
-    { useSystemPicker: true },
+    { useSystemPicker: false },
   );
 
   // ─── Permission grants ───
@@ -502,6 +502,29 @@ function initNativeCursorAPI() {
   }
 }
 
+// ─── Exclude a window from any screen capture (so the local overlay
+//     border/cursor never shows up in what the OTHER side sees) ────────
+let SetWindowDisplayAffinityFn = null;
+function excludeWindowFromCapture(win) {
+  try {
+    if (!user32) initNativeCursorAPI();
+    if (!SetWindowDisplayAffinityFn) {
+      SetWindowDisplayAffinityFn = user32.func(
+        "__stdcall",
+        "SetWindowDisplayAffinity",
+        "bool",
+        ["void*", "uint32"],
+      );
+    }
+    const hwndBuf = win.getNativeWindowHandle();
+    const WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+    const ok = SetWindowDisplayAffinityFn(hwndBuf, WDA_EXCLUDEFROMCAPTURE);
+    rcLog("[Capture] excludeWindowFromCapture result:", ok);
+  } catch (e) {
+    rcLog("[Capture] excludeWindowFromCapture failed:", e.message);
+  }
+}
+
 // Standard Windows system cursor IDs (OCR_*)
 const OCR_IDS = [32512, 32513, 32514, 32515, 32516, 32640, 32641, 32642, 32643, 32644, 32645, 32646, 32648, 32649, 32650, 32651];
 const OCR_NAMES = {
@@ -582,7 +605,7 @@ function createCursorOverlay(controllerName, selfName) {
     webPreferences: { contextIsolation: false, nodeIntegration: true },
   });
   overlayWindow.setIgnoreMouseEvents(true);
-  overlayWindow.setAlwaysOnTop(true, "screen-saver");
+  overlayWindow.setAlwaysOnTop(true, "screen-saver", 1);
   overlayWindow.loadFile(path.join(__dirname, "cursor-overlay.html"));
   overlayWindow.webContents.once("did-finish-load", () => {
     if (!overlayWindow || overlayWindow.isDestroyed()) return;
@@ -596,6 +619,7 @@ function createCursorOverlay(controllerName, selfName) {
     rcLog("[RC] overlay loaded, seed self pos:", JSON.stringify(seed), "scaleFactor:", getScaleFactor());
     if (seed) overlayWindow.webContents.send("move-self-cursor", toOverlayCoords(seed.x, seed.y));
   });
+  excludeWindowFromCapture(overlayWindow);
   overlayWindow.on("closed", () => { overlayWindow = null; });
 }
 
@@ -638,8 +662,9 @@ function createShareBorderOverlay() {
     webPreferences: { contextIsolation: false, nodeIntegration: true },
   });
   shareBorderWindow.setIgnoreMouseEvents(true);
-  shareBorderWindow.setAlwaysOnTop(true, "screen-saver");
+  shareBorderWindow.setAlwaysOnTop(true, "screen-saver", 1);
   shareBorderWindow.loadFile(path.join(__dirname, "border-overlay.html"));
+  excludeWindowFromCapture(shareBorderWindow);
   shareBorderWindow.on("closed", () => { shareBorderWindow = null; });
 }
 
@@ -782,11 +807,11 @@ function startSelfCursorPoll() {
     hideSystemCursor();
 
     if (overlayWindow && !overlayWindow.isDestroyed()) {
-      overlayWindow.setAlwaysOnTop(true, "screen-saver");
+      overlayWindow.setAlwaysOnTop(true, "screen-saver", 1);
       overlayWindow.moveTop();
     }
     if (shareBorderWindow && !shareBorderWindow.isDestroyed()) {
-      shareBorderWindow.setAlwaysOnTop(true, "screen-saver");
+      shareBorderWindow.setAlwaysOnTop(true, "screen-saver", 1);
       shareBorderWindow.moveTop();
     }
   }, 1500);
@@ -967,7 +992,7 @@ ipcMain.on("share-border-start", () => {
   if (shareBorderReassertTimer) clearInterval(shareBorderReassertTimer);
   shareBorderReassertTimer = setInterval(() => {
     if (shareBorderWindow && !shareBorderWindow.isDestroyed()) {
-      shareBorderWindow.setAlwaysOnTop(true, "screen-saver");
+      shareBorderWindow.setAlwaysOnTop(true, "screen-saver", 1);
       shareBorderWindow.moveTop();
     }
   }, 1500);
