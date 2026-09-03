@@ -6991,11 +6991,6 @@ function pipToggleCam() {
 function gcToggleCam() {
   if (!GC.active || !GC.localStream) return;
 
-  if (GC.isScreenSharing) {
-    toast("Stop screen sharing before toggling camera", "e");
-    return;
-  }
-
   var videoTracks = GC.localStream.getVideoTracks();
 
   if (videoTracks.length > 0 && !GC.isCamOff) {
@@ -9305,12 +9300,6 @@ function gcToggleMic() {
 function toggleCam() {
   if (!CallState.isInCall || !CallState.localStream) return;
 
-  // If screen sharing is active, warn user first
-  if (CallState.isScreenSharing) {
-    toast("Stop screen sharing before toggling camera", "e");
-    return;
-  }
-
   var videoTracks = CallState.localStream.getVideoTracks();
 
   if (videoTracks.length > 0 && !CallState.isCamOff) {
@@ -9396,7 +9385,15 @@ function toggleCam() {
         var lv = $("local-video");
         if (lv) {
           lv.srcObject = CallState.localStream;
-          lv.style.cssText = ""; // clear any leftover overrides
+          if (CallState.isScreenSharing) {
+            // Screen share on hai — camera ko chhoti PIP ki tarah dikhao
+            lv.style.cssText =
+              "display:block;width:100px;height:140px;position:absolute;" +
+              "bottom:80px;right:16px;border-radius:10px;z-index:12;" +
+              "object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
+          } else {
+            lv.style.cssText = ""; // clear any leftover overrides
+          }
           lv.style.display = "block";
         }
       })

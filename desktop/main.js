@@ -962,6 +962,7 @@ ipcMain.on("rc-stop-overlay", () => {
 let shareBorderReassertTimer = null;
 
 ipcMain.on("share-border-start", () => {
+  rcLog("[ShareBorder] start received");
   createShareBorderOverlay();
   if (shareBorderReassertTimer) clearInterval(shareBorderReassertTimer);
   shareBorderReassertTimer = setInterval(() => {
@@ -972,6 +973,7 @@ ipcMain.on("share-border-start", () => {
   }, 1500);
 });
 ipcMain.on("share-border-stop", () => {
+  rcLog("[ShareBorder] stop received");
   destroyShareBorderOverlay();
   if (shareBorderReassertTimer) {
     clearInterval(shareBorderReassertTimer);
