@@ -7740,6 +7740,24 @@ function handleGroupCallEnded(data) {
   var popup = document.getElementById("gc-popup-" + data.group_id);
   if (popup) popup.remove();
   stopGcRingtone();
+
+  // If WE were actually active in the call that just ended (not just
+  // seeing the "join" banner for someone else's call), our own state
+  // was never torn down by this message — only leaveGroupCall() does
+  // that, and nobody calls it here. That's why the screen-share
+  // border, PIP mini-window, and open peer connections all kept
+  // hanging around after the call ended from someone else's side
+  // (last person left, admin ended it, etc.) instead of a manual
+  // "leave" click.
+  var wasMyActiveCall =
+    GC.active &&
+    ((data.group_call_id && data.group_call_id === GC.groupCallId) ||
+      (data.group_id && data.group_id === GC.groupId));
+  if (wasMyActiveCall) {
+    cleanupGroupCall();
+    hideAllCallOverlays();
+    toast("Call ended", "i");
+  }
 }
 
 function updateGroupCallBanner() {
