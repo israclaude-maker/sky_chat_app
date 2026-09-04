@@ -1,5 +1,5 @@
 /* SkyChat - Main Chat JavaScript */
-//Tuba Working
+
 // Tick SVG generator - WhatsApp style
 function tickSVG(status) {
   if (status === "read") {
@@ -665,19 +665,6 @@ function init() {
         history.replaceState(null, "", "/chat/");
         setTimeout(function () {
           openGroup(parseInt(openGroupId));
-        }, 800);
-      }
-
-      // Handle join_call URL parameter (from a shared group-call link)
-      var joinGid = urlParams.get("gid");
-      var joinCallId = urlParams.get("join_call");
-      if (joinGid && joinCallId) {
-        history.replaceState(null, "", "/chat/");
-        setTimeout(function () {
-          openGroup(parseInt(joinGid));
-          setTimeout(function () {
-            attemptJoinFromLink();
-          }, 900);
         }, 800);
       }
     })
@@ -6991,6 +6978,11 @@ function pipToggleCam() {
 function gcToggleCam() {
   if (!GC.active || !GC.localStream) return;
 
+  if (GC.isScreenSharing) {
+    toast("Stop screen sharing before toggling camera", "e");
+    return;
+  }
+
   var videoTracks = GC.localStream.getVideoTracks();
 
   if (videoTracks.length > 0 && !GC.isCamOff) {
@@ -7832,52 +7824,7 @@ function fetchActiveGroupCalls() {
       console.log("Could not fetch active group calls:", e);
     });
 }
-// Copy a shareable link for the currently active group call
-function copyGroupCallLink() {
-  if (!GC.active || !GC.groupId || !GC.groupCallId) {
-    toast("No active call to share", "e");
-    return;
-  }
-  var link =
-    window.location.origin +
-    "/chat/?join_call=" +
-    GC.groupCallId +
-    "&gid=" +
-    GC.groupId;
-  navigator.clipboard
-    .writeText(link)
-    .then(function () {
-      toast("Call link copied!", "s");
-    })
-    .catch(function () {
-      toast("Could not copy link", "e");
-    });
-}
 
-// Called after opening the group from a shared link — checks if the
-// call is still active and joins it
-function attemptJoinFromLink() {
-  if (!S.activeGroup) return;
-  if (GC.active) return; // already in a call
-  api("/groups/" + S.activeGroup.id + "/active_call/")
-    .then(function (data) {
-      if (data && data.active) {
-        GC.activeGroupCalls[S.activeGroup.id] = {
-          group_call_id: data.group_call_id,
-          call_type: data.call_type,
-          caller_name: data.caller_name,
-          group_name: data.group_name,
-          caller_pic: data.caller_pic,
-        };
-        joinGroupCallFromBanner();
-      } else {
-        toast("This call has ended", "e");
-      }
-    })
-    .catch(function () {
-      toast("Could not check call status", "e");
-    });
-}
 function joinGroupCallFromBanner() {
   var banner = $("gc-join-banner");
   var targetGroupId = banner ? banner.dataset.groupId : null;
@@ -8144,6 +8091,10 @@ function _gcCreateFreshPeer(fromId, data) {
         });
         peer.pendingIce = [];
       }
+      // Cover the fallback path too: if fromId proactively offered to
+      // US (instead of us offering to them), let them know if we're
+      // already screen sharing — see gcSyncScreenStateToPeer.
+      gcSyncScreenStateToPeer(fromId);
       console.log("[GC] Answer sent to " + fromId);
       setTimeout(function () {
         renderGroupCallPeer(fromId, peer);
@@ -8287,6 +8238,10 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
             }),
           );
         }
+        // Let this new peer know right away if I'm already screen
+        // sharing — otherwise their incoming screen track just sits
+        // unrendered forever (see gcSyncScreenStateToPeer).
+        gcSyncScreenStateToPeer(peerId);
         console.log(
           "[GC] Offer sent to peer",
           peerId,
@@ -8694,6 +8649,13 @@ function buildGcThumb(id, peer) {
     var audio = document.createElement("audio");
     audio.autoplay = true;
     audio.srcObject = peer.stream;
+    // Respect the current speaker on/off state. Without this, every
+    // time this thumb gets rebuilt (new peer connects, track
+    // unmutes, reconnect, etc.) a FRESH <audio> element is created
+    // that defaults to unmuted — so after clicking "speaker off" the
+    // button turns red but the next rebuild quietly starts playing
+    // audio again, making it look like mute never worked.
+    audio.muted = typeof gcSpeakerOff !== "undefined" && gcSpeakerOff;
     audio.play().catch(function (e) {
       console.log("[GC] thumb audio play error:", e);
     });
@@ -9317,6 +9279,18 @@ function cleanupGroupCall() {
     });
     GC.screenStream = null;
   }
+  // If the call ends (or is left) WHILE screen sharing is still active,
+  // nothing else tears down the border overlay — gcStopScreenShare()
+  // (which normally does this) is only called from the explicit "stop
+  // sharing" button, not from call-end/leave. Without this the blue
+  // border stays on screen until the desktop app is manually closed.
+  if (GC.isScreenSharing) {
+    if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+      window.DesktopBridge.stopScreenShareBorder();
+    } else {
+      hideShareBorder();
+    }
+  }
   GC.isScreenSharing = false;
   GC.originalVideoTrack = null;
   GC.screenSenders = null;
@@ -9365,6 +9339,12 @@ function gcToggleMic() {
 
 function toggleCam() {
   if (!CallState.isInCall || !CallState.localStream) return;
+
+  // If screen sharing is active, warn user first
+  if (CallState.isScreenSharing) {
+    toast("Stop screen sharing before toggling camera", "e");
+    return;
+  }
 
   var videoTracks = CallState.localStream.getVideoTracks();
 
@@ -9451,15 +9431,7 @@ function toggleCam() {
         var lv = $("local-video");
         if (lv) {
           lv.srcObject = CallState.localStream;
-          if (CallState.isScreenSharing) {
-            // Screen share on hai — camera ko chhoti PIP ki tarah dikhao
-            lv.style.cssText =
-              "display:block;width:100px;height:140px;position:absolute;" +
-              "bottom:80px;right:16px;border-radius:10px;z-index:12;" +
-              "object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
-          } else {
-            lv.style.cssText = ""; // clear any leftover overrides
-          }
+          lv.style.cssText = ""; // clear any leftover overrides
           lv.style.display = "block";
         }
       })
@@ -9644,6 +9616,30 @@ function gcSendScreenToggle(sharing) {
       }),
     );
   });
+}
+
+// ── Screen-share state sync for late joiners / rejoiners ────────────
+// gcSendScreenToggle() above only reaches whoever is ALREADY in
+// GC.peers at the moment sharing starts. Anyone who joins (or rejoins
+// after leaving) AFTER that point never gets that toggle message — but
+// their peer connection still receives the screen track via ontrack
+// (createGroupPeerConnection adds it to every new pc). Since
+// GC.screenSharers[peerId] never got set for them, ontrack just parks
+// the incoming screen stream in peer._pendingScreenStream and nothing
+// ever promotes it to peer.screenStream / renders it — screen share
+// silently never shows no matter how long they wait. Fix: whenever a
+// NEW peer connection is set up (either side of the offer/answer),
+// if I'm currently sharing, tell that ONE peer directly.
+function gcSyncScreenStateToPeer(pid) {
+  if (!GC.isScreenSharing || !S.globalWs || S.globalWs.readyState !== 1) return;
+  S.globalWs.send(
+    JSON.stringify({
+      type: "gc_screen_toggle",
+      group_call_id: GC.groupCallId,
+      target_user_id: parseInt(pid),
+      sharing: true,
+    }),
+  );
 }
 
 function handleGcScreenToggle(data) {
