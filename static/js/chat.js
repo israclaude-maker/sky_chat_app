@@ -6720,6 +6720,18 @@ function cleanupCall() {
       t.stop();
     });
   }
+  // Same bug as the group-call one: if the call ends/hangs up WHILE
+  // screen sharing is active, nothing here was telling the blue
+  // border overlay to go away — stopScreenShare() handles that for
+  // the explicit "stop sharing" button, but cleanupCall() (hangup/
+  // call-ended) never called it or hid the border itself.
+  if (CallState.isScreenSharing) {
+    if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+      window.DesktopBridge.stopScreenShareBorder();
+    } else {
+      hideShareBorder();
+    }
+  }
   if (CallState.pc) {
     CallState.pc.close();
   }
