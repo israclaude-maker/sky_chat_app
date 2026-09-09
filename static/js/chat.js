@@ -12054,7 +12054,8 @@ function updateRCButton() {
 
 function showRCButton() {
   var btn = document.getElementById("rc-btn");
-  if (btn) btn.style.display = window._isDesktop ? "" : "none";
+  var isAndroid = !!(window.AndroidBridge && window.AndroidBridge.sendRCEvent);
+  if (btn) btn.style.display = (window._isDesktop || isAndroid) ? "" : "none";
 }
 
 function hideRCButton() {
