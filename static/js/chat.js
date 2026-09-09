@@ -667,19 +667,6 @@ function init() {
           openGroup(parseInt(openGroupId));
         }, 800);
       }
-
-      // Handle join_call URL parameter (from a shared group-call link)
-      var joinGid = urlParams.get("gid");
-      var joinCallId = urlParams.get("join_call");
-      if (joinGid && joinCallId) {
-        history.replaceState(null, "", "/chat/");
-        setTimeout(function () {
-          openGroup(parseInt(joinGid));
-          setTimeout(function () {
-            attemptJoinFromLink();
-          }, 900);
-        }, 800);
-      }
     })
     .catch(function (err) {
       // Do not force-login on generic runtime errors; prevents redirect loops.
@@ -6740,6 +6727,18 @@ function cleanupCall() {
       t.stop();
     });
   }
+  // Same bug as the group-call one: if the call ends/hangs up WHILE
+  // screen sharing is active, nothing here was telling the blue
+  // border overlay to go away — stopScreenShare() handles that for
+  // the explicit "stop sharing" button, but cleanupCall() (hangup/
+  // call-ended) never called it or hid the border itself.
+  if (CallState.isScreenSharing) {
+    if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+      window.DesktopBridge.stopScreenShareBorder();
+    } else {
+      hideShareBorder();
+    }
+  }
   if (CallState.pc) {
     CallState.pc.close();
   }
@@ -6997,6 +6996,11 @@ function pipToggleCam() {
 
 function gcToggleCam() {
   if (!GC.active || !GC.localStream) return;
+
+  if (GC.isScreenSharing) {
+    toast("Stop screen sharing before toggling camera", "e");
+    return;
+  }
 
   var videoTracks = GC.localStream.getVideoTracks();
 
@@ -7755,6 +7759,24 @@ function handleGroupCallEnded(data) {
   var popup = document.getElementById("gc-popup-" + data.group_id);
   if (popup) popup.remove();
   stopGcRingtone();
+
+  // If WE were actually active in the call that just ended (not just
+  // seeing the "join" banner for someone else's call), our own state
+  // was never torn down by this message — only leaveGroupCall() does
+  // that, and nobody calls it here. That's why the screen-share
+  // border, PIP mini-window, and open peer connections all kept
+  // hanging around after the call ended from someone else's side
+  // (last person left, admin ended it, etc.) instead of a manual
+  // "leave" click.
+  var wasMyActiveCall =
+    GC.active &&
+    ((data.group_call_id && data.group_call_id === GC.groupCallId) ||
+      (data.group_id && data.group_id === GC.groupId));
+  if (wasMyActiveCall) {
+    cleanupGroupCall();
+    hideAllCallOverlays();
+    toast("Call ended", "i");
+  }
 }
 
 function updateGroupCallBanner() {
@@ -7839,52 +7861,7 @@ function fetchActiveGroupCalls() {
       console.log("Could not fetch active group calls:", e);
     });
 }
-// Copy a shareable link for the currently active group call
-function copyGroupCallLink() {
-  if (!GC.active || !GC.groupId || !GC.groupCallId) {
-    toast("No active call to share", "e");
-    return;
-  }
-  var link =
-    window.location.origin +
-    "/chat/?join_call=" +
-    GC.groupCallId +
-    "&gid=" +
-    GC.groupId;
-  navigator.clipboard
-    .writeText(link)
-    .then(function () {
-      toast("Call link copied!", "s");
-    })
-    .catch(function () {
-      toast("Could not copy link", "e");
-    });
-}
 
-// Called after opening the group from a shared link — checks if the
-// call is still active and joins it
-function attemptJoinFromLink() {
-  if (!S.activeGroup) return;
-  if (GC.active) return; // already in a call
-  api("/groups/" + S.activeGroup.id + "/active_call/")
-    .then(function (data) {
-      if (data && data.active) {
-        GC.activeGroupCalls[S.activeGroup.id] = {
-          group_call_id: data.group_call_id,
-          call_type: data.call_type,
-          caller_name: data.caller_name,
-          group_name: data.group_name,
-          caller_pic: data.caller_pic,
-        };
-        joinGroupCallFromBanner();
-      } else {
-        toast("This call has ended", "e");
-      }
-    })
-    .catch(function () {
-      toast("Could not check call status", "e");
-    });
-}
 function joinGroupCallFromBanner() {
   var banner = $("gc-join-banner");
   var targetGroupId = banner ? banner.dataset.groupId : null;
@@ -8151,6 +8128,10 @@ function _gcCreateFreshPeer(fromId, data) {
         });
         peer.pendingIce = [];
       }
+      // Cover the fallback path too: if fromId proactively offered to
+      // US (instead of us offering to them), let them know if we're
+      // already screen sharing — see gcSyncScreenStateToPeer.
+      gcSyncScreenStateToPeer(fromId);
       console.log("[GC] Answer sent to " + fromId);
       setTimeout(function () {
         renderGroupCallPeer(fromId, peer);
@@ -8257,6 +8238,8 @@ function handleGroupCallUserLeft(data) {
   }
   updateGroupCallParticipantCount();
   updateGcWaiting();
+  gcAdjustBitrates(); // fewer peers now — ease bitrate back up for the rest
+
 }
 
 function createGroupPeer(peerId, name, pic, isInitiator) {
@@ -8292,6 +8275,10 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
             }),
           );
         }
+        // Let this new peer know right away if I'm already screen
+        // sharing — otherwise their incoming screen track just sits
+        // unrendered forever (see gcSyncScreenStateToPeer).
+        gcSyncScreenStateToPeer(peerId);
         console.log(
           "[GC] Offer sent to peer",
           peerId,
@@ -8367,6 +8354,69 @@ function createGroupPeerConnection(peerId) {
 
   setupGroupPeerHandlers(pc, peer, peerId);
   return peer;
+}
+
+// ── Adaptive bitrate for mesh group calls ───────────────────────────
+// ROOT CAUSE of "3 log theek, 4+ log kharab": this is a full MESH call
+// (every client opens a direct RTCPeerConnection to every other client).
+// With 3 people that's only 2 outbound connections per client, and the
+// camera track (720p/30fps) was being sent to each one with NO bitrate
+// cap — unlike the 1:1 call path, which calls boostVideoBitrate() and
+// caps it at 1.5Mbps. Uncapped, Chrome/Firefox try to push full quality
+// to EVERY peer independently, so total upload need multiplies with peer
+// count (3 peers ≈ 3-6 Mbps just for video, 5 peers ≈ 6-12 Mbps+, plus
+// screen share on top). Most connections don't have that much upload,
+// so the encoder/network starts dropping — video freezes, audio glitches
+// or vanishes, and screen share frames never arrive intact for whoever
+// is bandwidth-starved. This scales each peer's video DOWN as more
+// people join, instead of sending full quality to everyone always.
+function gcVideoBitrateForCount(n) {
+  // n = number of OTHER connected peers (so total participants = n+1)
+  if (n <= 1) return { maxBitrate: 1200000, scale: 1, fps: 30 }; // 1-2 people
+  if (n === 2) return { maxBitrate: 700000, scale: 1, fps: 30 }; // 3 people
+  if (n === 3) return { maxBitrate: 450000, scale: 1.5, fps: 24 }; // 4 people
+  if (n === 4) return { maxBitrate: 300000, scale: 2, fps: 20 }; // 5 people
+  return { maxBitrate: 180000, scale: 2.5, fps: 15 }; // 6+ people
+}
+
+function gcApplySenderParams(sender, opts) {
+  if (!sender || !sender.getParameters) return;
+  try {
+    var params = sender.getParameters();
+    if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+    params.encodings[0].maxBitrate = opts.maxBitrate;
+    params.encodings[0].maxFramerate = opts.fps;
+    if (opts.scale) params.encodings[0].scaleResolutionDownBy = opts.scale;
+    sender.setParameters(params).catch(function (e) {
+      console.warn("[GC] setParameters failed:", e);
+    });
+  } catch (e) {
+    console.warn("[GC] gcApplySenderParams error:", e);
+  }
+}
+
+// Recompute + apply camera-video bitrate on every connected peer
+// connection based on the CURRENT peer count. Call this whenever the
+// mesh size changes: peer connects, peer leaves, screen share
+// starts/stops. Cheap to call — just adjusts existing senders.
+function gcAdjustBitrates() {
+  if (!GC.active) return;
+  var camTrack = GC.localStream && GC.localStream.getVideoTracks()[0];
+  var pids = Object.keys(GC.peers).filter(function (pid) {
+    return GC.peers[pid] && GC.peers[pid].pc;
+  });
+  var n = pids.length;
+  var opts = gcVideoBitrateForCount(n);
+  pids.forEach(function (pid) {
+    var pc = GC.peers[pid].pc;
+    if (!pc || !pc.getSenders) return;
+    pc.getSenders().forEach(function (sender) {
+      if (sender.track && sender.track.kind === "video" && sender.track === camTrack) {
+        gcApplySenderParams(sender, opts);
+      }
+    });
+  });
+  console.log("[GC] Adjusted camera bitrate for " + n + " peer(s):", opts);
 }
 
 // ── Single shared renegotiation entrypoint ──────────────────────────
@@ -8526,6 +8576,7 @@ function setupGroupPeerHandlers(pc, peer, peerId) {
     if (pc.connectionState === "connected") {
       renderGroupCallPeer(peerId, peer);
       gcStartTalkingDetection();
+      gcAdjustBitrates();
     } else if (pc.connectionState === "failed") {
       gcSafeRestartIce(pc, peer, peerId, "connectionState failed");
     } else if (pc.connectionState === "disconnected") {
@@ -8635,6 +8686,13 @@ function buildGcThumb(id, peer) {
     var audio = document.createElement("audio");
     audio.autoplay = true;
     audio.srcObject = peer.stream;
+    // Respect the current speaker on/off state. Without this, every
+    // time this thumb gets rebuilt (new peer connects, track
+    // unmutes, reconnect, etc.) a FRESH <audio> element is created
+    // that defaults to unmuted — so after clicking "speaker off" the
+    // button turns red but the next rebuild quietly starts playing
+    // audio again, making it look like mute never worked.
+    audio.muted = typeof gcSpeakerOff !== "undefined" && gcSpeakerOff;
     audio.play().catch(function (e) {
       console.log("[GC] thumb audio play error:", e);
     });
@@ -9265,6 +9323,18 @@ function cleanupGroupCall() {
     });
     GC.screenStream = null;
   }
+  // If the call ends (or is left) WHILE screen sharing is still active,
+  // nothing else tears down the border overlay — gcStopScreenShare()
+  // (which normally does this) is only called from the explicit "stop
+  // sharing" button, not from call-end/leave. Without this the blue
+  // border stays on screen until the desktop app is manually closed.
+  if (GC.isScreenSharing) {
+    if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+      window.DesktopBridge.stopScreenShareBorder();
+    } else {
+      hideShareBorder();
+    }
+  }
   GC.isScreenSharing = false;
   GC.originalVideoTrack = null;
   GC.screenSenders = null;
@@ -9313,6 +9383,12 @@ function gcToggleMic() {
 
 function toggleCam() {
   if (!CallState.isInCall || !CallState.localStream) return;
+
+  // If screen sharing is active, warn user first
+  if (CallState.isScreenSharing) {
+    toast("Stop screen sharing before toggling camera", "e");
+    return;
+  }
 
   var videoTracks = CallState.localStream.getVideoTracks();
 
@@ -9399,15 +9475,7 @@ function toggleCam() {
         var lv = $("local-video");
         if (lv) {
           lv.srcObject = CallState.localStream;
-          if (CallState.isScreenSharing) {
-            // Screen share on hai — camera ko chhoti PIP ki tarah dikhao
-            lv.style.cssText =
-              "display:block;width:100px;height:140px;position:absolute;" +
-              "bottom:80px;right:16px;border-radius:10px;z-index:12;" +
-              "object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
-          } else {
-            lv.style.cssText = ""; // clear any leftover overrides
-          }
+          lv.style.cssText = ""; // clear any leftover overrides
           lv.style.display = "block";
         }
       })
@@ -9460,19 +9528,37 @@ function gcStartScreenShare() {
       var screenTrack = screenStream.getVideoTracks()[0];
       GC.screenSenders = {};
 
+      // Tell the encoder this is mostly static text/UI, not motion —
+      // it will spend bits on sharpness instead of framerate, which
+      // keeps shared screens legible at a much lower bitrate than
+      // camera video needs. Without this the browser encodes it like
+      // camera video (motion-optimized), which looks blurry/laggy and
+      // burns bandwidth that other peers' audio/video need.
+      try { screenTrack.contentHint = "detail"; } catch (e) {}
+
       // Screen track ko ALAG stream ke saath add karo
       // Isse receiver side pe stream IDs alag rahengi:
       //   stream1 = camera (GC.localStream)
       //   stream2 = screen (GC.screenStream)
       Object.keys(GC.peers).forEach(function (pid) {
         var pc = GC.peers[pid].pc;
-        GC.screenSenders[pid] = pc.addTrack(screenTrack, GC.screenStream);
+        var sender = pc.addTrack(screenTrack, GC.screenStream);
+        GC.screenSenders[pid] = sender;
+        // Cap screen bitrate per-viewer too — same uncapped-per-peer
+        // problem as camera video, just worse because screen frames
+        // are bigger. 1.2Mbps/12fps stays sharp for text while still
+        // being sustainable across several simultaneous viewers.
+        gcApplySenderParams(sender, { maxBitrate: 1200000, fps: 12 });
       });
 
       // Saare peers ke saath renegotiate karo
       Object.keys(GC.peers).forEach(function (pid) {
         gcRenegotiate(pid, GC.peers[pid]);
       });
+
+      // Screen share adds real load on top of camera video — pull
+      // camera bitrate down further while it's active.
+      gcAdjustBitrates();
 
       // Saare peers ko batao ke screen share shuru ho gayi
       gcSendScreenToggle(true);
@@ -9538,6 +9624,9 @@ function gcStopScreenShare() {
   // Notify all peers screen share stopped
   gcSendScreenToggle(false);
 
+  // Screen share load is gone — ease camera bitrate back up.
+  gcAdjustBitrates();
+
   GC.originalVideoTrack = null;
   // Remove local screen thumb
   var localScreenThumb = document.getElementById("gc-thumb-local_screen");
@@ -9571,6 +9660,30 @@ function gcSendScreenToggle(sharing) {
       }),
     );
   });
+}
+
+// ── Screen-share state sync for late joiners / rejoiners ────────────
+// gcSendScreenToggle() above only reaches whoever is ALREADY in
+// GC.peers at the moment sharing starts. Anyone who joins (or rejoins
+// after leaving) AFTER that point never gets that toggle message — but
+// their peer connection still receives the screen track via ontrack
+// (createGroupPeerConnection adds it to every new pc). Since
+// GC.screenSharers[peerId] never got set for them, ontrack just parks
+// the incoming screen stream in peer._pendingScreenStream and nothing
+// ever promotes it to peer.screenStream / renders it — screen share
+// silently never shows no matter how long they wait. Fix: whenever a
+// NEW peer connection is set up (either side of the offer/answer),
+// if I'm currently sharing, tell that ONE peer directly.
+function gcSyncScreenStateToPeer(pid) {
+  if (!GC.isScreenSharing || !S.globalWs || S.globalWs.readyState !== 1) return;
+  S.globalWs.send(
+    JSON.stringify({
+      type: "gc_screen_toggle",
+      group_call_id: GC.groupCallId,
+      target_user_id: parseInt(pid),
+      sharing: true,
+    }),
+  );
 }
 
 function handleGcScreenToggle(data) {
