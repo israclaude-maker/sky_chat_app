@@ -6723,6 +6723,13 @@ function cleanupCall() {
   if (window.AndroidBridge && AndroidBridge.hideOngoingCallNotification) {
     try { AndroidBridge.hideOngoingCallNotification(); } catch (e) {}
   }
+  // Safety: always stop the screen-share border, even if the person
+  // ended the call without first turning screen share off manually.
+  if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+    window.DesktopBridge.stopScreenShareBorder();
+  } else {
+    hideShareBorder();
+  }
   cleanupCamFx();
   if (CallState.ringTimeout) {
     clearTimeout(CallState.ringTimeout);
@@ -9242,6 +9249,13 @@ function cleanupGroupCall() {
   if (window.AndroidBridge && AndroidBridge.hideOngoingCallNotification) {
     try { AndroidBridge.hideOngoingCallNotification(); } catch (e) {}
   }
+  // Safety: always stop the screen-share border, even if the call ends
+  // without screen share being turned off manually first.
+  if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+    window.DesktopBridge.stopScreenShareBorder();
+  } else {
+    hideShareBorder();
+  }
   cleanupCamFx();
   gcStopTalkingDetection();
   gcCloseScreenZoom();
@@ -11484,6 +11498,15 @@ function acceptRemoteControl(fromId) {
   if (window.DesktopBridge && window.DesktopBridge.cancelRCNotification) {
     window.DesktopBridge.cancelRCNotification();
   }
+  if (window.AndroidBridge && window.AndroidBridge.isAccessibilityServiceEnabled) {
+    var rcEnabled = false;
+    try { rcEnabled = window.AndroidBridge.isAccessibilityServiceEnabled(); } catch (e) {}
+    if (!rcEnabled) {
+      toast("Enable 'SkyChat' in Accessibility settings, then try again", "e");
+      try { window.AndroidBridge.openAccessibilitySettings(); } catch (e) {}
+      return;
+    }
+  }
   var el = document.getElementById("rc-incoming");
 
   
@@ -11721,10 +11744,6 @@ function handleRemoteControlEvent(data) {
   // Ignore cursor_sync (removed — not needed)
   if (data.event === "cursor_sync") return;
   if (!RemoteCtrl.isBeingControlled) return;
-  // NOTE: removed the per-event console.log here (used to fire on every
-  // single mousemove, 15-20x/sec) — it was adding real overhead and
-  // contributing to the RC lag. No longer needed now that the pipeline
-  // is confirmed working.
 
   // ACTUAL PC CONTROL - Desktop app pe robotjs se
   if (window.DesktopBridge && window.DesktopBridge.sendRCEvent) {
@@ -11743,6 +11762,18 @@ function handleRemoteControlEvent(data) {
         meta: data.meta || false,
         direction: data.direction || "down",
         delta: data.delta || 0,
+      }),
+    );
+  } else if (window.AndroidBridge && window.AndroidBridge.sendRCEvent) {
+    // Android APK - AccessibilityService se taps/swipes inject honge
+    AndroidBridge.sendRCEvent(
+      JSON.stringify({
+        event: data.event,
+        x: data.x,
+        y: data.y,
+        direction: data.direction || "down",
+        delta: data.delta || 0,
+        key: data.key || "",
       }),
     );
   }
