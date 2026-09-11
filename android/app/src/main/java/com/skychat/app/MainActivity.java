@@ -688,55 +688,6 @@ public class MainActivity extends Activity {
                 }
             });
         }
-
-        // ── Remote control (AnyDesk-style, phone is controlled device) ──
-        @JavascriptInterface
-        public void sendRCEvent(final String jsonData) {
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        org.json.JSONObject data = new org.json.JSONObject(jsonData);
-                        String event = data.optString("event");
-                        float x = (float) data.optDouble("x", 0);
-                        float y = (float) data.optDouble("y", 0);
-
-                        RemoteControlAccessibilityService svc = RemoteControlAccessibilityService.instance;
-                        if (svc == null) {
-                            Log.w("SkyChat", "RC event dropped — accessibility service not enabled");
-                            return;
-                        }
-
-                        if ("click".equals(event)) {
-                            svc.tap(x, y);
-                        } else if ("rightclick".equals(event)) {
-                            svc.longPress(x, y);
-                        } else if ("scroll".equals(event)) {
-                            svc.scroll(data.optString("direction", "down"), (float) data.optDouble("delta", 0));
-                        } else if ("keypress".equals(event)) {
-                            svc.handleKey(data.optString("key"));
-                        }
-                        // "mousemove" ignored — no cursor concept on touch devices
-                    } catch (Exception e) {
-                        Log.e("SkyChat", "sendRCEvent parse error: " + e.getMessage());
-                    }
-                }
-            });
-        }
-
-        @JavascriptInterface
-        public boolean isAccessibilityServiceEnabled() {
-            return RemoteControlAccessibilityService.instance != null;
-        }
-
-        @JavascriptInterface
-        public void openAccessibilitySettings() {
-            try {
-                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-            } catch (Exception e) {
-                Log.e("SkyChat", "openAccessibilitySettings failed: " + e.getMessage());
-            }
-        }
     }
 
     // ── WhatsApp-style CALL notification with Answer/Decline ──

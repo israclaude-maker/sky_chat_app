@@ -11611,15 +11611,7 @@ function acceptRemoteControl(fromId) {
   if (window.DesktopBridge && window.DesktopBridge.cancelRCNotification) {
     window.DesktopBridge.cancelRCNotification();
   }
-  if (window.AndroidBridge && window.AndroidBridge.isAccessibilityServiceEnabled) {
-    var rcEnabled = false;
-    try { rcEnabled = window.AndroidBridge.isAccessibilityServiceEnabled(); } catch (e) {}
-    if (!rcEnabled) {
-      toast("Enable 'SkyChat' in Accessibility settings, then try again", "e");
-      try { window.AndroidBridge.openAccessibilitySettings(); } catch (e) {}
-      return;
-    }
-  }
+
   var el = document.getElementById("rc-incoming");
 
   
@@ -12054,8 +12046,7 @@ function updateRCButton() {
 
 function showRCButton() {
   var btn = document.getElementById("rc-btn");
-  var isAndroid = !!(window.AndroidBridge && window.AndroidBridge.sendRCEvent);
-  if (btn) btn.style.display = (window._isDesktop || isAndroid) ? "" : "none";
+  if (btn) btn.style.display = "";
 }
 
 function hideRCButton() {
