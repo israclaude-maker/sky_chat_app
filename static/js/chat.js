@@ -11811,6 +11811,64 @@ document.addEventListener("mousemove", vid._rcMove);
   vid.addEventListener("contextmenu", vid._rcRightClick);
   vid.addEventListener("wheel", vid._rcScroll, { passive: false });
   document.addEventListener("keydown", vid._rcKeydown);
+  // ── TOUCH SUPPORT (mobile se control karne ke liye) ──
+  var touchLongPressTimer = null;
+  var touchMoved = false;
+
+  vid._rcTouchStart = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    e.preventDefault();
+    touchMoved = false;
+    var t = e.touches[0];
+    var cr = getVideoContentRect(vid);
+    var nx = Math.max(0, Math.min(1, (t.clientX - cr.left) / cr.width));
+    var ny = Math.max(0, Math.min(1, (t.clientY - cr.top) / cr.height));
+    sendRCEvent("mousemove", nx, ny);
+
+    touchLongPressTimer = setTimeout(function () {
+      sendRCEvent("rightclick", nx, ny);
+      touchLongPressTimer = null;
+    }, 500);
+  };
+
+  vid._rcTouchMove = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    e.preventDefault();
+    touchMoved = true;
+    if (touchLongPressTimer) {
+      clearTimeout(touchLongPressTimer);
+      touchLongPressTimer = null;
+    }
+    var t = e.touches[0];
+    var cr = getVideoContentRect(vid);
+    sendRCEvent(
+      "mousemove",
+      Math.max(0, Math.min(1, (t.clientX - cr.left) / cr.width)),
+      Math.max(0, Math.min(1, (t.clientY - cr.top) / cr.height)),
+    );
+  };
+
+  vid._rcTouchEnd = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    if (touchLongPressTimer) {
+      clearTimeout(touchLongPressTimer);
+      touchLongPressTimer = null;
+    }
+    if (!touchMoved) {
+      var t = e.changedTouches[0];
+      var cr = getVideoContentRect(vid);
+      sendRCEvent(
+        "click",
+        Math.max(0, Math.min(1, (t.clientX - cr.left) / cr.width)),
+        Math.max(0, Math.min(1, (t.clientY - cr.top) / cr.height)),
+      );
+    }
+    touchMoved = false;
+  };
+
+  vid.addEventListener("touchstart", vid._rcTouchStart, { passive: false });
+  vid.addEventListener("touchmove", vid._rcTouchMove, { passive: false });
+  vid.addEventListener("touchend", vid._rcTouchEnd);
   vid.setAttribute("tabindex", "0");
   vid.focus();
   setTimeout(function () {
@@ -11911,6 +11969,9 @@ function cleanupRC() {
     if (el._rcRightClick) el.removeEventListener("contextmenu", el._rcRightClick); // ADD THIS
     if (el._rcKeydown) document.removeEventListener("keydown", el._rcKeydown);
     if (el._rcScroll) el.removeEventListener("wheel", el._rcScroll);
+        if (el._rcTouchStart) el.removeEventListener("touchstart", el._rcTouchStart);
+    if (el._rcTouchMove) el.removeEventListener("touchmove", el._rcTouchMove);
+    if (el._rcTouchEnd) el.removeEventListener("touchend", el._rcTouchEnd);
     el.style.cursor = "";
     RemoteCtrl.videoEl = null;
   }
