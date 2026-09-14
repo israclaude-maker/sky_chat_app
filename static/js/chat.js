@@ -11806,10 +11806,36 @@ document.addEventListener("mousemove", vid._rcMove);
     });
   };
 
+  vid._rcTouchEnd = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    e.preventDefault();
+    e.stopPropagation();
+    vid.focus();
+    var touch = e.changedTouches && e.changedTouches[0];
+    if (!touch) return;
+    var cr = getVideoContentRect(vid);
+    var normX = Math.max(0, Math.min(1, (touch.clientX - cr.left) / cr.width));
+    var normY = Math.max(0, Math.min(1, (touch.clientY - cr.top) / cr.height));
+    sendRCEvent("click", normX, normY);
+    var ripple = document.createElement("div");
+    ripple.style.cssText =
+      "position:fixed;width:20px;height:20px;border:2px solid #3b82f6;" +
+      "border-radius:50%;pointer-events:none;z-index:99999;left:" +
+      (touch.clientX - 10) +
+      "px;top:" +
+      (touch.clientY - 10) +
+      "px;animation:rcRipple 0.4s ease-out forwards;";
+    document.body.appendChild(ripple);
+    setTimeout(function () {
+      ripple.remove();
+    }, 400);
+  };
+
   vid.addEventListener("mousemove", vid._rcMove);
   vid.addEventListener("click", vid._rcClick);
   vid.addEventListener("contextmenu", vid._rcRightClick);
   vid.addEventListener("wheel", vid._rcScroll, { passive: false });
+  vid.addEventListener("touchend", vid._rcTouchEnd, { passive: false });
   document.addEventListener("keydown", vid._rcKeydown);
   // ── TOUCH SUPPORT (mobile se control karne ke liye) ──
   var touchLongPressTimer = null;
@@ -11969,6 +11995,7 @@ function cleanupRC() {
     if (el._rcRightClick) el.removeEventListener("contextmenu", el._rcRightClick); // ADD THIS
     if (el._rcKeydown) document.removeEventListener("keydown", el._rcKeydown);
     if (el._rcScroll) el.removeEventListener("wheel", el._rcScroll);
+    if (el._rcTouchEnd) el.removeEventListener("touchend", el._rcTouchEnd);
         if (el._rcTouchStart) el.removeEventListener("touchstart", el._rcTouchStart);
     if (el._rcTouchMove) el.removeEventListener("touchmove", el._rcTouchMove);
     if (el._rcTouchEnd) el.removeEventListener("touchend", el._rcTouchEnd);
