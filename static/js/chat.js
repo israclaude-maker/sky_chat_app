@@ -6994,22 +6994,6 @@ function pipToggleCam() {
   updatePipCam();
 }
 
-function gcGetCamSender(peer) {
-  if (!peer || !peer.pc) return null;
-  if (peer._camSender) return peer._camSender;
-  var screenTrack =
-    GC.screenStream ? GC.screenStream.getVideoTracks()[0] : null;
-  var senders = peer.pc.getSenders();
-  for (var i = 0; i < senders.length; i++) {
-    var t = senders[i].track;
-    if (t && t.kind === "video" && t !== screenTrack) {
-      peer._camSender = senders[i];
-      return senders[i];
-    }
-  }
-  return null;
-}
-
 function gcToggleCam() {
   if (!GC.active || !GC.localStream) return;
 
@@ -7021,22 +7005,34 @@ function gcToggleCam() {
   var videoTracks = GC.localStream.getVideoTracks();
 
   if (videoTracks.length > 0 && !GC.isCamOff) {
-    // ── Camera OFF: sirf sender ka track null karo, pc ko haath mat lagao
     GC.isCamOff = true;
     videoTracks.forEach(function (t) {
-      GC.localStream.removeTrack(t);
       t.stop();
+      GC.localStream.removeTrack(t);
+      Object.keys(GC.peers).forEach(function (pid) {
+        var peer = GC.peers[pid];
+        if (!peer || !peer.pc) return;
+        var senders = peer.pc.getSenders();
+        for (var i = 0; i < senders.length; i++) {
+          if (senders[i].track === t) {
+            peer.pc.removeTrack(senders[i]);
+            break;
+          }
+        }
+      });
     });
     Object.keys(GC.peers).forEach(function (pid) {
-      var s = gcGetCamSender(GC.peers[pid]);
-      if (s) s.replaceTrack(null).catch(function () {});
+      var peer = GC.peers[pid];
+      if (!peer || !peer.pc) return;
+      gcRenegotiate(pid, peer);
     });
     syncGcButtonStates();
     buildLocalThumb();
     if (gcFocusedId === "local") focusGcParticipant("local");
   } else {
-    // ── Camera ON
-    if (!confirm("Are you sure you want to turn on your camera?")) return;
+    if (!confirm("Are you sure you want to turn on your camera?")) {
+      return;
+    }
     navigator.mediaDevices
       .getUserMedia({
         video: {
@@ -7052,19 +7048,10 @@ function gcToggleCam() {
 
         Object.keys(GC.peers).forEach(function (pid) {
           var peer = GC.peers[pid];
-          var s = gcGetCamSender(peer);
-          if (s) {
-            s.replaceTrack(videoTrack).catch(function (e) {
-              console.warn("[GC] cam replaceTrack failed:", e);
-            });
-          } else if (peer && peer.pc) {
-            // Fallback: sender mila hi nahi — tab hi renegotiate karo
-            peer._camSender = peer.pc.addTrack(videoTrack, GC.localStream);
-            gcRenegotiate(pid, peer);
-          }
+          if (!peer || !peer.pc) return;
+          peer.pc.addTrack(videoTrack, GC.localStream);
+          gcRenegotiate(pid, peer);
         });
-
-        gcAdjustBitrates();
         syncGcButtonStates();
         buildLocalThumb();
         if (gcFocusedId === "local") focusGcParticipant("local");
@@ -8358,23 +8345,11 @@ function createGroupPeerConnection(peerId) {
     );
   }
 
-  // Audio normal add karo. Video ke liye HAMESHA ek transceiver rakho —
-  // chahe camera abhi off ho. Isse cam on/off sirf replaceTrack se hoga,
-  // renegotiation ki zaroorat hi nahi rahegi (= koi glare storm nahi).
+  // Camera tracks add karo (GC.localStream se)
   if (GC.localStream) {
-    GC.localStream.getAudioTracks().forEach(function (track) {
+    GC.localStream.getTracks().forEach(function (track) {
       pc.addTrack(track, GC.localStream);
     });
-    var camTrack = GC.localStream.getVideoTracks()[0] || null;
-    try {
-      var camTx = pc.addTransceiver(camTrack || "video", {
-        direction: "sendrecv",
-        streams: [GC.localStream],
-      });
-      peer._camSender = camTx.sender;
-    } catch (e) {
-      if (camTrack) peer._camSender = pc.addTrack(camTrack, GC.localStream);
-    }
   }
 
   // Screen tracks alag stream ke saath add karo
@@ -8514,6 +8489,13 @@ function setupGroupPeerHandlers(pc, peer, peerId) {
 
   pc.ontrack = function (event) {
     var incomingStream = event.streams && event.streams[0];
+
+    // Har naya stream uski asal ID se yaad rakho — screen vs camera ko
+    // guess se nahi, exact ID match se pehchanenge.
+    if (incomingStream) {
+      if (!peer._streamsById) peer._streamsById = {};
+      peer._streamsById[incomingStream.id] = incomingStream;
+    }
 
     // Agar koi stream nahi mila
     if (!incomingStream) {
@@ -9592,8 +9574,9 @@ function gcStartScreenShare() {
       // camera bitrate down further while it's active.
       gcAdjustBitrates();
 
-      // Saare peers ko batao ke screen share shuru ho gayi
-      gcSendScreenToggle(true);
+      // Saare peers ko batao ke screen share shuru ho gayi — exact
+      // stream ID ke saath, taake receiver guess na kare.
+      gcSendScreenToggle(true, GC.screenStream.id);
 
       // UI update
       updateGcWaiting();
@@ -9680,7 +9663,7 @@ function gcStopScreenShare() {
   }
 }
 
-function gcSendScreenToggle(sharing) {
+function gcSendScreenToggle(sharing, streamId) {
   if (!S.globalWs || S.globalWs.readyState !== 1) return;
   Object.keys(GC.peers).forEach(function (pid) {
     S.globalWs.send(
@@ -9689,6 +9672,7 @@ function gcSendScreenToggle(sharing) {
         group_call_id: GC.groupCallId,
         target_user_id: parseInt(pid),
         sharing: sharing,
+        stream_id: streamId || null,
       }),
     );
   });
@@ -9714,6 +9698,7 @@ function gcSyncScreenStateToPeer(pid) {
       group_call_id: GC.groupCallId,
       target_user_id: parseInt(pid),
       sharing: true,
+      stream_id: GC.screenStream ? GC.screenStream.id : null,
     }),
   );
 }
@@ -9721,16 +9706,27 @@ function gcSyncScreenStateToPeer(pid) {
 function handleGcScreenToggle(data) {
   var fromId = data.from_user_id;
   var sharing = data.sharing;
+  var streamId = data.stream_id;
   var peer = GC.peers[fromId];
 
   if (sharing) {
     GC.screenSharers[fromId] = true;
     showRCButton();
-    console.log("[GC] Screen toggle ON from", fromId);
+    console.log("[GC] Screen toggle ON from", fromId, "stream_id:", streamId);
 
     if (!peer) return;
 
-    if (peer._pendingScreenStream) {
+    function tryResolveByStreamId() {
+      if (streamId && peer._streamsById && peer._streamsById[streamId]) {
+        peer.screenStream = peer._streamsById[streamId];
+        _applyGcScreenShare(fromId, peer);
+        return true;
+      }
+      return false;
+    }
+    if (tryResolveByStreamId()) return;
+
+    if (peer._pendingScreenStream && peer._pendingScreenStream.id === streamId) {
       peer.screenStream = peer._pendingScreenStream;
       peer._pendingScreenStream = null;
       _applyGcScreenShare(fromId, peer);
@@ -9747,7 +9743,14 @@ function handleGcScreenToggle(data) {
         return;
       }
 
-      if (p._pendingScreenStream) {
+      if (streamId && p._streamsById && p._streamsById[streamId]) {
+        clearInterval(poll);
+        p.screenStream = p._streamsById[streamId];
+        _applyGcScreenShare(fromId, p);
+        return;
+      }
+
+      if (p._pendingScreenStream && (!streamId || p._pendingScreenStream.id === streamId)) {
         clearInterval(poll);
         p.screenStream = p._pendingScreenStream;
         p._pendingScreenStream = null;
@@ -9755,20 +9758,18 @@ function handleGcScreenToggle(data) {
         return;
       }
 
-      if (p.pc) {
+      if (!streamId && p.pc) {
         var receivers = p.pc.getReceivers();
         var videoReceivers = receivers.filter(function (r) {
           return (
             r.track && r.track.kind === "video" && r.track.readyState === "live"
           );
         });
-
         var camTrackIds = p.stream
           ? p.stream.getVideoTracks().map(function (t) {
               return t.id;
             })
           : [];
-
         var screenReceiver = null;
         for (var i = 0; i < videoReceivers.length; i++) {
           if (camTrackIds.indexOf(videoReceivers[i].track.id) === -1) {
@@ -9776,21 +9777,9 @@ function handleGcScreenToggle(data) {
             break;
           }
         }
-
         if (screenReceiver) {
           clearInterval(poll);
-          console.log("[GC] Screen track found via receiver for peer", fromId);
           p.screenStream = new MediaStream([screenReceiver.track]);
-          _applyGcScreenShare(fromId, p);
-          return;
-        }
-
-        if (
-          videoReceivers.length === 1 &&
-          (!p.stream || p.stream.getVideoTracks().length === 0)
-        ) {
-          clearInterval(poll);
-          p.screenStream = new MediaStream([videoReceivers[0].track]);
           _applyGcScreenShare(fromId, p);
           return;
         }
@@ -9806,6 +9795,7 @@ function handleGcScreenToggle(data) {
     delete GC.screenSharers[fromId];
     if (Object.keys(GC.screenSharers).length === 0) hideRCButton();
     if (peer) {
+      if (streamId && peer._streamsById) delete peer._streamsById[streamId];
       peer.screenStream = null;
       peer._pendingScreenStream = null;
       var sThumb = document.getElementById("gc-thumb-" + fromId + "_screen");
