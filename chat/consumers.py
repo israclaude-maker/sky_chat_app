@@ -14,7 +14,8 @@ from django.utils import timezone as djtz
 
 User = get_user_model()
 
-# Global mapping of user_id to channel_name for direct messaging
+# user_id -> set of channel_names. Ek user ke kai sockets hote hain
+# (global signaling socket + per-chat socket), isliye set.
 connected_users = {}
 
 
@@ -24,6 +25,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if not self.user.is_authenticated:
             await self.close()
             return
+
+        # Is socket ne khud jo group calls join ki hain sirf unhi ka
+        # cleanup disconnect pe hoga (baqi sockets ko disturb mat karo).
+        self.joined_group_calls = set()
 
         self.room_name = self.scope["url_route"]["kwargs"]["room_name"]
         self.room_group_name = f"chat_{self.room_name}"
@@ -35,8 +40,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
         # Set user online
         await self.set_user_online(True)
 
-        # Add to connected users
-        connected_users[self.user.id] = self.channel_name
+        # Add this socket to the user's connection set
+        connected_users.setdefault(self.user.id, set()).add(self.channel_name)
 
         # Also join a personal channel for call signaling
         self.personal_group = f"user_{self.user.id}"
@@ -62,18 +67,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if not self.user.is_authenticated:
             return
 
-        # Clean up any active group calls this user is in
+        # Clean up ONLY the group calls this socket joined
         await self.cleanup_user_group_calls()
 
-        # Broadcast offline status before cleanup
-        await self.broadcast_online_status(False)
+        # Sirf YEH socket hatao, poora user nahi
+        conns = connected_users.get(self.user.id)
+        if conns:
+            conns.discard(self.channel_name)
+            if not conns:
+                connected_users.pop(self.user.id, None)
 
-        # Update last seen
-        await self.update_last_seen()
-
-        # Remove from connected users
-        if self.user.id in connected_users:
-            del connected_users[self.user.id]
+        # Offline sirf tab jab user ka koi socket baaki na bache
+        if not connected_users.get(self.user.id):
+            await self.broadcast_online_status(False)
+            await self.update_last_seen()
 
         # Leave personal group
         if hasattr(self, "personal_group"):
@@ -294,45 +301,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     "timestamp": djtz.now().isoformat(),
                 },
             )
-            
-            # handle_remote_control_event — replace karo
-    async def handle_remote_control_event(self, data):
-        target_id = data.get("target_user_id")
-        await self.channel_layer.group_send(
-            f"user_{target_id}",
-            {
-                "type": "remote_control_event_relay",
-                "event": data.get("event"),
-                "x": data.get("x", 0),
-                "y": data.get("y", 0),
-                "key": data.get("key"),
-                "ctrl": data.get("ctrl", False),
-                "shift": data.get("shift", False),
-                "alt": data.get("alt", False),
-                "meta": data.get("meta", False),
-                "delta": data.get("delta", 0),
-                "direction": data.get("direction"),
-            },
-        )
-
-    async def remote_control_event_relay(self, event):
-        await self.send(
-            text_data=json.dumps(
-                {
-                    "type": "remote_control_event",
-                    "event": event["event"],
-                    "x": event["x"],
-                    "y": event["y"],
-                    "key": event.get("key"),
-                    "ctrl": event.get("ctrl", False),
-                    "shift": event.get("shift", False),
-                    "alt": event.get("alt", False),
-                    "meta": event.get("meta", False),
-                    "delta": event.get("delta", 0),
-                    "direction": event.get("direction"),
-                }
-            )
-        )
 
     async def handle_message_edit(self, data):
         """Broadcast message edit to all users in the room"""
@@ -893,6 +861,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         """A member joins the group call — send offers to existing participants"""
         gc_id = data.get("group_call_id")
         await self.add_group_call_participant(gc_id)
+        self.joined_group_calls.add(gc_id)
         participant_ids = await self.get_group_call_participant_ids(gc_id)
         user_name = (
             f"{self.user.first_name} {self.user.last_name}".strip()
@@ -976,11 +945,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "group_call_id": data.get("group_call_id"),
                 "from_user_id": self.user.id,
                 "sharing": data.get("sharing", False),
+                "stream_id": data.get("stream_id"),
             },
         )
 
     async def handle_group_call_leave(self, data):
         gc_id = data.get("group_call_id")
+        self.joined_group_calls.discard(gc_id)
         await self.mark_group_call_left(gc_id)
         participant_ids = await self.get_group_call_participant_ids(gc_id)
         for pid in participant_ids:
@@ -1221,6 +1192,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     "group_call_id": event["group_call_id"],
                     "from_user_id": event["from_user_id"],
                     "sharing": event["sharing"],
+                    "stream_id": event.get("stream_id"),
                 }
             )
         )
@@ -1381,8 +1353,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
     async def cleanup_user_group_calls(self):
-        """Mark user as left from all active group calls on disconnect."""
-        active_gc_ids = await self.get_user_active_group_calls()
+        """Sirf un calls se leave karo jo ISI socket ne join ki thin.
+        Warna chat switch pe per-chat socket band hote hi user
+        apni chalti hui group call se nikal jata tha."""
+        joined = getattr(self, "joined_group_calls", None)
+        if not joined:
+            return
+        active_gc_ids = list(joined)
+        joined.clear()
         for gc_id in active_gc_ids:
             await self.mark_group_call_left(gc_id)
             # Notify remaining participants

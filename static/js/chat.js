@@ -1,5 +1,36 @@
 /* SkyChat - Main Chat JavaScript */
+// ── TEMPORARY ON-SCREEN DEBUG (USB debugging ke bghair errors dekhne ke liye) ──
+(function() {
+  var box = document.createElement('div');
+  box.id = 'debug-overlay';
+  box.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:150px;overflow-y:auto;background:rgba(0,0,0,0.85);color:#0f0;font-size:11px;font-family:monospace;padding:6px;z-index:999999;white-space:pre-wrap;';
+  document.addEventListener('DOMContentLoaded', function() {
+    document.body.appendChild(box);
+  });
+  if (document.body) document.body.appendChild(box);
 
+  function logToScreen(msg) {
+    var line = document.createElement('div');
+    line.textContent = msg;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  window.addEventListener('error', function(e) {
+    logToScreen('ERROR: ' + e.message + ' @ ' + e.filename + ':' + e.lineno);
+  });
+
+  var origLog = console.log;
+  console.log = function() {
+    logToScreen('LOG: ' + Array.from(arguments).join(' '));
+    origLog.apply(console, arguments);
+  };
+
+  // Touch events dikhane ke liye
+  document.addEventListener('touchstart', function(e) {
+    logToScreen('touchstart on: ' + (e.target.tagName || 'unknown') + ' id=' + (e.target.id || '-'));
+  }, true);
+})();
 // Tick SVG generator - WhatsApp style
 function tickSVG(status) {
   if (status === "read") {
@@ -6994,6 +7025,22 @@ function pipToggleCam() {
   updatePipCam();
 }
 
+function gcGetCamSender(peer) {
+  if (!peer || !peer.pc) return null;
+  if (peer._camSender) return peer._camSender;
+  var screenTrack =
+    GC.screenStream ? GC.screenStream.getVideoTracks()[0] : null;
+  var senders = peer.pc.getSenders();
+  for (var i = 0; i < senders.length; i++) {
+    var t = senders[i].track;
+    if (t && t.kind === "video" && t !== screenTrack) {
+      peer._camSender = senders[i];
+      return senders[i];
+    }
+  }
+  return null;
+}
+
 function gcToggleCam() {
   if (!GC.active || !GC.localStream) return;
 
@@ -7005,36 +7052,22 @@ function gcToggleCam() {
   var videoTracks = GC.localStream.getVideoTracks();
 
   if (videoTracks.length > 0 && !GC.isCamOff) {
+    // ── Camera OFF: sirf sender ka track null karo, pc ko haath mat lagao
     GC.isCamOff = true;
     videoTracks.forEach(function (t) {
-      t.stop();
       GC.localStream.removeTrack(t);
-      Object.keys(GC.peers).forEach(function (pid) {
-        var peer = GC.peers[pid];
-        if (!peer || !peer.pc) return;
-        var senders = peer.pc.getSenders();
-        for (var i = 0; i < senders.length; i++) {
-          if (senders[i].track === t) {
-            peer.pc.removeTrack(senders[i]);
-            break;
-          }
-        }
-      });
+      t.stop();
     });
-    // Renegotiate with all peers
     Object.keys(GC.peers).forEach(function (pid) {
-      var peer = GC.peers[pid];
-      if (!peer || !peer.pc) return;
-      gcRenegotiate(pid, peer);
+      var s = gcGetCamSender(GC.peers[pid]);
+      if (s) s.replaceTrack(null).catch(function () {});
     });
     syncGcButtonStates();
     buildLocalThumb();
     if (gcFocusedId === "local") focusGcParticipant("local");
   } else {
-    // Turn camera ON — confirm first
-    if (!confirm("Are you sure you want to turn on your camera?")) {
-      return;
-    }
+    // ── Camera ON
+    if (!confirm("Are you sure you want to turn on your camera?")) return;
     navigator.mediaDevices
       .getUserMedia({
         video: {
@@ -7050,10 +7083,19 @@ function gcToggleCam() {
 
         Object.keys(GC.peers).forEach(function (pid) {
           var peer = GC.peers[pid];
-          if (!peer || !peer.pc) return;
-          peer.pc.addTrack(videoTrack, GC.localStream);
-          gcRenegotiate(pid, peer);
+          var s = gcGetCamSender(peer);
+          if (s) {
+            s.replaceTrack(videoTrack).catch(function (e) {
+              console.warn("[GC] cam replaceTrack failed:", e);
+            });
+          } else if (peer && peer.pc) {
+            // Fallback: sender mila hi nahi — tab hi renegotiate karo
+            peer._camSender = peer.pc.addTrack(videoTrack, GC.localStream);
+            gcRenegotiate(pid, peer);
+          }
         });
+
+        gcAdjustBitrates();
         syncGcButtonStates();
         buildLocalThumb();
         if (gcFocusedId === "local") focusGcParticipant("local");
@@ -7995,15 +8037,13 @@ function handleGroupCallOffer(data) {
       peerSignalingState,
   );
 
-  // Renegotiation sirf tab — jab peer already connected ho
-  // "new" ya "disconnected" state pe nahi
+  // Jab tak pc zinda hai (closed/failed nahi), HAMESHA perfect-negotiation
+  // path use karo — "new"/"connecting" pe teardown karna hi asal bug tha.
   var isRenegotiation =
     existingPeer &&
     existingPeer.pc &&
     existingPeer.pc.signalingState !== "closed" &&
-    existingPeer.pc.connectionState !== "failed" &&
-    existingPeer.pc.connectionState !== "new" &&
-    existingPeer.pc.connectionState !== "disconnected";
+    existingPeer.pc.connectionState !== "failed";
 
   if (isRenegotiation) {
     var pc = existingPeer.pc;
@@ -8095,7 +8135,14 @@ function handleGroupCallOffer(data) {
 
 function _gcCreateFreshPeer(fromId, data) {
   var ei = GC.peers[fromId];
+  // Purane peer ke queued ICE candidates carry karo, warna woh gum ho
+  // jate hain aur connection kabhi establish nahi hoti.
+  var carriedIce = ei && ei.pendingIce ? ei.pendingIce.slice() : [];
   var peer = createGroupPeerConnection(fromId);
+  if (carriedIce.length) {
+    peer.pendingIce = (peer.pendingIce || []).concat(carriedIce);
+    console.log("[GC] Carried " + carriedIce.length + " ICE for " + fromId);
+  }
   GC.peers[fromId] = peer;
   peer._awaitingOffer = false;
   peer.name = data.from_user_name || (ei && ei.name) || "User";
@@ -8245,8 +8292,12 @@ function handleGroupCallUserLeft(data) {
 function createGroupPeer(peerId, name, pic, isInitiator) {
   var oldPeer = GC.peers[peerId];
   if (oldPeer && oldPeer.pc && oldPeer.pc.connectionState === "connected") { return oldPeer; }
+  var carriedIce = oldPeer && oldPeer.pendingIce ? oldPeer.pendingIce.slice() : [];
   if (oldPeer && oldPeer.pc) { try { oldPeer.pc.close(); } catch(e) {} }
   var peer = createGroupPeerConnection(peerId);
+  if (carriedIce.length) {
+    peer.pendingIce = (peer.pendingIce || []).concat(carriedIce);
+  }
   peer.name = name || (oldPeer && oldPeer.name) || "User";
   peer.pic = pic || (oldPeer && oldPeer.pic) || "";
   peer._awaitingOffer = false;
@@ -8338,11 +8389,23 @@ function createGroupPeerConnection(peerId) {
     );
   }
 
-  // Camera tracks add karo (GC.localStream se)
+  // Audio normal add karo. Video ke liye HAMESHA ek transceiver rakho —
+  // chahe camera abhi off ho. Isse cam on/off sirf replaceTrack se hoga,
+  // renegotiation ki zaroorat hi nahi rahegi (= koi glare storm nahi).
   if (GC.localStream) {
-    GC.localStream.getTracks().forEach(function (track) {
+    GC.localStream.getAudioTracks().forEach(function (track) {
       pc.addTrack(track, GC.localStream);
     });
+    var camTrack = GC.localStream.getVideoTracks()[0] || null;
+    try {
+      var camTx = pc.addTransceiver(camTrack || "video", {
+        direction: "sendrecv",
+        streams: [GC.localStream],
+      });
+      peer._camSender = camTx.sender;
+    } catch (e) {
+      if (camTrack) peer._camSender = pc.addTrack(camTrack, GC.localStream);
+    }
   }
 
   // Screen tracks alag stream ke saath add karo
