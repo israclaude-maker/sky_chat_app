@@ -1,5 +1,30 @@
 /* SkyChat - Main Chat JavaScript */
-
+function customConfirm(message, onYes) {
+  var old = document.getElementById("custom-confirm-overlay");
+  if (old) old.remove();
+  var overlay = document.createElement("div");
+  overlay.id = "custom-confirm-overlay";
+  overlay.style.cssText =
+    "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999999;display:flex;align-items:center;justify-content:center;";
+  var box = document.createElement("div");
+  box.style.cssText =
+    "background:#1f2937;color:#fff;padding:24px 28px;border-radius:16px;max-width:320px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.5);";
+  box.innerHTML =
+    '<div style="font-size:15px;margin-bottom:20px;">' + message + "</div>" +
+    '<div style="display:flex;gap:10px;justify-content:center;">' +
+    '<button id="cc-cancel" style="background:#374151;color:#fff;border:none;padding:10px 20px;border-radius:10px;cursor:pointer;font-weight:600;">Cancel</button>' +
+    '<button id="cc-yes" style="background:#22c55e;color:#fff;border:none;padding:10px 20px;border-radius:10px;cursor:pointer;font-weight:600;">Yes</button>' +
+    "</div>";
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  document.getElementById("cc-cancel").onclick = function () {
+    overlay.remove();
+  };
+  document.getElementById("cc-yes").onclick = function () {
+    overlay.remove();
+    onYes();
+  };
+}
 // Tick SVG generator - WhatsApp style
 function tickSVG(status) {
   if (status === "read") {
@@ -7030,36 +7055,35 @@ function gcToggleCam() {
     buildLocalThumb();
     if (gcFocusedId === "local") focusGcParticipant("local");
   } else {
-    if (!confirm("Are you sure you want to turn on your camera?")) {
-      return;
-    }
-    navigator.mediaDevices
-      .getUserMedia({
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: "user",
-        },
-      })
-      .then(function (camStream) {
-        var videoTrack = camStream.getVideoTracks()[0];
-        GC.localStream.addTrack(videoTrack);
-        GC.isCamOff = false;
+    customConfirm("Are you sure you want to turn on your camera?", function () {
+      navigator.mediaDevices
+        .getUserMedia({
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: "user",
+          },
+        })
+        .then(function (camStream) {
+          var videoTrack = camStream.getVideoTracks()[0];
+          GC.localStream.addTrack(videoTrack);
+          GC.isCamOff = false;
 
-        Object.keys(GC.peers).forEach(function (pid) {
-          var peer = GC.peers[pid];
-          if (!peer || !peer.pc) return;
-          peer.pc.addTrack(videoTrack, GC.localStream);
-          gcRenegotiate(pid, peer);
+          Object.keys(GC.peers).forEach(function (pid) {
+            var peer = GC.peers[pid];
+            if (!peer || !peer.pc) return;
+            peer.pc.addTrack(videoTrack, GC.localStream);
+            gcRenegotiate(pid, peer);
+          });
+          syncGcButtonStates();
+          buildLocalThumb();
+          if (gcFocusedId === "local") focusGcParticipant("local");
+        })
+        .catch(function (err) {
+          console.error("Camera error:", err);
+          toast("Could not access camera", "e");
         });
-        syncGcButtonStates();
-        buildLocalThumb();
-        if (gcFocusedId === "local") focusGcParticipant("local");
-      })
-      .catch(function (err) {
-        console.error("Camera error:", err);
-        toast("Could not access camera", "e");
-      });
+    });
   }
 }
 
@@ -8894,6 +8918,7 @@ function buildGcScreenThumb(id, peer) {
     vid.muted = true;
     vid.srcObject = screenStream;
     thumb.appendChild(vid);
+    vid.play().catch(function(){});   // ← yeh line add karo
   }
 
   // Screen badge
@@ -9094,6 +9119,7 @@ function updateGcMainView(id, peer, showScreen) {
         vid.playsInline = true;
         vid.srcObject = screenStream;
         mainView.appendChild(vid);
+        vid.play().catch(function(){});   // ← yeh bhi add karo
       }
       mainView.classList.add("screen-share");
       if (!isLocal) {
@@ -9446,57 +9472,56 @@ function toggleCam() {
     updateVideoDisplay();
   } else {
     // Turn camera ON — confirm first
-    if (!confirm("Are you sure you want to turn on your camera?")) {
-      return;
-    }
-    navigator.mediaDevices
-      .getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30 },
-          facingMode: "user",
-        },
-      })
-      .then(function (camStream) {
-        var videoTrack = camStream.getVideoTracks()[0];
-        CallState.localStream.addTrack(videoTrack);
-        if (CallState.pc) {
-          CallState.pc.addTrack(videoTrack, CallState.localStream);
-          CallState.pc
-            .createOffer({
-              offerToReceiveAudio: true,
-              offerToReceiveVideo: true,
-            })
-            .then(function (offer) {
-              return CallState.pc.setLocalDescription(offer);
-            })
-            .then(function () {
-              var ws = S.globalWs || S.ws;
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(
-                  JSON.stringify({
-                    type: "screen_offer",
-                    target_user_id: CallState.remoteUserId,
-                    sdp: CallState.pc.localDescription,
-                  }),
-                );
-              }
-            });
-        }
-        CallState.isCamOff = false;
-        updateCamButton();
-        var lv = $("local-video");
-        if (lv) {
-          lv.srcObject = CallState.localStream;
-          lv.style.cssText = ""; // clear any leftover overrides
-          lv.style.display = "block";
-        }
-      })
-      .catch(function (err) {
-        console.error("Camera access error:", err);
-        toast("Could not access camera", "e");
-      });
+    customConfirm("Are you sure you want to turn on your camera?", function () {
+      navigator.mediaDevices
+        .getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+            facingMode: "user",
+          },
+        })
+        .then(function (camStream) {
+          var videoTrack = camStream.getVideoTracks()[0];
+          CallState.localStream.addTrack(videoTrack);
+          if (CallState.pc) {
+            CallState.pc.addTrack(videoTrack, CallState.localStream);
+            CallState.pc
+              .createOffer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: true,
+              })
+              .then(function (offer) {
+                return CallState.pc.setLocalDescription(offer);
+              })
+              .then(function () {
+                var ws = S.globalWs || S.ws;
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(
+                    JSON.stringify({
+                      type: "screen_offer",
+                      target_user_id: CallState.remoteUserId,
+                      sdp: CallState.pc.localDescription,
+                    }),
+                  );
+                }
+              });
+          }
+          CallState.isCamOff = false;
+          updateCamButton();
+          var lv = $("local-video");
+          if (lv) {
+            lv.srcObject = CallState.localStream;
+            lv.style.cssText = "";
+            lv.style.display = "block";
+          }
+        })
+        .catch(function (err) {
+          console.error("Camera access error:", err);
+          toast("Could not access camera", "e");
+        });
+    });
   }
 }
 
