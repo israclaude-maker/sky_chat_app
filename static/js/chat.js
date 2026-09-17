@@ -1,36 +1,5 @@
 /* SkyChat - Main Chat JavaScript */
-// ── TEMPORARY ON-SCREEN DEBUG (USB debugging ke bghair errors dekhne ke liye) ──
-(function() {
-  var box = document.createElement('div');
-  box.id = 'debug-overlay';
-  box.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:150px;overflow-y:auto;background:rgba(0,0,0,0.85);color:#0f0;font-size:11px;font-family:monospace;padding:6px;z-index:999999;white-space:pre-wrap;';
-  document.addEventListener('DOMContentLoaded', function() {
-    document.body.appendChild(box);
-  });
-  if (document.body) document.body.appendChild(box);
 
-  function logToScreen(msg) {
-    var line = document.createElement('div');
-    line.textContent = msg;
-    box.appendChild(line);
-    box.scrollTop = box.scrollHeight;
-  }
-
-  window.addEventListener('error', function(e) {
-    logToScreen('ERROR: ' + e.message + ' @ ' + e.filename + ':' + e.lineno);
-  });
-
-  var origLog = console.log;
-  console.log = function() {
-    logToScreen('LOG: ' + Array.from(arguments).join(' '));
-    origLog.apply(console, arguments);
-  };
-
-  // Touch events dikhane ke liye
-  document.addEventListener('touchstart', function(e) {
-    logToScreen('touchstart on: ' + (e.target.tagName || 'unknown') + ' id=' + (e.target.id || '-'));
-  }, true);
-})();
 // Tick SVG generator - WhatsApp style
 function tickSVG(status) {
   if (status === "read") {
