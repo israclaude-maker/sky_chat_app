@@ -12197,7 +12197,7 @@ function keepAudioContextAlive() {
     var ctx = new (window.AudioContext || window.webkitAudioContext)();
     var osc = ctx.createOscillator();
     var gain = ctx.createGain();
-    gain.gain.value = 0.001; // almost silent
+    gain.gain.value = 0; // completely silent
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start();
