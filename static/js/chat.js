@@ -5906,6 +5906,17 @@ function cancelCall() {
 }
 
 function endCall() {
+  // Agar remote control active hai to pehle confirm karo (accidental tap se bachne ke liye)
+  if (RemoteCtrl.isControlling) {
+    customConfirm("End the call?", function () {
+      _doEndCall();
+    });
+    return;
+  }
+  _doEndCall();
+}
+
+function _doEndCall() {
   stopAllRingtones();
   if (CallRec.isRecording) stopCallRecord();
 
@@ -11942,6 +11953,43 @@ document.addEventListener("mousemove", vid._rcMove);
   vid.addEventListener("touchstart", vid._rcTouchStart, { passive: false });
   vid.addEventListener("touchmove", vid._rcTouchMove, { passive: false });
   vid.addEventListener("touchend", vid._rcTouchEnd);
+  // Two-finger scroll support
+var scrollLastY = null;
+
+vid._rcTouchStart2 = function (e) {
+  if (!RemoteCtrl.isControlling) return;
+  if (e.touches.length === 2) {
+    scrollLastY = e.touches[0].clientY;
+    if (touchLongPressTimer) {
+      clearTimeout(touchLongPressTimer);
+      touchLongPressTimer = null;
+    }
+  }
+};
+
+vid._rcTouchMove2 = function (e) {
+  if (!RemoteCtrl.isControlling) return;
+  if (e.touches.length === 2 && scrollLastY !== null) {
+    e.preventDefault();
+    var currentY = e.touches[0].clientY;
+    var deltaY = scrollLastY - currentY;
+    if (Math.abs(deltaY) > 5) {
+      sendRCEvent("scroll", 0, 0, {
+        direction: deltaY > 0 ? "down" : "up",
+        delta: Math.abs(deltaY) * 3,
+      });
+      scrollLastY = currentY;
+    }
+  }
+};
+
+vid._rcTouchEnd2 = function (e) {
+  scrollLastY = null;
+};
+
+vid.addEventListener("touchstart", vid._rcTouchStart2, { passive: false });
+vid.addEventListener("touchmove", vid._rcTouchMove2, { passive: false });
+vid.addEventListener("touchend", vid._rcTouchEnd2);
   vid.setAttribute("tabindex", "0");
   vid.focus();
   setTimeout(function () {
