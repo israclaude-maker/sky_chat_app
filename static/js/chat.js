@@ -10441,6 +10441,7 @@ function _szEnsureControls(overlayId) {
 (function initScreenShareZoom() {
   function isTargetVideo(el) {
     if (!el || el.tagName !== "VIDEO") return false;
+    if (typeof RemoteCtrl !== "undefined" && RemoteCtrl.isControlling) return false;
     if (el.id === "remote-screen-video") return true;
     var mv = document.getElementById("gc-main-view");
     if (mv && mv.contains(el) && mv.classList.contains("screen-share")) return true;
@@ -11893,7 +11894,7 @@ document.addEventListener("mousemove", vid._rcMove);
   vid.addEventListener("click", vid._rcClick);
   vid.addEventListener("contextmenu", vid._rcRightClick);
   vid.addEventListener("wheel", vid._rcScroll, { passive: false });
-  vid.addEventListener("touchend", vid._rcTouchEnd, { passive: false });
+
   document.addEventListener("keydown", vid._rcKeydown);
   // ── TOUCH SUPPORT (mobile se control karne ke liye) ──
   var touchLongPressTimer = null;
@@ -11902,6 +11903,8 @@ document.addEventListener("mousemove", vid._rcMove);
   vid._rcTouchStart = function (e) {
     if (!RemoteCtrl.isControlling) return;
     e.preventDefault();
+    if (e.touches.length > 1) return; // doosri ungli = scroll, click/rightclick nahi
+    if (touchLongPressTimer) { clearTimeout(touchLongPressTimer); touchLongPressTimer = null; }
     touchMoved = false;
     var t = e.touches[0];
     var cr = getVideoContentRect(vid);
@@ -11918,6 +11921,7 @@ document.addEventListener("mousemove", vid._rcMove);
   vid._rcTouchMove = function (e) {
     if (!RemoteCtrl.isControlling) return;
     e.preventDefault();
+    if (e.touches.length > 1) return; // do ungli = scroll, mouse move nahi
     touchMoved = true;
     if (touchLongPressTimer) {
       clearTimeout(touchLongPressTimer);
@@ -11938,7 +11942,7 @@ document.addEventListener("mousemove", vid._rcMove);
       clearTimeout(touchLongPressTimer);
       touchLongPressTimer = null;
     }
-    if (!touchMoved) {
+    if (!touchMoved && !vid._rcMulti) {
       var t = e.changedTouches[0];
       var cr = getVideoContentRect(vid);
       sendRCEvent(
@@ -11953,43 +11957,61 @@ document.addEventListener("mousemove", vid._rcMove);
   vid.addEventListener("touchstart", vid._rcTouchStart, { passive: false });
   vid.addEventListener("touchmove", vid._rcTouchMove, { passive: false });
   vid.addEventListener("touchend", vid._rcTouchEnd);
-  // Two-finger scroll support
-var scrollLastY = null;
 
-vid._rcTouchStart2 = function (e) {
-  if (!RemoteCtrl.isControlling) return;
-  if (e.touches.length === 2) {
-    scrollLastY = e.touches[0].clientY;
-    if (touchLongPressTimer) {
-      clearTimeout(touchLongPressTimer);
-      touchLongPressTimer = null;
+
+  // Two-finger scroll support (smooth)
+  var scrollLastY = null;
+  var scrollAccum = 0;
+  var scrollTimer = null;
+
+  vid._rcTouchStart2 = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    if (e.touches.length === 2) {
+      scrollLastY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      scrollAccum = 0;
+      vid._rcMulti = true;
+      touchMoved = true;
+      if (touchLongPressTimer) {
+        clearTimeout(touchLongPressTimer);
+        touchLongPressTimer = null;
+      }
     }
-  }
-};
+  };
 
-vid._rcTouchMove2 = function (e) {
-  if (!RemoteCtrl.isControlling) return;
-  if (e.touches.length === 2 && scrollLastY !== null) {
-    e.preventDefault();
-    var currentY = e.touches[0].clientY;
-    var deltaY = scrollLastY - currentY;
-    if (Math.abs(deltaY) > 5) {
-      sendRCEvent("scroll", 0, 0, {
-        direction: deltaY > 0 ? "down" : "up",
-        delta: Math.abs(deltaY) * 3,
-      });
-      scrollLastY = currentY;
+  vid._rcTouchMove2 = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    if (e.touches.length === 2 && scrollLastY !== null) {
+      e.preventDefault();
+      var y = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      scrollAccum += scrollLastY - y; // positive = neeche scroll
+      scrollLastY = y;
+      if (!scrollTimer) {
+        scrollTimer = setTimeout(function () {
+          scrollTimer = null;
+          // main.js har event par kam az kam 120 scroll karta hai,
+          // isliye chhoti harkat jama hone do, jab kaafi ho tab bhejo
+          if (Math.abs(scrollAccum) < 15) return;
+          sendRCEvent("scroll", 0, 0, {
+            direction: scrollAccum > 0 ? "down" : "up",
+            delta: Math.abs(scrollAccum) * 3,
+          });
+          scrollAccum = 0;
+        }, 50);
+      }
     }
-  }
-};
+  };
 
-vid._rcTouchEnd2 = function (e) {
-  scrollLastY = null;
-};
+  vid._rcTouchEnd2 = function (e) {
+    if (e.touches.length === 0) {
+      scrollLastY = null;
+      scrollAccum = 0;
+      setTimeout(function () { vid._rcMulti = false; }, 150);
+    }
+  };
 
-vid.addEventListener("touchstart", vid._rcTouchStart2, { passive: false });
-vid.addEventListener("touchmove", vid._rcTouchMove2, { passive: false });
-vid.addEventListener("touchend", vid._rcTouchEnd2);
+  vid.addEventListener("touchstart", vid._rcTouchStart2, { passive: false });
+  vid.addEventListener("touchmove", vid._rcTouchMove2, { passive: false });
+  vid.addEventListener("touchend", vid._rcTouchEnd2);
   vid.setAttribute("tabindex", "0");
   vid.focus();
   setTimeout(function () {
@@ -12094,6 +12116,9 @@ function cleanupRC() {
         if (el._rcTouchStart) el.removeEventListener("touchstart", el._rcTouchStart);
     if (el._rcTouchMove) el.removeEventListener("touchmove", el._rcTouchMove);
     if (el._rcTouchEnd) el.removeEventListener("touchend", el._rcTouchEnd);
+    if (el._rcTouchStart2) el.removeEventListener("touchstart", el._rcTouchStart2);
+    if (el._rcTouchMove2) el.removeEventListener("touchmove", el._rcTouchMove2);
+    if (el._rcTouchEnd2) el.removeEventListener("touchend", el._rcTouchEnd2);
     el.style.cursor = "";
     RemoteCtrl.videoEl = null;
   }
