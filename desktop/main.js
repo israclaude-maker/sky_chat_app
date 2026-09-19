@@ -448,6 +448,32 @@ function setupFocusHandlers() {
   });
 }
 
+// ─── Session cookies ko permanent banao (Remember Me fix) ───
+function persistCookies() {
+  const ses = mainWindow.webContents.session;
+  const THIRTY_DAYS = 60 * 60 * 24 * 30;
+
+  ses.cookies.on("changed", (event, cookie, cause, removed) => {
+    if (removed || !cookie.session) return;
+    try {
+      const host = cookie.domain.replace(/^\./, "");
+      const details = {
+        url: (cookie.secure ? "https://" : "http://") + host + cookie.path,
+        name: cookie.name,
+        value: cookie.value,
+        path: cookie.path,
+        secure: cookie.secure,
+        httpOnly: cookie.httpOnly,
+        expirationDate: Math.floor(Date.now() / 1000) + THIRTY_DAYS,
+      };
+      if (!cookie.hostOnly) details.domain = cookie.domain;
+      ses.cookies.set(details).catch((e) => rcLog("[Cookie] set failed:", e.message));
+    } catch (e) {
+      rcLog("[Cookie] persist error:", e.message);
+    }
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════
 // APP LIFECYCLE
 // ═══════════════════════════════════════════════════════════════
@@ -456,6 +482,7 @@ app.whenReady().then(() => {
   app.setAppUserModelId("com.skychat.desktop");
 
   createWindow();
+  persistCookies();
   createTray();
   setupFocusHandlers();
 
@@ -1008,6 +1035,7 @@ ipcMain.on("share-border-stop", () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  try { mainWindow.webContents.session.cookies.flushStore(); } catch (e) {}
   restoreSystemCursor();
   destroyShareBorderOverlay();
 });
