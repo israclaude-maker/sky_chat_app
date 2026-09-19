@@ -3,23 +3,63 @@
 const API_URL = "/api/auth/users";
 
 // Check if already logged in — verify token is not expired before redirecting
+// Check if already logged in — expired access token ho to refresh token se naya lo
 (function () {
   var t = localStorage.getItem("access_token") || sessionStorage.getItem("access_token");
-  if (!t) return;
-  // Decode JWT payload to check expiry (no crypto, just base64)
-  try {
-    var payload = JSON.parse(atob(t.split(".")[1]));
-    if (payload.exp && payload.exp * 1000 > Date.now()) {
-      window.location.href = "/chat/";
-    } else {
-      // Token expired — clear it so user sees login form
-      localStorage.removeItem("access_token");
-      sessionStorage.removeItem("access_token");
+  var r = localStorage.getItem("refresh_token") || sessionStorage.getItem("refresh_token");
+
+  function isValid(token) {
+    try {
+      var b64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      var payload = JSON.parse(atob(b64));
+      return payload.exp && payload.exp * 1000 > Date.now();
+    } catch (e) {
+      return false;
     }
-  } catch (e) {
-    localStorage.removeItem("access_token");
-    sessionStorage.removeItem("access_token");
   }
+
+  function clearTokens() {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+    sessionStorage.removeItem("access_token");
+    sessionStorage.removeItem("refresh_token");
+  }
+
+  // 1) Access token abhi valid hai
+  if (t && isValid(t)) {
+    window.location.href = "/chat/";
+    return;
+  }
+
+  // 2) Access token expire, magar refresh token maujood hai
+  if (r) {
+    fetch("/api/auth/token/refresh/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh: r }),
+    })
+      .then(function (res) {
+        if (!res.ok) {
+          if (res.status === 400 || res.status === 401) clearTokens();
+          return null;
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data || !data.access) return;
+        var store = localStorage.getItem("refresh_token") ? localStorage : sessionStorage;
+        store.setItem("access_token", data.access);
+        if (data.refresh) store.setItem("refresh_token", data.refresh);
+        window.location.href = "/chat/";
+      })
+      .catch(function () {
+        /* internet nahi hai to tokens delete mat karo */
+      });
+    return;
+  }
+
+  // 3) Kuch bhi nahi
+  clearTokens();
 })();
 
 // Initialize - show login form by default
