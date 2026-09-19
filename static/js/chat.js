@@ -636,7 +636,7 @@ function init() {
 
       // Save credentials to Android for background service
       if (window.AndroidBridge && AndroidBridge.saveCredentials) {
-        var rt = localStorage.getItem("refresh_token") || "";
+        var rt = getRefreshToken() || "";
         AndroidBridge.saveCredentials(S.token, S.user.id, rt);
       }
 
