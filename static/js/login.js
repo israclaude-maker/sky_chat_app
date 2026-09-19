@@ -159,8 +159,7 @@ async function handleLogin(event) {
         "success",
       );
       setTimeout(function () {
-        // Cache clear karo login se pehle
-        sessionStorage.clear();
+        // Cache clear karo (sessionStorage ko mat chhedo, usme tokens ho sakte hain)
         if ("caches" in window) {
           caches.keys().then(function (names) {
             names.forEach(function (name) {
