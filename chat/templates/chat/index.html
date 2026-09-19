@@ -32,7 +32,7 @@
 <body>
   <script>
     // Check authentication - redirect to login if no token
-    if (!localStorage.getItem("access_token")) {
+    if (!(localStorage.getItem("access_token") || sessionStorage.getItem("access_token"))) {
       window.location.href = "/login/";
     }
   </script>
