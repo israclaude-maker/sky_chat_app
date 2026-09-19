@@ -96,15 +96,12 @@ public class KeepAliveService extends Service {
             .setShowWhen(false)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build();
-        if (Build.VERSION.SDK_INT >= 34) { // Android 14+
-    startForeground(1, notification,
-        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC |
-        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE |
-        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK |
-        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL);
-} else {
-    startForeground(1, notification);
-}
+        if (Build.VERSION.SDK_INT >= 29) {
+            startForeground(1, notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        } else {
+            startForeground(1, notification);
+        }
 
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "skychat:keepalive");
@@ -120,17 +117,26 @@ public class KeepAliveService extends Service {
     }
 
     private void scheduleServiceAlarm() {
-        AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
         Intent intent = new Intent(this, KeepAliveService.class);
         intent.setAction("ALARM_CHECK");
         PendingIntent pi = PendingIntent.getService(this, 999, intent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + 600000, pi);
-        } else {
-            am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + 600000, pi);
+        setSafeAlarm(pi, 600000);
+    }
+
+    private void setSafeAlarm(PendingIntent pi, long delayMs) {
+        AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
+        long triggerAt = SystemClock.elapsedRealtime() + delayMs;
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
+                am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi);
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi);
+            } else {
+                am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Alarm schedule failed: " + e.getMessage());
         }
     }
 
@@ -753,17 +759,10 @@ public class KeepAliveService extends Service {
     public void onTaskRemoved(Intent rootIntent) {
         Log.d(TAG, "Task removed — scheduling restart");
         super.onTaskRemoved(rootIntent);
-        AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
         Intent intent = new Intent(this, KeepAliveService.class);
         PendingIntent pi = PendingIntent.getService(this, 998, intent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + 5000, pi);
-        } else {
-            am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + 5000, pi);
-        }
+        setSafeAlarm(pi, 5000);
     }
 
     @Override

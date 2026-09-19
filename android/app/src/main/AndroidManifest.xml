@@ -47,7 +47,7 @@
 <service
     android:name=".KeepAliveService"
     android:exported="false"
-    android:foregroundServiceType="dataSync|microphone|mediaPlayback|phoneCall" />
+    android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".ScreenCaptureService"
