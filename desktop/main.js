@@ -925,6 +925,7 @@ ipcMain.on("rc-event", (event, rawData) => {
       var dir = data.direction || "down";
       try {
         var yVal = dir === "up" ? -scrollAmt : scrollAmt;
+        robot.moveMouse(x, y);
         robot.scrollMouse(0, yVal);
       } catch (e) {
         // Keyboard fallback
