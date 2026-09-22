@@ -752,24 +752,20 @@ function updateOverlayCursor(x, y) {
 // the click point afterward. `suppressSelfTrackUntil` stops the self
 // poll from mistaking this teleport-and-restore for genuine movement.
 function performRemoteClick(x, y, button) {
-  const restoreTo = lastKnownSelfPos; // where Isra genuinely left it
+  const restoreTo = lastKnownSelfPos;
   suppressSelfTrackUntil = Date.now() + 250;
-  rcLog("[RC] performRemoteClick", button, "target:", x, y, "will restore to:", JSON.stringify(restoreTo));
   robot.moveMouse(x, y);
   updateOverlayCursor(x, y);
   setTimeout(() => {
-    try { robot.mouseClick(button); } catch (e) { rcLog("[RC] mouseClick failed:", e.message); }
+    try { robot.mouseClick(button); } catch (e) { }
     setTimeout(() => {
       if (restoreTo) {
         try {
           robot.moveMouse(restoreTo.x, restoreTo.y);
-          rcLog("[RC] restored real cursor to:", JSON.stringify(restoreTo));
-        } catch (e) { rcLog("[RC] restore moveMouse failed:", e.message); }
-      } else {
-        rcLog("[RC] no restoreTo position available — lastKnownSelfPos was null");
+        } catch (e) { }
       }
-    }, 25);
-  }, 30);
+    }, 10);
+  }, 10);
 }
 
 // ─── Real cursor position — used to track the screen owner's OWN
@@ -898,7 +894,6 @@ const keyMap = {
 };
 
 ipcMain.on("rc-event", (event, rawData) => {
-  rcLog("[RC] Raw data received:", rawData);
   try {
     const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
 
