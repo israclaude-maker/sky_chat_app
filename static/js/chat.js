@@ -12037,6 +12037,19 @@ document.addEventListener("mousemove", vid._rcMove);
       '<span style="width:7px;height:7px;background:#fff;border-radius:50%;display:inline-block;animation:pulse 1s infinite;"></span> Remote Active <i class="fa-solid fa-xmark" onclick="stopRemoteControl()" style="cursor:pointer;margin-left:6px;"></i>';
     overlay.appendChild(indicator);
   }
+    // Keyboard toggle button (mobile ke liye)
+  if (overlay) {
+    var oldKb = document.getElementById("rc-kb-btn");
+    if (oldKb) oldKb.remove();
+    var kbBtn = document.createElement("button");
+    kbBtn.id = "rc-kb-btn";
+    kbBtn.onclick = toggleRCKeyboard;
+    kbBtn.style.cssText =
+      "position:absolute;bottom:16px;right:16px;width:44px;height:44px;border-radius:50%;" +
+      "background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:18px;z-index:10010;cursor:pointer;";
+    kbBtn.innerHTML = '<i class="fa-solid fa-keyboard"></i>';
+    overlay.appendChild(kbBtn);
+  }
   updateRCButton();
   toast("Remote control active. Mouse, keyboard and scroll are synced.", "s");
 }
@@ -12124,7 +12137,7 @@ function cleanupRC() {
   }
 
   // Use a more generic selector or loop to ensure clean state
-  const ids = ["rc-wait", "rc-incoming", "rc-indicator", "rc-cursor", "rc-my-cursor"];
+  const ids = ["rc-wait", "rc-incoming", "rc-indicator", "rc-cursor", "rc-my-cursor", "rc-kb-btn", "rc-kb-input"];
   ids.forEach((id) => {
     const node = document.getElementById(id);
     if (node) node.remove();
@@ -12289,6 +12302,85 @@ if (window.DesktopBridge && window.DesktopBridge.onRCNotificationAction) {
       rejectRemoteControl(data.requesterId);
     }
   });
+}
+
+// ─── Mobile virtual keyboard support for Remote Control ───
+var RCKeyboard = { input: null, visible: false };
+
+function ensureRCKeyboardInput() {
+  if (RCKeyboard.input) return RCKeyboard.input;
+  var inp = document.createElement("input");
+  inp.type = "text";
+  inp.id = "rc-kb-input";
+  inp.autocomplete = "off";
+  inp.autocapitalize = "off";
+  inp.spellcheck = false;
+  inp.style.cssText =
+    "position:fixed;bottom:-100px;left:50%;transform:translateX(-50%);width:80%;max-width:300px;height:40px;opacity:0.01;z-index:99998;border:none;font-size:16px;";
+  document.body.appendChild(inp);
+
+  inp.addEventListener("keydown", function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    var k = e.key;
+    if (k === "Unidentified" || k === "Process") return; // let input-event fallback handle it
+    sendRCEvent("keypress", 0, 0, {
+      key: k,
+      code: e.code || "",
+      ctrl: e.ctrlKey,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      meta: e.metaKey,
+    });
+    if (k.length === 1 || k === "Backspace" || k === "Enter" || k === " ") {
+      e.preventDefault();
+    }
+  });
+
+  // Fallback — kuch mobile keyboards keydown mein asal key nahi dete,
+  // is case mein 'input' event se character nikaalte hain.
+  inp.addEventListener("input", function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    var it = e.inputType || "";
+    if (it === "insertText" && e.data) {
+      for (var i = 0; i < e.data.length; i++) {
+        sendRCEvent("keypress", 0, 0, { key: e.data[i] });
+      }
+    } else if (it === "insertLineBreak") {
+      sendRCEvent("keypress", 0, 0, { key: "Enter" });
+    } else if (
+      it === "deleteContentBackward" ||
+      it === "deleteContentForward"
+    ) {
+      sendRCEvent("keypress", 0, 0, { key: "Backspace" });
+    }
+    inp.value = "";
+  });
+
+  RCKeyboard.input = inp;
+  return inp;
+}
+
+function toggleRCKeyboard() {
+  if (!RemoteCtrl.isControlling) {
+    toast("Remote control active nahi hai", "e");
+    return;
+  }
+  var inp = ensureRCKeyboardInput();
+  RCKeyboard.visible = !RCKeyboard.visible;
+  if (RCKeyboard.visible) {
+    inp.style.bottom = "10px";
+    inp.value = "";
+    inp.focus();
+  } else {
+    inp.blur();
+    inp.style.bottom = "-100px";
+  }
+  var btn = document.getElementById("rc-kb-btn");
+  if (btn) {
+    btn.style.background = RCKeyboard.visible
+      ? "rgba(59,130,246,0.9)"
+      : "rgba(255,255,255,0.15)";
+  }
 }
 
 init();

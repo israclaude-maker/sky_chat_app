@@ -906,29 +906,27 @@ ipcMain.on("rc-event", (event, rawData) => {
     );
 
     if (data.event === "mousemove") {
-      // IMPORTANT: do NOT move the real OS cursor here — only update the
-      // visual "Controller" badge in the overlay window. This keeps the
-      // real system cursor free to reflect the screen-owner's own hand,
-      // so the self-cursor poll (used for the "self" badge) stays
-      // trustworthy. The real cursor only teleports at actual click time
-      // (below), and is restored right after — see performRemoteClick().
       updateOverlayCursor(x, y);
     } else if (data.event === "click") {
+      rcLog("[RC-TEST] click received at", x, y);
       performRemoteClick(x, y, "left");
     } else if (data.event === "rightclick") {
+      rcLog("[RC-TEST] rightclick received at", x, y);
       performRemoteClick(x, y, "right");
     } else if (data.event === "scroll") {
-      // ── Scroll: correct API + fast speed ──
-      // Adjust SCROLL_MULTIPLIER to control speed (higher = faster)
-      var SCROLL_MULTIPLIER = 8;
+      var SCROLL_MULTIPLIER = 25;   // pehle 8 tha — 3x scroll speed
       var scrollAmt = Math.max(15, Math.floor((data.delta || 120) / 3)) * SCROLL_MULTIPLIER;
       var dir = data.direction || "down";
+      var yVal = dir === "up" ? -scrollAmt : scrollAmt;
       try {
-        var yVal = dir === "up" ? -scrollAmt : scrollAmt;
-        robot.moveMouse(x, y);
+        rcLog("[RC-TEST] scroll, dir:", dir, "amt:", yVal);
+        // NOTE: no robot.moveMouse(x, y) here anymore — scroll data always
+        // arrived with x:0, y:0, so moving the cursor here was teleporting
+        // it to the top-left corner on every single scroll tick and
+        // scrolling THERE instead of wherever the pointer actually was.
+        // Just scroll in place.
         robot.scrollMouse(0, yVal);
       } catch (e) {
-        // Keyboard fallback
         try {
           robot.keyTap(dir === "up" ? "pageup" : "pagedown");
         } catch (e2) { }
@@ -944,14 +942,11 @@ ipcMain.on("rc-event", (event, rawData) => {
       if (data.meta) modifiers.push("command");
 
       if (k.length === 1) {
-        // Ctrl/Alt shortcuts (Ctrl+C, Ctrl+V, Alt+F4, etc.)
         if (data.ctrl || data.alt) {
           try {
             robot.keyTap(k.toLowerCase(), modifiers);
           } catch (e) { }
         } else {
-          // Normal characters — clipboard method use karo
-          // (yeh symbols, capitals, sab handle karta hai)
           try {
             const { clipboard } = require("electron");
             const prev = clipboard.readText();
@@ -965,7 +960,6 @@ ipcMain.on("rc-event", (event, rawData) => {
           }
         }
       } else if (keyMap[k]) {
-        // Special keys: Enter, Backspace, ArrowLeft, Tab, etc.
         try {
           robot.keyTap(keyMap[k], modifiers);
         } catch (e) { }
