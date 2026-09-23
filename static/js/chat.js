@@ -12045,8 +12045,8 @@ document.addEventListener("mousemove", vid._rcMove);
     kbBtn.id = "rc-kb-btn";
     kbBtn.onclick = toggleRCKeyboard;
     kbBtn.style.cssText =
-      "position:absolute;bottom:16px;right:16px;width:44px;height:44px;border-radius:50%;" +
-      "background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:18px;z-index:10010;cursor:pointer;";
+      "position:absolute;top:56px;right:16px;width:44px;height:44px;border-radius:50%;" +
+      "background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:18px;z-index:10010;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.4);";
     kbBtn.innerHTML = '<i class="fa-solid fa-keyboard"></i>';
     overlay.appendChild(kbBtn);
   }
