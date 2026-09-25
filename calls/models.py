@@ -87,3 +87,46 @@ class GroupCallParticipant(models.Model):
 
     def __str__(self):
         return f"{self.user.username} in GroupCall {self.group_call.id}"
+
+class TranscriptFragment(models.Model):
+    """Har participant ka apna transcript piece — jo usne khud bola."""
+    call = models.ForeignKey(
+        Call, on_delete=models.CASCADE, null=True, blank=True, related_name="transcript_fragments"
+    )
+    group_call = models.ForeignKey(
+        GroupCall, on_delete=models.CASCADE, null=True, blank=True, related_name="transcript_fragments"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="transcript_fragments"
+    )
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        ref = self.call_id or f"group_{self.group_call_id}"
+        return f"Fragment by {self.user.username} for {ref}"
+
+
+class MeetingSummary(models.Model):
+    """Final Claude output — poori call ka summary."""
+    call = models.ForeignKey(
+        Call, on_delete=models.CASCADE, null=True, blank=True, related_name="summaries"
+    )
+    group_call = models.ForeignKey(
+        GroupCall, on_delete=models.CASCADE, null=True, blank=True, related_name="summaries"
+    )
+    raw_transcript = models.TextField()
+    summary = models.TextField(blank=True)
+    key_points = models.JSONField(blank=True, null=True)
+    action_items = models.JSONField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        ref = self.call_id or f"group_{self.group_call_id}"
+        return f"MeetingSummary for {ref} - {self.created_at}"

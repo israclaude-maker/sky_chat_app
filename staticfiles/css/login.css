@@ -17,13 +17,24 @@
   --gradient-3: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
 }
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { 
-  height: 100%; 
-  overflow-x: hidden; 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
-body { 
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; 
+html,
+body {
+  height: 100%;
+  overflow-x: hidden;
+}
+body {
+  font-family:
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.6;
@@ -53,7 +64,7 @@ body {
 
 /* Decorative elements */
 .left-section::before {
-  content: '';
+  content: "";
   position: absolute;
   top: -50%;
   left: -50%;
@@ -135,18 +146,26 @@ body {
 }
 
 /* Hidden Forms */
-#login-form, #signup-form {
+#login-form,
+#signup-form {
   display: none;
   animation: fadeIn 0.3s ease-out;
 }
 
-#login-form.active, #signup-form.active {
+#login-form.active,
+#signup-form.active {
   display: block;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Form Groups */
@@ -375,9 +394,16 @@ body {
 }
 
 @keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-5px); }
-  75% { transform: translateX(5px); }
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-5px);
+  }
+  75% {
+    transform: translateX(5px);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -397,7 +423,7 @@ body {
 
 /* Animated BG */
 .right-section::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="10" cy="10" r="1" fill="white" opacity="0.1"/></pattern></defs><rect fill="url(%23grid)" width="100" height="100"/></svg>');
@@ -406,25 +432,54 @@ body {
 }
 
 @keyframes bgMove {
-  from { background-position: 0 0; }
-  to { background-position: 40px 40px; }
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 40px 40px;
+  }
 }
 
 /* Floating bubbles */
-.bubble-1, .bubble-2, .bubble-3 {
+.bubble-1,
+.bubble-2,
+.bubble-3 {
   position: absolute;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.1);
   animation: float 6s ease-in-out infinite;
 }
 
-.bubble-1 { width: 200px; height: 200px; top: 10%; left: -5%; animation-delay: 0s; }
-.bubble-2 { width: 150px; height: 150px; bottom: 15%; right: -3%; animation-delay: 2s; }
-.bubble-3 { width: 100px; height: 100px; top: 50%; right: 20%; animation-delay: 4s; }
+.bubble-1 {
+  width: 200px;
+  height: 200px;
+  top: 10%;
+  left: -5%;
+  animation-delay: 0s;
+}
+.bubble-2 {
+  width: 150px;
+  height: 150px;
+  bottom: 15%;
+  right: -3%;
+  animation-delay: 2s;
+}
+.bubble-3 {
+  width: 100px;
+  height: 100px;
+  top: 50%;
+  right: 20%;
+  animation-delay: 4s;
+}
 
 @keyframes float {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-30px) scale(1.05); }
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-30px) scale(1.05);
+  }
 }
 
 /* Features Content */
@@ -539,41 +594,41 @@ body {
   .container {
     flex-direction: column;
   }
-  
+
   .left-section {
     padding: 32px 24px 48px;
     order: 1;
   }
-  
+
   .right-section {
     padding: 48px 24px;
     order: 0;
   }
-  
+
   .features-content h2 {
     font-size: 28px;
   }
-  
+
   .features-content > p {
     font-size: 15px;
     margin-bottom: 32px;
   }
-  
+
   .features-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 12px;
   }
-  
+
   .feature-card {
     padding: 20px 16px;
   }
-  
+
   .stats {
     gap: 30px;
     margin-top: 32px;
     padding-top: 28px;
   }
-  
+
   .stat-num {
     font-size: 24px;
   }
@@ -583,43 +638,43 @@ body {
   .left-section {
     padding: 24px 20px 40px;
   }
-  
+
   .logo {
     margin-bottom: 28px;
   }
-  
+
   .auth-header h1 {
     font-size: 24px;
   }
-  
+
   .form-container {
     padding: 24px 20px;
   }
-  
+
   .features-grid {
     grid-template-columns: 1fr 1fr;
     gap: 10px;
   }
-  
+
   .feature-card {
     padding: 16px 12px;
   }
-  
+
   .feature-icon {
     width: 44px;
     height: 44px;
     font-size: 20px;
     margin-bottom: 12px;
   }
-  
+
   .feature-card h3 {
     font-size: 14px;
   }
-  
+
   .feature-card p {
     font-size: 11px;
   }
-  
+
   .stats {
     gap: 20px;
   }

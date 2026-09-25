@@ -1,5 +1,30 @@
 /* SkyChat - Main Chat JavaScript */
-
+function customConfirm(message, onYes) {
+  var old = document.getElementById("custom-confirm-overlay");
+  if (old) old.remove();
+  var overlay = document.createElement("div");
+  overlay.id = "custom-confirm-overlay";
+  overlay.style.cssText =
+    "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999999;display:flex;align-items:center;justify-content:center;";
+  var box = document.createElement("div");
+  box.style.cssText =
+    "background:#1f2937;color:#fff;padding:24px 28px;border-radius:16px;max-width:320px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.5);";
+  box.innerHTML =
+    '<div style="font-size:15px;margin-bottom:20px;">' + message + "</div>" +
+    '<div style="display:flex;gap:10px;justify-content:center;">' +
+    '<button id="cc-cancel" style="background:#374151;color:#fff;border:none;padding:10px 20px;border-radius:10px;cursor:pointer;font-weight:600;">Cancel</button>' +
+    '<button id="cc-yes" style="background:#22c55e;color:#fff;border:none;padding:10px 20px;border-radius:10px;cursor:pointer;font-weight:600;">Yes</button>' +
+    "</div>";
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  document.getElementById("cc-cancel").onclick = function () {
+    overlay.remove();
+  };
+  document.getElementById("cc-yes").onclick = function () {
+    overlay.remove();
+    onYes();
+  };
+}
 // Tick SVG generator - WhatsApp style
 function tickSVG(status) {
   if (status === "read") {
@@ -51,9 +76,25 @@ const WS_URL =
   "/ws/chat/";
 
 // State
+// Token storage helpers — respects Remember Me choice from login
+function getStore() {
+  return localStorage.getItem("remember_me") === "0" ? sessionStorage : localStorage;
+}
+function getToken() {
+  return localStorage.getItem("access_token") || sessionStorage.getItem("access_token");
+}
+function getRefreshToken() {
+  return localStorage.getItem("refresh_token") || sessionStorage.getItem("refresh_token");
+}
+function saveTokens(access, refresh) {
+  var store = getStore();
+  if (access) store.setItem("access_token", access);
+  if (refresh) store.setItem("refresh_token", refresh);
+}
+
 const S = {
   user: null,
-  token: localStorage.getItem("access_token"),
+  token: getToken(),
   convs: [],
   groups: [],
   allUsers: [],
@@ -274,21 +315,13 @@ var go = function (p) {
   window.location.href = p;
 };
 var doLogout = function () {
-  // Clear Android service credentials on logout
-  if (window.AndroidBridge && AndroidBridge.logout) {
-    AndroidBridge.logout();
-  }
-  localStorage.clear();
-  sessionStorage.clear();
-  // Clear service worker cache
-  if ("caches" in window) {
-    caches.keys().then(function (names) {
-      names.forEach(function (name) {
-        caches.delete(name);
-      });
-    });
-  }
-  go("/login/");
+  if (window.AndroidBridge && AndroidBridge.logout) { try { AndroidBridge.logout(); } catch(e) {} }
+  if (S.globalWs) { try { S.globalWs.onclose = null; S.globalWs.close(); } catch(e) {} }
+  S.token = null; S.user = null;
+  localStorage.clear(); sessionStorage.clear();
+  if ("caches" in window) { caches.keys().then(function(n){n.forEach(function(k){caches.delete(k);})}); }
+  if ("serviceWorker" in navigator) { navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(sw){sw.unregister();})}); }
+  window.location.href = "/login/";
 };
 
 // Test media permissions - helps users grant camera/mic access
@@ -419,6 +452,38 @@ function fmtFullTime(iso) {
     })
   );
 }
+// ─── Screen share visual indicator (browser-side) ───
+function showShareBorder() {
+  if (document.getElementById("share-border-indicator")) return;
+  var el = document.createElement("div");
+  el.id = "share-border-indicator";
+  el.style.cssText =
+    "position:fixed;top:0;left:0;right:0;bottom:0;" +
+    "border:6px solid #3b82f6;box-sizing:border-box;" +
+    "box-shadow:inset 0 0 30px rgba(59,130,246,0.6);" +
+    "pointer-events:none;z-index:999998;";
+  document.body.appendChild(el);
+
+  var label = document.createElement("div");
+  label.id = "share-border-label";
+  label.style.cssText =
+    "position:fixed;top:14px;left:50%;transform:translateX(-50%);" +
+    "background:#3b82f6;color:#fff;font-family:'Segoe UI',sans-serif;" +
+    "font-size:13px;font-weight:600;padding:7px 18px;border-radius:20px;" +
+    "box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:999999;" +
+    "display:flex;align-items:center;gap:8px;";
+  label.innerHTML =
+    '<span style="width:8px;height:8px;background:#fff;border-radius:50%;display:inline-block;animation:pulse 1s infinite;"></span>' +
+    "You are sharing your screen";
+  document.body.appendChild(label);
+}
+
+function hideShareBorder() {
+  var el = document.getElementById("share-border-indicator");
+  if (el) el.remove();
+  var label = document.getElementById("share-border-label");
+  if (label) label.remove();
+}
 
 function toast(msg, type) {
   var icons = {
@@ -473,10 +538,11 @@ function lastSeenStr(iso) {
 var _refreshPromise = null;
 function refreshAccessToken() {
   if (_refreshPromise) return _refreshPromise;
-  var rt = localStorage.getItem("refresh_token");
+  var rt = getRefreshToken();
   if (!rt) {
     localStorage.clear();
-    go("/login/");
+    sessionStorage.clear();
+    window.location.href = "/login/";
     return Promise.reject("no refresh token");
   }
   _refreshPromise = fetch("/api/auth/token/refresh/", {
@@ -488,6 +554,7 @@ function refreshAccessToken() {
       _refreshPromise = null;
       if (!r.ok) {
         localStorage.clear();
+        sessionStorage.clear();
         go("/login/");
         throw new Error("refresh failed");
       }
@@ -495,11 +562,13 @@ function refreshAccessToken() {
     })
     .then(function (data) {
       S.token = data.access;
-      localStorage.setItem("access_token", data.access);
+      // Backend rotates refresh tokens — save the new one too, or the
+      // old one will be blacklisted and the NEXT refresh will fail.
+      saveTokens(data.access, data.refresh);
       // Update Android service with new token
       if (window.AndroidBridge && AndroidBridge.saveCredentials && S.user) {
-        var rt = localStorage.getItem("refresh_token") || "";
-        AndroidBridge.saveCredentials(data.access, S.user.id, rt);
+        var rt2 = getRefreshToken() || "";
+        AndroidBridge.saveCredentials(data.access, S.user.id, rt2);
       }
       return data.access;
     })
@@ -567,7 +636,7 @@ function init() {
 
       // Save credentials to Android for background service
       if (window.AndroidBridge && AndroidBridge.saveCredentials) {
-        var rt = localStorage.getItem("refresh_token") || "";
+        var rt = getRefreshToken() || "";
         AndroidBridge.saveCredentials(S.token, S.user.id, rt);
       }
 
@@ -627,10 +696,13 @@ function init() {
     .catch(function (err) {
       // Do not force-login on generic runtime errors; prevents redirect loops.
       console.error("Init failed:", err);
-      toast("Failed to initialize chat. Please refresh once.", "e");
+      var te = document.getElementById("toasts");
+      if (te) te.innerHTML = '<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:14px 20px;border-radius:12px;margin:10px;text-align:center;font-size:14px;">' +
+        '<div>Failed to initialize chat.</div><div style="margin-top:10px;display:flex;gap:8px;justify-content:center;">' +
+        '<button onclick="location.reload()" style="background:#3b82f6;color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:600;">Retry</button>' +
+        '<button onclick="doLogout()" style="background:#ef4444;color:#fff;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:600;">Logout</button></div></div>';
     });
 }
-
 // Initialize paste handler for images
 function initPasteHandler() {
   document.addEventListener("paste", function (e) {
@@ -794,6 +866,8 @@ function connectGlobalWS() {
 
   ws.onopen = function () {
     console.log("Global WS Connected for calls");
+    S._wsRetryCount = 0;
+    keepAudioContextAlive();
   };
 
   ws.onmessage = function (e) {
@@ -864,6 +938,16 @@ function connectGlobalWS() {
         handleOnlineStatus(data);
       } else if (data.type === "new_message_notify") {
         handleNewMessageNotify(data);
+      } else if (data.type === "remote_control_request") {
+        handleRemoteControlRequest(data);
+      } else if (data.type === "remote_control_accept") {
+        handleRemoteControlAccepted(data);
+      } else if (data.type === "remote_control_reject") {
+        handleRemoteControlRejected(data);
+      } else if (data.type === "remote_control_event") {
+        handleRemoteControlEvent(data);
+      } else if (data.type === "remote_control_stop") {
+        handleRemoteControlStopped(data);
       }
     } catch (err) {
       console.warn("Global WS error:", err);
@@ -871,8 +955,10 @@ function connectGlobalWS() {
   };
 
   ws.onclose = function (e) {
-    console.log("Global WS Disconnected, reconnecting...");
-    setTimeout(connectGlobalWS, 3000);
+    if (!S.token || !S.user) return;
+    S._wsRetryCount = (S._wsRetryCount || 0) + 1;
+    var delay = Math.min(3000 * Math.pow(2, S._wsRetryCount - 1), 30000);
+    setTimeout(function(){ if (S.token && S.user) connectGlobalWS(); }, delay);
   };
 
   ws.onerror = function () {
@@ -5470,28 +5556,18 @@ function doInitWebRTC(isInitiator, callback) {
         });
 
       if (hasExistingCamera) {
-        // Second video track = screen share
-        console.log("Routing second video track to remote-screen-video");
         CallState.remoteScreenStream = e.streams[0];
         var remoteScreenVideo = $("remote-screen-video");
-        if (remoteScreenVideo) {
-          remoteScreenVideo.srcObject = e.streams[0];
-          // Keep hidden until screen_toggle activates it
-        }
-        e.track.onended = function () {
-          if (remoteScreenVideo) {
-            remoteScreenVideo.style.display = "none";
-            remoteScreenVideo.srcObject = null;
-          }
-          CallState.remoteScreenStream = null;
-          var rv = $("remote-video");
-          if (rv) {
-            rv.classList.remove("screen-pip");
-            rv.style.cssText = "";
-          }
-        };
+        if (remoteScreenVideo) remoteScreenVideo.srcObject = e.streams[0];
+        if (CallState._pendingScreenToggle) handleScreenToggle({sharing:true,surface_type:CallState._pendingSurfaceType||"monitor"});
+        e.track.onended = function(){if(remoteScreenVideo){remoteScreenVideo.style.display="none";remoteScreenVideo.srcObject=null;}CallState.remoteScreenStream=null;var rv=$("remote-video");if(rv){rv.classList.remove("screen-pip");rv.style.cssText="";}};
+      } else if (CallState._pendingScreenToggle) {
+        CallState.remoteScreenStream = e.streams[0];
+        var ssVid2 = $("remote-screen-video");
+        if(ssVid2){ssVid2.srcObject=e.streams[0];ssVid2.style.display="block";ssVid2.style.objectFit="contain";ssVid2.play().catch(function(){});}
+        handleScreenToggle({sharing:true,surface_type:CallState._pendingSurfaceType||"monitor"});
+        e.track.onended = function(){if(ssVid2){ssVid2.style.display="none";ssVid2.srcObject=null;}CallState.remoteScreenStream=null;hideRCButton();};
       } else {
-        // First video track = camera → remote-video
         var remoteVideo = $("remote-video");
         if (remoteVideo) {
           remoteVideo.srcObject = e.streams[0];
@@ -5830,6 +5906,17 @@ function cancelCall() {
 }
 
 function endCall() {
+  // Agar remote control active hai to pehle confirm karo (accidental tap se bachne ke liye)
+  if (RemoteCtrl.isControlling) {
+    customConfirm("End the call?", function () {
+      _doEndCall();
+    });
+    return;
+  }
+  _doEndCall();
+}
+
+function _doEndCall() {
   stopAllRingtones();
   if (CallRec.isRecording) stopCallRecord();
 
@@ -5961,6 +6048,8 @@ function flushPendingIceCandidates() {
 function handleScreenOffer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
   console.log("Received screen_offer, renegotiating...");
+  CallState._pendingScreenToggle = true;
+  CallState._pendingSurfaceType = data.surface_type || "monitor";
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
@@ -5988,9 +6077,38 @@ function handleScreenOffer(data) {
 
 function handleScreenAnswer(data) {
   if (!CallState.pc || !CallState.isInCall) return;
+  // Duplicate screen_answer block karo
+  if (CallState._screenAnswerHandled) {
+    console.log("Duplicate screen_answer ignore kar raha hun");
+    return;
+  }
+  CallState._screenAnswerHandled = true;
+  setTimeout(function () {
+    CallState._screenAnswerHandled = false;
+  }, 3000);
+
   console.log("Received screen_answer");
   CallState.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
+    .then(function () {
+      if (CallState.isScreenSharing) {
+        var ws = S.globalWs || S.ws;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: "screen_toggle",
+              target_user_id: CallState.remoteUserId,
+              sharing: true,
+              surface_type:
+                (CallState.screenStream &&
+                  CallState.screenStream.getVideoTracks()[0].getSettings()
+                    .displaySurface) ||
+                "monitor",
+            }),
+          );
+        }
+      }
+    })
     .catch(function (err) {
       console.error("Screen answer error:", err);
     });
@@ -6003,97 +6121,46 @@ function handleScreenToggle(data) {
   var ongoingAv = $("ongoing-av");
 
   if (data.sharing) {
-    // ── Remote started sharing screen ───────────────────────
-    // Screen share video is shown as the main view
-    if (remoteScreenVideo) {
-      remoteScreenVideo.style.display = "block";
+    CallState._remoteSurfaceType = data.surface_type || CallState._pendingSurfaceType || "monitor";
+    var attempts = 0;
+    function waitForStream() {
       if (CallState.remoteScreenStream) {
-        remoteScreenVideo.srcObject = CallState.remoteScreenStream;
-        remoteScreenVideo.play().catch(function (e) {});
+        CallState._pendingScreenToggle = false;
+        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
+      } else if (remoteVideo && remoteVideo.srcObject && remoteVideo.srcObject.getVideoTracks().length > 0) {
+        CallState._pendingScreenToggle = false;
+        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
+      } else if (attempts++ < 25) {
+        setTimeout(waitForStream, 200);
+      } else {
+        _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv);
       }
     }
-
-    // Remote camera becomes small PIP (bottom-left)
-    var hasRemoteCam =
-      remoteVideo &&
-      CallState.remoteStream &&
-      CallState.remoteStream.getVideoTracks().length > 0 &&
-      CallState.remoteStream.getVideoTracks().some(function (t) {
-        return t.readyState === "live";
-      });
-    if (hasRemoteCam) {
-      remoteVideo.classList.add("screen-pip");
-      remoteVideo.style.display = "block";
-    } else if (remoteVideo) {
-      remoteVideo.style.display = "none";
-    }
-
-    // Local camera PIP (bottom-right)
-    var hasLocalCam =
-      localVid &&
-      CallState.localStream &&
-      CallState.localStream.getVideoTracks().length > 0 &&
-      CallState.localStream.getVideoTracks().some(function (t) {
-        return t.readyState === "live";
-      });
-    if (hasLocalCam) {
-      localVid.srcObject = CallState.localStream;
-      localVid.style.cssText =
-        "display:block;width:100px;height:140px;position:absolute;bottom:80px;right:16px;" +
-        "border-radius:10px;z-index:10;object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
-    }
-
-    // Hide avatar overlay during screen share
-    if (ongoingAv) ongoingAv.style.display = "none";
-
-    // Show a small "Screen share" label
-    var lbl = document.getElementById("remote-screen-label");
-    if (!lbl) {
-      lbl = document.createElement("div");
-      lbl.id = "remote-screen-label";
-      lbl.style.cssText =
-        "position:absolute;top:12px;left:50%;transform:translateX(-50%);" +
-        "background:rgba(0,0,0,0.6);color:#fff;font-size:12px;padding:4px 12px;" +
-        "border-radius:20px;z-index:20;pointer-events:none;display:flex;align-items:center;gap:6px;";
-      lbl.innerHTML =
-        '<i class="fa-solid fa-display" style="color:#4fc3f7;"></i>' +
-        esc(CallState.remoteUserName) +
-        " is sharing screen";
-      var callOverlay = $("ongoing-call");
-      if (callOverlay) callOverlay.appendChild(lbl);
-    }
-    lbl.style.display = "flex";
+    waitForStream();
   } else {
-    // ── Remote stopped sharing ──────────────────────────────
-    // Hide screen share video
-    if (remoteScreenVideo) {
+if (remoteScreenVideo) {
       remoteScreenVideo.style.display = "none";
+      remoteScreenVideo.style.border = "";
+      remoteScreenVideo.style.boxShadow = "";
       remoteScreenVideo.srcObject = null;
     }
     CallState.remoteScreenStream = null;
+    CallState._pendingScreenToggle = false;
 
-    // Restore remote camera to full view
     if (remoteVideo) {
       remoteVideo.classList.remove("screen-pip");
       remoteVideo.style.cssText = "";
       var hasRemoteCam =
         CallState.remoteStream &&
-        CallState.remoteStream.getVideoTracks().length > 0 &&
         CallState.remoteStream.getVideoTracks().some(function (t) {
           return t.readyState === "live";
         });
-      if (hasRemoteCam) {
-        remoteVideo.style.display = "block";
-      } else {
-        remoteVideo.style.display = "none";
-      }
+      remoteVideo.style.display = hasRemoteCam ? "block" : "none";
     }
 
-    // Restore local video to normal PIP
     var hadLocalCam =
       localVid &&
       CallState.localStream &&
-      CallState.localStream.getVideoTracks().length > 0 &&
       CallState.localStream.getVideoTracks().some(function (t) {
         return t.readyState === "live";
       });
@@ -6105,18 +6172,84 @@ function handleScreenToggle(data) {
       localVid.style.display = "none";
     }
 
-    // Restore avatar only if no active camera
-    if (ongoingAv && !hadLocalCam) {
-      ongoingAv.style.display = "block";
-    }
+    if (ongoingAv && !hadLocalCam) ongoingAv.style.display = "block";
 
-    // Remove screen label
     var lbl = document.getElementById("remote-screen-label");
     if (lbl) lbl.style.display = "none";
+    hideRCButton();
   }
 }
 
+function _applyScreenToggleOn(remoteVideo, remoteScreenVideo, localVid, ongoingAv) {
+  if (!CallState.remoteScreenStream && remoteVideo && remoteVideo.srcObject) {
+    var rvt = remoteVideo.srcObject.getVideoTracks();
+    if (rvt.length > 0) CallState.remoteScreenStream = remoteVideo.srcObject;
+  }
+if (remoteScreenVideo && CallState.remoteScreenStream) {
+    remoteScreenVideo.style.display = "block";
+    remoteScreenVideo.style.objectFit = "contain";
+    remoteScreenVideo.style.border = "4px solid #3b82f6";
+    remoteScreenVideo.style.boxShadow = "0 0 24px rgba(59,130,246,0.7)";
+    remoteScreenVideo.srcObject = CallState.remoteScreenStream;
+    remoteScreenVideo.play().catch(function (e) {});
+  }
+  var hasRemoteCam = remoteVideo && CallState.remoteStream &&
+    CallState.remoteStream !== CallState.remoteScreenStream &&
+    CallState.remoteStream.getVideoTracks().some(function(t){return t.readyState==="live";});
+  if (hasRemoteCam) { remoteVideo.classList.add("screen-pip"); remoteVideo.style.display = "block"; }
+  else if (remoteVideo) { remoteVideo.style.display = "none"; remoteVideo.classList.remove("screen-pip"); }
+
+  var hasLocalCam =
+    localVid &&
+    CallState.localStream &&
+    CallState.localStream.getVideoTracks().some(function (t) {
+      return t.readyState === "live";
+    });
+  if (hasLocalCam) {
+    localVid.srcObject = CallState.localStream;
+    localVid.style.cssText =
+      "display:block;width:100px;height:140px;position:absolute;bottom:80px;right:16px;" +
+      "border-radius:10px;z-index:10;object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
+  }
+
+  if (ongoingAv) ongoingAv.style.display = "none";
+
+  var lbl = document.getElementById("remote-screen-label");
+  if (!lbl) {
+    lbl = document.createElement("div");
+    lbl.id = "remote-screen-label";
+    lbl.style.cssText =
+      "position:absolute;top:12px;left:50%;transform:translateX(-50%);" +
+      "background:rgba(0,0,0,0.6);color:#fff;font-size:12px;padding:4px 12px;" +
+      "border-radius:20px;z-index:20;pointer-events:none;display:flex;align-items:center;gap:6px;";
+    lbl.innerHTML =
+      '<i class="fa-solid fa-display" style="color:#4fc3f7;"></i>' +
+      esc(CallState.remoteUserName) +
+      " is sharing screen";
+    var callOverlay = $("ongoing-call");
+    if (callOverlay) callOverlay.appendChild(lbl);
+  }
+  lbl.style.display = "flex";
+  var surfaceType = CallState._remoteSurfaceType || "monitor";
+  if (CallState.isInCall && !GC.active && surfaceType === "monitor") { showRCButton(); } else { hideRCButton(); }
+
+  var ssv2 = document.getElementById("remote-screen-video");
+  var rv2 = document.getElementById("remote-video");
+  if (ssv2 && ssv2.srcObject) {
+    RemoteCtrl._pendingVideoEl = ssv2;
+  } else if (rv2 && rv2.srcObject) {
+    RemoteCtrl._pendingVideoEl = rv2;
+  }
+}
 function showOngoingCall() {
+  if (window.AndroidBridge && AndroidBridge.showOngoingCallNotification) {
+    try {
+      AndroidBridge.showOngoingCallNotification(
+        CallState.remoteUserName || "Unknown",
+        CallState.callType === "video" ? "Video Call" : "Voice Call"
+      );
+    } catch (e) {}
+  }
   if (callMinimized && minimizedOverlayId === "outgoing-call") {
     minimizedOverlayId = "ongoing-call";
     if (CallState.callType === "video" && CallState.remoteStream) {
@@ -6151,6 +6284,7 @@ function showOngoingCall() {
   if (lbl) lbl.remove();
 
   // ── Set avatar & name ───────────────────────────────────────
+
   var ongoingAv = $("ongoing-av");
   if (ongoingAv) {
     ongoingAv.src = CallState.remoteProfilePic || seed("User");
@@ -6160,6 +6294,7 @@ function showOngoingCall() {
   if (ongoingName) ongoingName.textContent = CallState.remoteUserName;
 
   showCallOverlay("ongoing-call");
+  setTimeout(function(){initDraggableControls("ongoing-call");},500);
 
   CallState.callStartTime = Date.now();
   CallState.timerInterval = setInterval(updateCallTimer, 1000);
@@ -6196,17 +6331,18 @@ function toggleMic() {
   CallState.localStream.getAudioTracks().forEach(function (t) {
     t.enabled = !CallState.isMuted;
   });
-  var btn = document.querySelector('.ctrl-btn[onclick*="toggleMic"]');
+  var btn = document.getElementById("dm-mic-btn");
   if (btn) {
     btn.classList.toggle("muted", CallState.isMuted);
     btn.innerHTML = CallState.isMuted
       ? '<i class="fa-solid fa-microphone-slash"></i>'
       : '<i class="fa-solid fa-microphone"></i>';
   }
+  updatePipMic();
 }
 
 function updateCamButton() {
-  var btn = document.querySelector('.ctrl-btn[onclick*="toggleCam"]');
+  var btn = document.getElementById("dm-cam-btn");
   if (btn) {
     btn.classList.toggle("muted", CallState.isCamOff);
     btn.innerHTML = CallState.isCamOff
@@ -6262,8 +6398,13 @@ function startScreenShare() {
 
   navigator.mediaDevices
     .getDisplayMedia({
-      video: true,
+      video: {
+        cursor: "never", // real OS pointer stays out of the captured video —
+        // our own "Controller"/"self" overlay badges (main.js) represent
+        // both cursors instead, so we don't get a 3rd, unlabeled arrow.
+      },
       audio: false,
+      selfBrowserSurface: "exclude",
       monitorTypeSurfaces: "include",
     })
     .then(function (screenStream) {
@@ -6293,6 +6434,11 @@ function startScreenShare() {
                 type: "screen_toggle",
                 target_user_id: CallState.remoteUserId,
                 sharing: true,
+                surface_type:
+                  (CallState.screenStream &&
+                    CallState.screenStream.getVideoTracks()[0].getSettings()
+                      .displaySurface) ||
+                  "monitor",
               }),
             );
           }
@@ -6310,8 +6456,9 @@ function startScreenShare() {
         if (hasCam) {
           localVid.srcObject = CallState.localStream;
           localVid.style.cssText =
-            "display:block;width:100px;height:140px;position:absolute;bottom:80px;right:16px;" +
-            "border-radius:10px;z-index:12;object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
+            "display:block;width:100px;height:140px;position:absolute;" +
+            "bottom:80px;right:16px;border-radius:10px;z-index:12;" +
+            "object-fit:cover;border:2px solid rgba(255,255,255,0.3);transform:scaleX(-1);";
         }
       }
 
@@ -6333,6 +6480,11 @@ function startScreenShare() {
       }
 
       updateScreenBtn(true);
+      if (window.DesktopBridge && window.DesktopBridge.startScreenShareBorder) {
+        window.DesktopBridge.startScreenShareBorder();
+      } else {
+        showShareBorder();
+      }
       screenTrack.onended = function () {
         stopScreenShare();
       };
@@ -6345,6 +6497,7 @@ function startScreenShare() {
 function stopScreenShare() {
   if (!CallState.isScreenSharing) return;
   CallState.isScreenSharing = false;
+  CallState._screenTrackId = null;
 
   if (CallState.screenStream) {
     CallState.screenStream.getTracks().forEach(function (t) {
@@ -6415,8 +6568,52 @@ function stopScreenShare() {
 
   CallState.originalVideoTrack = null;
   updateScreenBtn(false);
+  if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+    window.DesktopBridge.stopScreenShareBorder();
+  } else {
+    hideShareBorder();
+  }
 }
 
+// ────────────────────────────────────────────────────────────────
+// FIX 5: REPLACE resetCallState() — clear new state vars
+// ────────────────────────────────────────────────────────────────
+function resetCallState() {
+  CallState.isInCall = false;
+  var ra = document.getElementById("remote-audio");
+  if (ra) {
+    ra.srcObject = null;
+    ra.muted = true;
+  }
+  CallState.callType = null;
+  CallState.callId = null;
+  CallState.remoteUserId = null;
+  CallState.remoteUserName = "";
+  CallState.pc = null;
+  CallState.localStream = null;
+  CallState.remoteStream = null;
+  CallState.remoteScreenStream = null;
+  CallState.timerInterval = null;
+  CallState.callStartTime = null;
+  CallState.remoteSdp = null;
+  CallState.isMuted = false;
+  CallState.isCamOff = false;
+  CallState.isSpeakerOff = false;
+  CallState.remoteProfilePic = null;
+  CallState.isScreenSharing = false;
+  CallState.screenStream = null;
+  CallState.screenSender = null;
+  CallState.originalVideoTrack = null;
+  CallState._streamRoles = {};
+  CallState._screenTrackId = null;
+  CallState._pendingScreenToggle = false;
+  CallState._pendingScreenOffers = [];
+  CallState._screenAnswerHandled = false;
+  if (CallState.ringTimeout) {
+    clearTimeout(CallState.ringTimeout);
+    CallState.ringTimeout = null;
+  }
+}
 function updateScreenBtn(active) {
   var btn = $("screen-btn");
   if (btn) {
@@ -6432,6 +6629,7 @@ function showCallOverlay(id) {
 }
 
 function hideAllCallOverlays() {
+  resetCallBarPin();gcStopHealthCheck();
   [
     "incoming-call",
     "outgoing-call",
@@ -6545,6 +6743,16 @@ function initCallButtons() {
 }
 
 function cleanupCall() {
+  if (window.AndroidBridge && AndroidBridge.hideOngoingCallNotification) {
+    try { AndroidBridge.hideOngoingCallNotification(); } catch (e) {}
+  }
+  // Safety: always stop the screen-share border, even if the person
+  // ended the call without first turning screen share off manually.
+  if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+    window.DesktopBridge.stopScreenShareBorder();
+  } else {
+    hideShareBorder();
+  }
   cleanupCamFx();
   if (CallState.ringTimeout) {
     clearTimeout(CallState.ringTimeout);
@@ -6554,6 +6762,18 @@ function cleanupCall() {
     CallState.screenStream.getTracks().forEach(function (t) {
       t.stop();
     });
+  }
+  // Same bug as the group-call one: if the call ends/hangs up WHILE
+  // screen sharing is active, nothing here was telling the blue
+  // border overlay to go away — stopScreenShare() handles that for
+  // the explicit "stop sharing" button, but cleanupCall() (hangup/
+  // call-ended) never called it or hid the border itself.
+  if (CallState.isScreenSharing) {
+    if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+      window.DesktopBridge.stopScreenShareBorder();
+    } else {
+      hideShareBorder();
+    }
   }
   if (CallState.pc) {
     CallState.pc.close();
@@ -6595,6 +6815,11 @@ function cleanupCall() {
 
 function resetCallState() {
   CallState.isInCall = false;
+  var ra = document.getElementById("remote-audio");
+  if (ra) {
+    ra.srcObject = null;
+    ra.muted = true;
+  }
   CallState.callType = null;
   CallState.callId = null;
   CallState.remoteUserId = null;
@@ -6832,81 +7057,44 @@ function gcToggleCam() {
         }
       });
     });
-    // Renegotiate with all peers
     Object.keys(GC.peers).forEach(function (pid) {
       var peer = GC.peers[pid];
       if (!peer || !peer.pc) return;
-      peer.pc
-        .createOffer()
-        .then(function (offer) {
-          return peer.pc.setLocalDescription(offer);
-        })
-        .then(function () {
-          if (S.globalWs && S.globalWs.readyState === 1) {
-            S.globalWs.send(
-              JSON.stringify({
-                type: "group_call_offer",
-                group_call_id: GC.groupCallId,
-                target_user_id: parseInt(pid),
-                sdp: peer.pc.localDescription,
-              }),
-            );
-          }
-        })
-        .catch(function (e) {
-          console.error("GC cam off renegotiate:", e);
-        });
+      gcRenegotiate(pid, peer);
     });
     syncGcButtonStates();
     buildLocalThumb();
     if (gcFocusedId === "local") focusGcParticipant("local");
   } else {
-    navigator.mediaDevices
-      .getUserMedia({
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: "user",
-        },
-      })
-      .then(function (camStream) {
-        var videoTrack = camStream.getVideoTracks()[0];
-        GC.localStream.addTrack(videoTrack);
-        GC.isCamOff = false;
+    customConfirm("Are you sure you want to turn on your camera?", function () {
+      navigator.mediaDevices
+        .getUserMedia({
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: "user",
+          },
+        })
+        .then(function (camStream) {
+          var videoTrack = camStream.getVideoTracks()[0];
+          GC.localStream.addTrack(videoTrack);
+          GC.isCamOff = false;
 
-        Object.keys(GC.peers).forEach(function (pid) {
-          var peer = GC.peers[pid];
-          if (!peer || !peer.pc) return;
-          peer.pc.addTrack(videoTrack, GC.localStream);
-          peer.pc
-            .createOffer()
-            .then(function (offer) {
-              return peer.pc.setLocalDescription(offer);
-            })
-            .then(function () {
-              if (S.globalWs && S.globalWs.readyState === 1) {
-                S.globalWs.send(
-                  JSON.stringify({
-                    type: "group_call_offer",
-                    group_call_id: GC.groupCallId,
-                    target_user_id: parseInt(pid),
-                    sdp: peer.pc.localDescription,
-                  }),
-                );
-              }
-            })
-            .catch(function (e) {
-              console.error("GC cam on renegotiate:", e);
-            });
+          Object.keys(GC.peers).forEach(function (pid) {
+            var peer = GC.peers[pid];
+            if (!peer || !peer.pc) return;
+            peer.pc.addTrack(videoTrack, GC.localStream);
+            gcRenegotiate(pid, peer);
+          });
+          syncGcButtonStates();
+          buildLocalThumb();
+          if (gcFocusedId === "local") focusGcParticipant("local");
+        })
+        .catch(function (err) {
+          console.error("Camera error:", err);
+          toast("Could not access camera", "e");
         });
-        syncGcButtonStates();
-        buildLocalThumb();
-        if (gcFocusedId === "local") focusGcParticipant("local");
-      })
-      .catch(function (err) {
-        console.error("Camera error:", err);
-        toast("Could not access camera", "e");
-      });
+    });
   }
 }
 
@@ -7604,6 +7792,24 @@ function handleGroupCallEnded(data) {
   var popup = document.getElementById("gc-popup-" + data.group_id);
   if (popup) popup.remove();
   stopGcRingtone();
+
+  // If WE were actually active in the call that just ended (not just
+  // seeing the "join" banner for someone else's call), our own state
+  // was never torn down by this message — only leaveGroupCall() does
+  // that, and nobody calls it here. That's why the screen-share
+  // border, PIP mini-window, and open peer connections all kept
+  // hanging around after the call ended from someone else's side
+  // (last person left, admin ended it, etc.) instead of a manual
+  // "leave" click.
+  var wasMyActiveCall =
+    GC.active &&
+    ((data.group_call_id && data.group_call_id === GC.groupCallId) ||
+      (data.group_id && data.group_id === GC.groupId));
+  if (wasMyActiveCall) {
+    cleanupGroupCall();
+    hideAllCallOverlays();
+    toast("Call ended", "i");
+  }
 }
 
 function updateGroupCallBanner() {
@@ -7767,17 +7973,23 @@ function joinGroupCallFromBanner() {
 }
 
 function handleGroupCallJoined(data) {
-  // We joined — DON'T create offers. Existing participants will send offers to us.
-  // Just store participant info for reference.
   var participants = data.participants || [];
-  console.log(
-    "[GC] handleGroupCallJoined: expecting offers from",
-    participants.length,
-    "existing participants",
-  );
   participants.forEach(function (p) {
-    console.log("[GC]   participant:", p.id, p.name);
+    if (!GC.peers[p.id]) {
+      GC.peers[p.id] = { pc:null, stream:null, screenStream:null, pendingIce:[], name:p.name, pic:p.pic, _pendingScreenStream:null, _awaitingOffer:true };
+    }
   });
+  updateGroupCallParticipantCount();
+  setTimeout(function () {
+    participants.forEach(function (p) {
+      var peer = GC.peers[p.id];
+      if (peer && peer._awaitingOffer && !peer.pc) {
+        console.log("[GC] Fallback: proactive connect to", p.id);
+        createGroupPeer(p.id, p.name, p.pic, true);
+      }
+    });
+    updateGroupCallParticipantCount();
+  }, 4000);
 }
 
 function handleGroupCallUserJoined(data) {
@@ -7797,13 +8009,109 @@ function handleGroupCallUserJoined(data) {
 
 function handleGroupCallOffer(data) {
   var fromId = data.from_user_id;
-  // Always create a FRESH peer connection for incoming offers
-  // (handles rejoin case where old peer might be stale/closed)
-  var oldPeer = GC.peers[fromId];
-  if (oldPeer) {
-    console.log("[GC] handleGroupCallOffer: replacing old peer for", fromId);
+  var existingPeer = GC.peers[fromId];
+  if (existingPeer) existingPeer._awaitingOffer = false;
+
+  var peerConnectionState =
+    existingPeer && existingPeer.pc ? existingPeer.pc.connectionState : null;
+  var peerSignalingState =
+    existingPeer && existingPeer.pc ? existingPeer.pc.signalingState : null;
+
+  console.log(
+    "[GC] handleGroupCallOffer from " +
+      fromId +
+      " existing: " +
+      !!existingPeer +
+      " connState: " +
+      peerConnectionState +
+      " sigState: " +
+      peerSignalingState,
+  );
+
+  // Jab tak pc zinda hai (closed/failed nahi), HAMESHA perfect-negotiation
+  // path use karo — "new"/"connecting" pe teardown karna hi asal bug tha.
+  var isRenegotiation =
+    existingPeer &&
+    existingPeer.pc &&
+    existingPeer.pc.signalingState !== "closed" &&
+    existingPeer.pc.connectionState !== "failed";
+
+  if (isRenegotiation) {
+    var pc = existingPeer.pc;
+    var peer = existingPeer;
+
+    // ── Perfect Negotiation glare handling ─────────────────────
+    // A collision means: an offer just arrived from fromId while WE are
+    // also either mid-way through sending our own offer (makingOffer) or
+    // already have one pending locally (signalingState !== "stable").
+    // Without this check, both sides can send offers at once and one
+    // side's setRemoteDescription() throws (wrong signaling state) —
+    // which previously fell through to _gcCreateFreshPeer(), tearing
+    // down and rebuilding the whole connection (the visible "freeze").
+    var offerCollision =
+      peer.makingOffer || pc.signalingState !== "stable";
+    var ignoreOffer = !peer.polite && offerCollision;
+
+    if (ignoreOffer) {
+      console.log(
+        "[GC] ignoring colliding offer from " +
+          fromId +
+          " (we're impolite, backing off is the other side's job)",
+      );
+      return;
+    }
+
+    console.log(
+      "[GC] handleGroupCallOffer: RENEGOTIATION for peer " +
+        fromId +
+        (offerCollision ? " (collision — rolling back, we're polite)" : ""),
+    );
+
+    var rollbackPromise = offerCollision
+      ? pc.setLocalDescription({ type: "rollback" })
+      : Promise.resolve();
+
+    rollbackPromise
+      .then(function () {
+        return pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      })
+      .then(function () {
+        return pc.createAnswer();
+      })
+      .then(function (answer) {
+        return pc.setLocalDescription(answer);
+      })
+      .then(function () {
+        if (S.globalWs && S.globalWs.readyState === 1) {
+          S.globalWs.send(
+            JSON.stringify({
+              type: "group_call_answer",
+              group_call_id: GC.groupCallId,
+              target_user_id: fromId,
+              sdp: pc.localDescription,
+            }),
+          );
+        }
+        if (existingPeer.pendingIce && existingPeer.pendingIce.length) {
+          existingPeer.pendingIce.forEach(function (c) {
+            pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {});
+          });
+          existingPeer.pendingIce = [];
+        }
+        console.log("[GC] Renegotiation answer sent to " + fromId);
+      })
+      .catch(function (err) {
+        console.error("[GC] Renegotiation error:", err);
+        _gcCreateFreshPeer(fromId, data);
+      });
+    return;
+  }
+
+  // Naya peer banao
+  if (existingPeer) {
+    console.log("[GC] handleGroupCallOffer: replacing old peer for " + fromId);
     try {
-      oldPeer.pc.close();
+      existingPeer.pc.close();
     } catch (e) {}
     var oldThumb = document.getElementById("gc-thumb-" + fromId);
     if (oldThumb) oldThumb.remove();
@@ -7813,39 +8121,29 @@ function handleGroupCallOffer(data) {
     delete GC.screenSharers[fromId];
   }
 
-  // Standard WebRTC pattern: add tracks FIRST, then setRemoteDescription, then createAnswer
-  // This matches 1-on-1 calls (doInitWebRTC) which work perfectly
+  _gcCreateFreshPeer(fromId, data);
+}
+
+function _gcCreateFreshPeer(fromId, data) {
+  var ei = GC.peers[fromId];
+  // Purane peer ke queued ICE candidates carry karo, warna woh gum ho
+  // jate hain aur connection kabhi establish nahi hoti.
+  var carriedIce = ei && ei.pendingIce ? ei.pendingIce.slice() : [];
   var peer = createGroupPeerConnection(fromId);
+  if (carriedIce.length) {
+    peer.pendingIce = (peer.pendingIce || []).concat(carriedIce);
+    console.log("[GC] Carried " + carriedIce.length + " ICE for " + fromId);
+  }
   GC.peers[fromId] = peer;
-  if (data.from_user_name) peer.name = data.from_user_name;
-  if (data.from_user_pic) peer.pic = data.from_user_pic;
+  peer._awaitingOffer = false;
+  peer.name = data.from_user_name || (ei && ei.name) || "User";
+  peer.pic = data.from_user_pic || (ei && ei.pic) || "";
   var pc = peer.pc;
 
-  console.log(
-    "[GC] handleGroupCallOffer from",
-    fromId,
-    "- senders:",
-    pc.getSenders().length,
-    "setting remote desc",
-  );
+  console.log("[GC] Fresh peer for " + fromId + " - setting remote desc");
+
   pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
-      console.log(
-        "[GC] handleGroupCallOffer: remote desc set, transceivers:",
-        pc.getTransceivers().length,
-      );
-      // Log each transceiver's state for debugging
-      pc.getTransceivers().forEach(function (t, i) {
-        console.log(
-          "[GC]   t[" + i + "]",
-          t.mid,
-          t.direction,
-          "sender:",
-          t.sender.track ? t.sender.track.kind : "null",
-          "receiver:",
-          t.receiver.track ? t.receiver.track.kind : "null",
-        );
-      });
       return pc.createAnswer();
     })
     .then(function (answer) {
@@ -7862,14 +8160,17 @@ function handleGroupCallOffer(data) {
           }),
         );
       }
-      // Flush pending ICE
       if (peer.pendingIce) {
         peer.pendingIce.forEach(function (c) {
           pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {});
         });
         peer.pendingIce = [];
       }
-      console.log("[GC] handleGroupCallOffer: answer sent to", fromId);
+      // Cover the fallback path too: if fromId proactively offered to
+      // US (instead of us offering to them), let them know if we're
+      // already screen sharing — see gcSyncScreenStateToPeer.
+      gcSyncScreenStateToPeer(fromId);
+      console.log("[GC] Answer sent to " + fromId);
       setTimeout(function () {
         renderGroupCallPeer(fromId, peer);
       }, 500);
@@ -7881,7 +8182,6 @@ function handleGroupCallOffer(data) {
       console.error("[GC] Group offer handle error:", err);
     });
 }
-
 function handleGroupCallAnswer(data) {
   var fromId = data.from_user_id;
   var peer = GC.peers[fromId];
@@ -7889,90 +8189,78 @@ function handleGroupCallAnswer(data) {
     console.error("[GC] handleGroupCallAnswer: no peer for", fromId);
     return;
   }
-  console.log(
-    "[GC] handleGroupCallAnswer from",
-    fromId,
-    "- setting remote desc",
-  );
+
+  console.log("[GC] handleGroupCallAnswer from", fromId);
+
   peer.pc
     .setRemoteDescription(new RTCSessionDescription(data.sdp))
     .then(function () {
-      console.log("[GC] handleGroupCallAnswer: remote desc set for", fromId);
-      // Log each transceiver
-      peer.pc.getTransceivers().forEach(function (t, i) {
+      // Pending ICE flush karo
+      if (peer.pendingIce && peer.pendingIce.length) {
         console.log(
-          "[GC]   t[" + i + "]",
-          t.mid,
-          t.direction,
-          "sender:",
-          t.sender.track ? t.sender.track.kind : "null",
-          "receiver:",
-          t.receiver.track ? t.receiver.track.kind : "null",
+          "[GC] Flushing",
+          peer.pendingIce.length,
+          "ICE for peer",
+          fromId,
         );
-      });
-      if (peer.pendingIce) {
         peer.pendingIce.forEach(function (c) {
-          peer.pc.addIceCandidate(new RTCIceCandidate(c)).catch(function () {});
+          peer.pc.addIceCandidate(new RTCIceCandidate(c)).catch(function (e) {
+            console.warn("[GC] ICE flush error:", e);
+          });
         });
         peer.pendingIce = [];
       }
-      // Check if ontrack already gave us a stream
-      console.log(
-        "[GC] handleGroupCallAnswer: peer.stream=",
-        !!peer.stream,
-        "videoTracks:",
-        peer.stream ? peer.stream.getVideoTracks().length : 0,
-      );
-      setTimeout(function () {
-        console.log(
-          "[GC] render@500ms: peer.stream=",
-          !!peer.stream,
-          "videoTracks:",
-          peer.stream ? peer.stream.getVideoTracks().length : 0,
-          "connectionState:",
-          peer.pc.connectionState,
-        );
-        renderGroupCallPeer(fromId, peer);
-      }, 500);
-      setTimeout(function () {
-        renderGroupCallPeer(fromId, peer);
-      }, 1500);
-      setTimeout(function () {
-        renderGroupCallPeer(fromId, peer);
-      }, 3000);
+      // ontrack aur onconnectionstatechange baad mein render karein ge
+      renderGroupCallPeer(fromId, peer);
     })
     .catch(function (err) {
-      console.error("[GC] Group answer error:", err);
+      console.error("[GC] Group answer setRemoteDescription error:", err);
     });
 }
 
 function handleGroupCallIce(data) {
   var fromId = data.from_user_id;
+  if (!data.candidate) return;
+
   var peer = GC.peers[fromId];
   if (!peer) {
-    // Peer not created yet, queue
+    // Peer abhi tak create nahi — queue mein rakh do
     if (!GC.pendingIceByUser) GC.pendingIceByUser = {};
     if (!GC.pendingIceByUser[fromId]) GC.pendingIceByUser[fromId] = [];
     GC.pendingIceByUser[fromId].push(data.candidate);
+    console.log("[GC] Queued ICE for", fromId, "- peer not yet created");
     return;
   }
-  if (peer.pc.remoteDescription) {
+
+  if (peer.pc && peer.pc.remoteDescription && peer.pc.remoteDescription.type) {
+    // Remote description set hai — seedha add karo
     peer.pc
       .addIceCandidate(new RTCIceCandidate(data.candidate))
-      .catch(function () {});
+      .catch(function (e) {
+        console.warn("[GC] ICE add error for", fromId, ":", e.message);
+      });
   } else {
+    // Remote description abhi set nahi — queue mein rakho
     if (!peer.pendingIce) peer.pendingIce = [];
     peer.pendingIce.push(data.candidate);
+    console.log("[GC] Queued ICE in peer.pendingIce for", fromId);
   }
 }
 
 function handleGroupCallUserLeft(data) {
   var uid = data.user_id;
   if (GC.peers[uid]) {
+    if (GC.peers[uid]._pendingScreenStream) {
+      GC.peers[uid]._pendingScreenStream = null;
+    }
     GC.peers[uid].pc.close();
     delete GC.peers[uid];
   }
   delete GC.screenSharers[uid];
+
+  if (GC.pendingIceByUser && GC.pendingIceByUser[uid]) {
+    delete GC.pendingIceByUser[uid];
+  }
   // Remove thumbnail
   var thumb = document.getElementById("gc-thumb-" + uid);
   if (thumb) thumb.remove();
@@ -7988,25 +8276,27 @@ function handleGroupCallUserLeft(data) {
   }
   updateGroupCallParticipantCount();
   updateGcWaiting();
+  gcAdjustBitrates(); // fewer peers now — ease bitrate back up for the rest
+
 }
 
 function createGroupPeer(peerId, name, pic, isInitiator) {
-  // Close old peer if exists (e.g. rejoin scenario)
   var oldPeer = GC.peers[peerId];
-  if (oldPeer) {
-    console.log("[GC] createGroupPeer: replacing old peer for", peerId);
-    try {
-      oldPeer.pc.close();
-    } catch (e) {}
-    delete GC.peers[peerId];
-  }
+  if (oldPeer && oldPeer.pc && oldPeer.pc.connectionState === "connected") { return oldPeer; }
+  var carriedIce = oldPeer && oldPeer.pendingIce ? oldPeer.pendingIce.slice() : [];
+  if (oldPeer && oldPeer.pc) { try { oldPeer.pc.close(); } catch(e) {} }
   var peer = createGroupPeerConnection(peerId);
-  peer.name = name;
-  peer.pic = pic;
+  if (carriedIce.length) {
+    peer.pendingIce = (peer.pendingIce || []).concat(carriedIce);
+  }
+  peer.name = name || (oldPeer && oldPeer.name) || "User";
+  peer.pic = pic || (oldPeer && oldPeer.pic) || "";
+  peer._awaitingOffer = false;
   GC.peers[peerId] = peer;
 
   if (isInitiator) {
     var pc = peer.pc;
+    peer.makingOffer = true;
     // Use offerToReceiveAudio/Video like 1-on-1 calls (proven to work)
     // No extra recvonly transceivers — screen share handled via renegotiation
     pc.createOffer({
@@ -8027,6 +8317,10 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
             }),
           );
         }
+        // Let this new peer know right away if I'm already screen
+        // sharing — otherwise their incoming screen track just sits
+        // unrendered forever (see gcSyncScreenStateToPeer).
+        gcSyncScreenStateToPeer(peerId);
         console.log(
           "[GC] Offer sent to peer",
           peerId,
@@ -8045,6 +8339,9 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
       })
       .catch(function (err) {
         console.error("Group offer create error:", err);
+      })
+      .finally(function () {
+        peer.makingOffer = false;
       });
   }
   return peer;
@@ -8052,30 +8349,163 @@ function createGroupPeer(peerId, name, pic, isInitiator) {
 
 function createGroupPeerConnection(peerId) {
   var pc = new RTCPeerConnection(rtcConfig);
-  var peer = { pc: pc, stream: null, pendingIce: [] };
+  var peer = {
+    pc: pc,
+    stream: null,
+    screenStream: null,
+    pendingIce: [],
+    _pendingScreenStream: null,
+    // ── Perfect Negotiation state ──────────────────────────────
+    // "polite" is a stable tie-breaker both sides compute independently
+    // and always land on OPPOSITE answers for the same pair, so no extra
+    // signaling is needed to agree on who backs off during an offer
+    // collision. Whoever has the numerically smaller user id is polite.
+    polite: !!(S.user && S.user.id != null && S.user.id < peerId),
+    makingOffer: false,
+    _restarting: false, // guards against oniceconnectionstatechange AND
+    // onconnectionstatechange both calling restartIce() for the same
+    // failure at nearly the same time, which can make ICE recovery itself
+    // fail/hang instead of actually recovering.
+  };
 
-  // Add pending ICE if any arrived before peer was created
+  // Global ICE queue se transfer karo
   if (GC.pendingIceByUser && GC.pendingIceByUser[peerId]) {
     peer.pendingIce = GC.pendingIceByUser[peerId];
     delete GC.pendingIceByUser[peerId];
+    console.log(
+      "[GC] Transferred " +
+        peer.pendingIce.length +
+        " queued ICE for " +
+        peerId,
+    );
   }
 
-  // Add local tracks
+  // Camera tracks add karo (GC.localStream se)
   if (GC.localStream) {
     GC.localStream.getTracks().forEach(function (track) {
       pc.addTrack(track, GC.localStream);
     });
   }
-  // If we are screen sharing, also add screen track as separate stream
+
+  // Screen tracks alag stream ke saath add karo
   if (GC.isScreenSharing && GC.screenStream) {
     GC.screenStream.getTracks().forEach(function (track) {
       pc.addTrack(track, GC.screenStream);
     });
-    GC.screenSenders = GC.screenSenders || {};
   }
 
   setupGroupPeerHandlers(pc, peer, peerId);
   return peer;
+}
+
+// ── Adaptive bitrate for mesh group calls ───────────────────────────
+// ROOT CAUSE of "3 log theek, 4+ log kharab": this is a full MESH call
+// (every client opens a direct RTCPeerConnection to every other client).
+// With 3 people that's only 2 outbound connections per client, and the
+// camera track (720p/30fps) was being sent to each one with NO bitrate
+// cap — unlike the 1:1 call path, which calls boostVideoBitrate() and
+// caps it at 1.5Mbps. Uncapped, Chrome/Firefox try to push full quality
+// to EVERY peer independently, so total upload need multiplies with peer
+// count (3 peers ≈ 3-6 Mbps just for video, 5 peers ≈ 6-12 Mbps+, plus
+// screen share on top). Most connections don't have that much upload,
+// so the encoder/network starts dropping — video freezes, audio glitches
+// or vanishes, and screen share frames never arrive intact for whoever
+// is bandwidth-starved. This scales each peer's video DOWN as more
+// people join, instead of sending full quality to everyone always.
+function gcVideoBitrateForCount(n) {
+  // n = number of OTHER connected peers (so total participants = n+1)
+  if (n <= 1) return { maxBitrate: 1200000, scale: 1, fps: 30 }; // 1-2 people
+  if (n === 2) return { maxBitrate: 700000, scale: 1, fps: 30 }; // 3 people
+  if (n === 3) return { maxBitrate: 450000, scale: 1.5, fps: 24 }; // 4 people
+  if (n === 4) return { maxBitrate: 300000, scale: 2, fps: 20 }; // 5 people
+  return { maxBitrate: 180000, scale: 2.5, fps: 15 }; // 6+ people
+}
+
+function gcApplySenderParams(sender, opts) {
+  if (!sender || !sender.getParameters) return;
+  try {
+    var params = sender.getParameters();
+    if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+    params.encodings[0].maxBitrate = opts.maxBitrate;
+    params.encodings[0].maxFramerate = opts.fps;
+    if (opts.scale) params.encodings[0].scaleResolutionDownBy = opts.scale;
+    sender.setParameters(params).catch(function (e) {
+      console.warn("[GC] setParameters failed:", e);
+    });
+  } catch (e) {
+    console.warn("[GC] gcApplySenderParams error:", e);
+  }
+}
+
+// Recompute + apply camera-video bitrate on every connected peer
+// connection based on the CURRENT peer count. Call this whenever the
+// mesh size changes: peer connects, peer leaves, screen share
+// starts/stops. Cheap to call — just adjusts existing senders.
+function gcAdjustBitrates() {
+  if (!GC.active) return;
+  var camTrack = GC.localStream && GC.localStream.getVideoTracks()[0];
+  var pids = Object.keys(GC.peers).filter(function (pid) {
+    return GC.peers[pid] && GC.peers[pid].pc;
+  });
+  var n = pids.length;
+  var opts = gcVideoBitrateForCount(n);
+  pids.forEach(function (pid) {
+    var pc = GC.peers[pid].pc;
+    if (!pc || !pc.getSenders) return;
+    pc.getSenders().forEach(function (sender) {
+      if (sender.track && sender.track.kind === "video" && sender.track === camTrack) {
+        gcApplySenderParams(sender, opts);
+      }
+    });
+  });
+  console.log("[GC] Adjusted camera bitrate for " + n + " peer(s):", opts);
+}
+
+// ── Single shared renegotiation entrypoint ──────────────────────────
+// Every place that needs to renegotiate (cam on/off, screen share
+// start/stop) should call this instead of duplicating createOffer/
+// setLocalDescription/send inline. Sets `makingOffer` around the whole
+// attempt so handleGroupCallOffer can correctly detect a collision if an
+// offer arrives from the same peer while we're mid-flight.
+function gcRenegotiate(pid, peer) {
+  if (!peer || !peer.pc) return;
+  // If we're already mid-offer for this peer, don't fire a second
+  // overlapping createOffer/setLocalDescription — queue it and replay
+  // once the in-flight one finishes. Two overlapping local offers is a
+  // self-inflicted version of the same "invalid state" problem the
+  // remote-glare handling protects against.
+  if (peer.makingOffer) {
+    peer._renegotiatePending = true;
+    return;
+  }
+  var pc = peer.pc;
+  peer.makingOffer = true;
+  pc.createOffer()
+    .then(function (offer) {
+      return pc.setLocalDescription(offer);
+    })
+    .then(function () {
+      if (S.globalWs && S.globalWs.readyState === 1) {
+        S.globalWs.send(
+          JSON.stringify({
+            type: "group_call_offer",
+            group_call_id: GC.groupCallId,
+            target_user_id: parseInt(pid),
+            sdp: pc.localDescription,
+          }),
+        );
+      }
+    })
+    .catch(function (err) {
+      console.error("[GC] gcRenegotiate error for " + pid + ":", err);
+    })
+    .finally(function () {
+      peer.makingOffer = false;
+      if (peer._renegotiatePending) {
+        peer._renegotiatePending = false;
+        gcRenegotiate(pid, peer);
+      }
+    });
 }
 
 function setupGroupPeerHandlers(pc, peer, peerId) {
@@ -8093,123 +8523,141 @@ function setupGroupPeerHandlers(pc, peer, peerId) {
   };
 
   pc.ontrack = function (event) {
-    console.log(
-      "[GC] ontrack fired for peer",
-      peerId,
-      "track:",
-      event.track.kind,
-      "enabled:",
-      event.track.enabled,
-      "readyState:",
-      event.track.readyState,
-      "muted:",
-      event.track.muted,
-      "streams:",
-      event.streams.length,
-    );
-    var incomingStream = event.streams[0];
-    // Handle case where track is not associated with any stream
+    var incomingStream = event.streams && event.streams[0];
+
+    // Har naya stream uski asal ID se yaad rakho — screen vs camera ko
+    // guess se nahi, exact ID match se pehchanenge.
+    if (incomingStream) {
+      if (!peer._streamsById) peer._streamsById = {};
+      peer._streamsById[incomingStream.id] = incomingStream;
+    }
+
+    // Agar koi stream nahi mila
     if (!incomingStream) {
-      console.log(
-        "[GC] ontrack: NO STREAM for peer",
-        peerId,
-        "- creating manual stream",
-      );
-      if (!peer.stream) peer.stream = new MediaStream();
+      if (!peer.stream) {
+        peer.stream = new MediaStream();
+      }
       peer.stream.addTrack(event.track);
       renderGroupCallPeer(peerId, peer);
       return;
     }
-    console.log(
-      "[GC] ontrack: stream id:",
-      incomingStream.id,
-      "tracks in stream:",
-      incomingStream.getTracks().length,
-    );
-    // If this is a second stream (screen share), store separately
-    if (peer.stream && incomingStream && incomingStream.id !== peer.stream.id) {
-      peer.screenStream = incomingStream;
-      console.log("[GC] ontrack: got SCREEN stream for peer", peerId);
-      // Auto-mark as screen sharer
-      GC.screenSharers[peerId] = true;
-      buildGcScreenThumb(peerId, peer);
-      focusGcParticipant(peerId + "_screen");
-      refreshDualScreenView();
-      peer.screenStream.onremovetrack = function () {
+
+    var streamId = incomingStream.id;
+
+    // Agar yeh stream pehle se track ki gayi hai — sirf render karo
+    if (peer.stream && peer.stream.id === streamId) {
+      renderGroupCallPeer(peerId, peer);
+      return;
+    }
+
+    // Agar yeh screen stream ka update hai
+    if (peer.screenStream && peer.screenStream.id === streamId) {
+      renderGroupCallPeer(peerId, peer);
+      return;
+    }
+
+    // Bilkul naya stream
+    if (!peer.stream) {
+      // Pehla stream = camera
+      peer.stream = incomingStream;
+      console.log("[GC] peer " + peerId + " camera stream set: " + streamId);
+      renderGroupCallPeer(peerId, peer);
+    } else {
+      // Doosra stream = screen share
+      console.log(
+        "[GC] peer " + peerId + " screen stream received: " + streamId,
+      );
+      peer._pendingScreenStream = incomingStream;
+
+      // Agar screen toggle pehle aa gaya tha to turant apply karo
+      if (GC.screenSharers[peerId]) {
+        peer.screenStream = peer._pendingScreenStream;
+        peer._pendingScreenStream = null;
+        console.log(
+          "[GC] peer " + peerId + " applying screen share immediately",
+        );
+        _applyGcScreenShare(peerId, peer);
+      }
+    }
+
+    event.track.onunmute = function () {
+      renderGroupCallPeer(peerId, peer);
+    };
+
+    event.track.onended = function () {
+      if (peer.screenStream && peer.screenStream.id === streamId) {
         peer.screenStream = null;
         delete GC.screenSharers[peerId];
         var sThumb = document.getElementById("gc-thumb-" + peerId + "_screen");
         if (sThumb) sThumb.remove();
-        if (gcFocusedId === peerId + "_screen") focusGcParticipant(peerId);
-        buildGcThumb(peerId, peer);
+        if (
+          gcFocusedId === peerId + "_screen" ||
+          gcFocusedId == String(peerId) + "_screen"
+        ) {
+          focusGcParticipant(String(peerId));
+        }
         refreshDualScreenView();
-      };
-      return;
-    }
-    peer.stream = incomingStream || peer.stream;
-    renderGroupCallPeer(peerId, peer);
-    // Listen for future tracks added to this stream (e.g. camera turned on later)
-    if (peer.stream && !peer.stream._trackListenerAdded) {
-      peer.stream._trackListenerAdded = true;
-      peer.stream.onaddtrack = function () {
-        renderGroupCallPeer(peerId, peer);
-      };
-      peer.stream.onremovetrack = function () {
-        renderGroupCallPeer(peerId, peer);
-      };
-    }
+      }
+    };
   };
 
   pc.oniceconnectionstatechange = function () {
     console.log(
-      "[GC] peer",
-      peerId,
-      "iceConnectionState:",
-      pc.iceConnectionState,
+      "[GC] peer " + peerId + " iceConnectionState: " + pc.iceConnectionState,
     );
     if (pc.iceConnectionState === "failed") {
-      console.log("[GC] ICE failed for peer", peerId, "- restarting");
-      pc.restartIce();
+      gcSafeRestartIce(pc, peer, peerId, "iceConnectionState failed");
     }
   };
 
   pc.onconnectionstatechange = function () {
     console.log(
-      "[GC] peer",
-      peerId,
-      "connectionState:",
-      pc.connectionState,
-      "peer.stream:",
-      !!peer.stream,
-      "videoTracks:",
-      peer.stream ? peer.stream.getVideoTracks().length : 0,
+      "[GC] peer " +
+        peerId +
+        " connectionState: " +
+        pc.connectionState +
+        " stream: " +
+        !!peer.stream +
+        " videoTracks: " +
+        (peer.stream ? peer.stream.getVideoTracks().length : 0),
     );
+
     if (pc.connectionState === "connected") {
-      // Force re-render once media is actually flowing
-      setTimeout(function () {
-        console.log(
-          "[GC] connected re-render for",
-          peerId,
-          "stream:",
-          !!peer.stream,
-          "videoTracks:",
-          peer.stream ? peer.stream.getVideoTracks().length : 0,
-        );
-        renderGroupCallPeer(peerId, peer);
-      }, 300);
-      setTimeout(function () {
-        renderGroupCallPeer(peerId, peer);
-      }, 1000);
-      setTimeout(function () {
-        renderGroupCallPeer(peerId, peer);
-      }, 2500);
+      renderGroupCallPeer(peerId, peer);
+      gcStartTalkingDetection();
+      gcAdjustBitrates();
     } else if (pc.connectionState === "failed") {
-      console.log("[GC] Peer " + peerId + " connection failed, restarting ICE");
-      pc.restartIce();
+      gcSafeRestartIce(pc, peer, peerId, "connectionState failed");
     } else if (pc.connectionState === "disconnected") {
-      console.log("[GC] Peer " + peerId + " connection disconnected");
+      console.log("[GC] Peer " + peerId + " disconnected — waiting...");
+      setTimeout(function () {
+        if (peer.pc && peer.pc.connectionState === "disconnected") {
+          gcSafeRestartIce(pc, peer, peerId, "still disconnected after 5s");
+        }
+      }, 5000);
     }
   };
+}
+
+// oniceconnectionstatechange and onconnectionstatechange can BOTH fire
+// "failed" for the same underlying problem within milliseconds of each
+// other. Calling pc.restartIce() twice back-to-back can make the ICE
+// restart itself fail/hang rather than actually recovering — this guard
+// makes sure only one restart attempt happens per peer per failure.
+function gcSafeRestartIce(pc, peer, peerId, reason) {
+  if (peer._restarting) return;
+  peer._restarting = true;
+  console.log("[GC] Restarting ICE for peer " + peerId + " (" + reason + ")");
+  try {
+    pc.restartIce();
+  } catch (e) {
+    console.error("[GC] restartIce threw for " + peerId + ":", e);
+  }
+  // Give the restart a window to actually happen before allowing another
+  // one to be triggered for a subsequent failure.
+  setTimeout(function () {
+    peer._restarting = false;
+  }, 4000);
 }
 
 // Zoom-like focused participant
@@ -8223,25 +8671,18 @@ function renderGroupCallPeer(peerId, peer) {
     !!peer.stream,
     "videoTracks:",
     peer.stream ? peer.stream.getVideoTracks().length : 0,
+    "connectionState:",
+    peer.pc ? peer.pc.connectionState : "N/A",
   );
-  // Remove old legacy tile if exists
+
+  // Legacy tile hatao
   var existing = document.getElementById("gc-peer-" + peerId);
   if (existing) existing.remove();
 
-  // Build thumbnail
   buildGcThumb(peerId, peer);
 
-  // If this is the focused user or first peer, focus them
+  // Focused user ya pehla peer
   if (gcFocusedId === peerId || Object.keys(GC.peers).length === 1) {
-    focusGcParticipant(peerId);
-  }
-
-  // Auto-focus screen share
-  var videoTracks = peer.stream ? peer.stream.getVideoTracks() : [];
-  var hasScreen = videoTracks.some(function (t) {
-    return t.label && t.label.toLowerCase().indexOf("screen") !== -1;
-  });
-  if (hasScreen) {
     focusGcParticipant(peerId);
   }
 
@@ -8294,6 +8735,13 @@ function buildGcThumb(id, peer) {
     var audio = document.createElement("audio");
     audio.autoplay = true;
     audio.srcObject = peer.stream;
+    // Respect the current speaker on/off state. Without this, every
+    // time this thumb gets rebuilt (new peer connects, track
+    // unmutes, reconnect, etc.) a FRESH <audio> element is created
+    // that defaults to unmuted — so after clicking "speaker off" the
+    // button turns red but the next rebuild quietly starts playing
+    // audio again, making it look like mute never worked.
+    audio.muted = typeof gcSpeakerOff !== "undefined" && gcSpeakerOff;
     audio.play().catch(function (e) {
       console.log("[GC] thumb audio play error:", e);
     });
@@ -8481,6 +8929,7 @@ function buildGcScreenThumb(id, peer) {
     vid.muted = true;
     vid.srcObject = screenStream;
     thumb.appendChild(vid);
+    vid.play().catch(function(){});   // ← yeh line add karo
   }
 
   // Screen badge
@@ -8627,6 +9076,14 @@ function updateGcMainView(id, peer, showScreen) {
           vid.playsInline = true;
           vid.srcObject = screenStream;
           panel.appendChild(vid);
+
+          vid.play().catch(function (e) {
+            console.log("[GC] screen play error:", e);
+          });
+
+          vid.play().catch(function (e) {
+            console.log("[GC] screen main play error:", e);
+          });
           (function (ss) {
             panel.onclick = function () {
               gcOpenScreenZoom(ss);
@@ -8673,6 +9130,7 @@ function updateGcMainView(id, peer, showScreen) {
         vid.playsInline = true;
         vid.srcObject = screenStream;
         mainView.appendChild(vid);
+        vid.play().catch(function(){});   // ← yeh bhi add karo
       }
       mainView.classList.add("screen-share");
       if (!isLocal) {
@@ -8781,6 +9239,16 @@ function showGroupCallUI() {
 
   $("gc-call-name").textContent = getGroupCallTitle();
   showCallOverlay("gc-ongoing-call");
+    setTimeout(function(){initDraggableControls("gc-ongoing-call");gcStartHealthCheck();},500);
+
+  if (window.AndroidBridge && AndroidBridge.showOngoingCallNotification) {
+    try {
+      AndroidBridge.showOngoingCallNotification(
+        getGroupCallTitle(),
+        GC.callType === "video" ? "Group Video Call" : "Group Voice Call"
+      );
+    } catch (e) {}
+  }
   updateGcWaiting();
 
   GC.callStartTime = GC.callStartTime || Date.now();
@@ -8887,6 +9355,16 @@ function leaveGroupCall() {
 }
 
 function cleanupGroupCall() {
+  if (window.AndroidBridge && AndroidBridge.hideOngoingCallNotification) {
+    try { AndroidBridge.hideOngoingCallNotification(); } catch (e) {}
+  }
+  // Safety: always stop the screen-share border, even if the call ends
+  // without screen share being turned off manually first.
+  if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+    window.DesktopBridge.stopScreenShareBorder();
+  } else {
+    hideShareBorder();
+  }
   cleanupCamFx();
   gcStopTalkingDetection();
   gcCloseScreenZoom();
@@ -8895,6 +9373,18 @@ function cleanupGroupCall() {
       t.stop();
     });
     GC.screenStream = null;
+  }
+  // If the call ends (or is left) WHILE screen sharing is still active,
+  // nothing else tears down the border overlay — gcStopScreenShare()
+  // (which normally does this) is only called from the explicit "stop
+  // sharing" button, not from call-end/leave. Without this the blue
+  // border stays on screen until the desktop app is manually closed.
+  if (GC.isScreenSharing) {
+    if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+      window.DesktopBridge.stopScreenShareBorder();
+    } else {
+      hideShareBorder();
+    }
   }
   GC.isScreenSharing = false;
   GC.originalVideoTrack = null;
@@ -8992,55 +9482,57 @@ function toggleCam() {
     updateCamButton();
     updateVideoDisplay();
   } else {
-    // Turn camera ON
-    navigator.mediaDevices
-      .getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30 },
-          facingMode: "user",
-        },
-      })
-      .then(function (camStream) {
-        var videoTrack = camStream.getVideoTracks()[0];
-        CallState.localStream.addTrack(videoTrack);
-        if (CallState.pc) {
-          CallState.pc.addTrack(videoTrack, CallState.localStream);
-          CallState.pc
-            .createOffer({
-              offerToReceiveAudio: true,
-              offerToReceiveVideo: true,
-            })
-            .then(function (offer) {
-              return CallState.pc.setLocalDescription(offer);
-            })
-            .then(function () {
-              var ws = S.globalWs || S.ws;
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(
-                  JSON.stringify({
-                    type: "screen_offer",
-                    target_user_id: CallState.remoteUserId,
-                    sdp: CallState.pc.localDescription,
-                  }),
-                );
-              }
-            });
-        }
-        CallState.isCamOff = false;
-        updateCamButton();
-        var lv = $("local-video");
-        if (lv) {
-          lv.srcObject = CallState.localStream;
-          lv.style.cssText = ""; // clear any leftover overrides
-          lv.style.display = "block";
-        }
-      })
-      .catch(function (err) {
-        console.error("Camera access error:", err);
-        toast("Could not access camera", "e");
-      });
+    // Turn camera ON — confirm first
+    customConfirm("Are you sure you want to turn on your camera?", function () {
+      navigator.mediaDevices
+        .getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+            facingMode: "user",
+          },
+        })
+        .then(function (camStream) {
+          var videoTrack = camStream.getVideoTracks()[0];
+          CallState.localStream.addTrack(videoTrack);
+          if (CallState.pc) {
+            CallState.pc.addTrack(videoTrack, CallState.localStream);
+            CallState.pc
+              .createOffer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: true,
+              })
+              .then(function (offer) {
+                return CallState.pc.setLocalDescription(offer);
+              })
+              .then(function () {
+                var ws = S.globalWs || S.ws;
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(
+                    JSON.stringify({
+                      type: "screen_offer",
+                      target_user_id: CallState.remoteUserId,
+                      sdp: CallState.pc.localDescription,
+                    }),
+                  );
+                }
+              });
+          }
+          CallState.isCamOff = false;
+          updateCamButton();
+          var lv = $("local-video");
+          if (lv) {
+            lv.srcObject = CallState.localStream;
+            lv.style.cssText = "";
+            lv.style.display = "block";
+          }
+        })
+        .catch(function (err) {
+          console.error("Camera access error:", err);
+          toast("Could not access camera", "e");
+        });
+    });
   }
 }
 
@@ -9055,7 +9547,7 @@ function gcToggleScreenShare() {
 
 function gcStartScreenShare() {
   if (!GC.active) return;
-  // Max 2 simultaneous screen shares allowed
+
   var currentSharers = Object.keys(GC.screenSharers).length;
   if (currentSharers >= 2) {
     toast(
@@ -9064,11 +9556,21 @@ function gcStartScreenShare() {
     );
     return;
   }
+
   navigator.mediaDevices
     .getDisplayMedia({
-      video: true,
+      video: {
+        displaySurface: "monitor",
+        width: { ideal: window.screen.width },
+        height: { ideal: window.screen.height },
+        frameRate: { ideal: 30 },
+        cursor: "never", // see note in startScreenShare() above
+        logicalSurface: true,
+      },
       audio: false,
+      selfBrowserSurface: "exclude",
       monitorTypeSurfaces: "include",
+      systemAudio: "exclude",
     })
     .then(function (screenStream) {
       GC.screenStream = screenStream;
@@ -9076,55 +9578,63 @@ function gcStartScreenShare() {
       var screenTrack = screenStream.getVideoTracks()[0];
       GC.screenSenders = {};
 
-      // Always add screen as a SEPARATE stream (don't replace camera)
+      // Tell the encoder this is mostly static text/UI, not motion —
+      // it will spend bits on sharpness instead of framerate, which
+      // keeps shared screens legible at a much lower bitrate than
+      // camera video needs. Without this the browser encodes it like
+      // camera video (motion-optimized), which looks blurry/laggy and
+      // burns bandwidth that other peers' audio/video need.
+      try { screenTrack.contentHint = "detail"; } catch (e) {}
+
+      // Screen track ko ALAG stream ke saath add karo
+      // Isse receiver side pe stream IDs alag rahengi:
+      //   stream1 = camera (GC.localStream)
+      //   stream2 = screen (GC.screenStream)
       Object.keys(GC.peers).forEach(function (pid) {
         var pc = GC.peers[pid].pc;
-        GC.screenSenders[pid] = pc.addTrack(screenTrack, screenStream);
+        var sender = pc.addTrack(screenTrack, GC.screenStream);
+        GC.screenSenders[pid] = sender;
+        // Cap screen bitrate per-viewer too — same uncapped-per-peer
+        // problem as camera video, just worse because screen frames
+        // are bigger. 1.2Mbps/12fps stays sharp for text while still
+        // being sustainable across several simultaneous viewers.
+        gcApplySenderParams(sender, { maxBitrate: 1200000, fps: 12 });
       });
 
-      // Renegotiate with all peers
+      // Saare peers ke saath renegotiate karo
       Object.keys(GC.peers).forEach(function (pid) {
-        var pc = GC.peers[pid].pc;
-        pc.createOffer()
-          .then(function (offer) {
-            return pc.setLocalDescription(offer);
-          })
-          .then(function () {
-            if (S.globalWs && S.globalWs.readyState === 1) {
-              S.globalWs.send(
-                JSON.stringify({
-                  type: "group_call_offer",
-                  group_call_id: GC.groupCallId,
-                  target_user_id: pid,
-                  sdp: pc.localDescription,
-                }),
-              );
-            }
-          })
-          .catch(function (err) {
-            console.error("GC screen share renegotiation error:", err);
-          });
+        gcRenegotiate(pid, GC.peers[pid]);
       });
 
-      // Notify all peers about screen share
-      gcSendScreenToggle(true);
+      // Screen share adds real load on top of camera video — pull
+      // camera bitrate down further while it's active.
+      gcAdjustBitrates();
 
-      // Show sidebar (even if alone) and build thumbnails
+      // Saare peers ko batao ke screen share shuru ho gayi — exact
+      // stream ID ke saath, taake receiver guess na kare.
+      gcSendScreenToggle(true, GC.screenStream.id);
+
+      // UI update
       updateGcWaiting();
       buildLocalThumb();
       buildLocalScreenThumb();
       refreshDualScreenView();
-      if (Object.keys(GC.screenSharers).length === 0)
+      if (Object.keys(GC.screenSharers).length === 0) {
         focusGcParticipant("local_screen");
+      }
 
-      // Update button
-      var btn = $("gc-screen-btn");
+      var btn = document.getElementById("gc-screen-btn");
       if (btn) {
         btn.classList.add("screen-active");
         btn.innerHTML =
           '<i class="fa-solid fa-display"></i><span class="screen-dot"></span>';
       }
-      // When user stops from browser UI
+      if (window.DesktopBridge && window.DesktopBridge.startScreenShareBorder) {
+        window.DesktopBridge.startScreenShareBorder();
+      } else {
+        showShareBorder();
+      }
+
       screenTrack.onended = function () {
         gcStopScreenShare();
       };
@@ -9159,30 +9669,14 @@ function gcStopScreenShare() {
 
   // Renegotiate with all peers
   Object.keys(GC.peers).forEach(function (pid) {
-    var pc = GC.peers[pid].pc;
-    pc.createOffer()
-      .then(function (offer) {
-        return pc.setLocalDescription(offer);
-      })
-      .then(function () {
-        if (S.globalWs && S.globalWs.readyState === 1) {
-          S.globalWs.send(
-            JSON.stringify({
-              type: "group_call_offer",
-              group_call_id: GC.groupCallId,
-              target_user_id: pid,
-              sdp: pc.localDescription,
-            }),
-          );
-        }
-      })
-      .catch(function (err) {
-        console.error("GC screen stop renegotiation error:", err);
-      });
+    gcRenegotiate(pid, GC.peers[pid]);
   });
 
   // Notify all peers screen share stopped
   gcSendScreenToggle(false);
+
+  // Screen share load is gone — ease camera bitrate back up.
+  gcAdjustBitrates();
 
   GC.originalVideoTrack = null;
   // Remove local screen thumb
@@ -9198,55 +9692,205 @@ function gcStopScreenShare() {
     btn.classList.remove("screen-active");
     btn.innerHTML = '<i class="fa-solid fa-display"></i>';
   }
+  if (window.DesktopBridge && window.DesktopBridge.stopScreenShareBorder) {
+    window.DesktopBridge.stopScreenShareBorder();
+  } else {
+    hideShareBorder();
+  }
 }
 
-function gcSendScreenToggle(sharing) {
+function gcSendScreenToggle(sharing, streamId) {
   if (!S.globalWs || S.globalWs.readyState !== 1) return;
   Object.keys(GC.peers).forEach(function (pid) {
     S.globalWs.send(
       JSON.stringify({
         type: "gc_screen_toggle",
         group_call_id: GC.groupCallId,
-        target_user_id: pid,
+        target_user_id: parseInt(pid),
         sharing: sharing,
+        stream_id: streamId || null,
       }),
     );
   });
 }
 
+// ── Screen-share state sync for late joiners / rejoiners ────────────
+// gcSendScreenToggle() above only reaches whoever is ALREADY in
+// GC.peers at the moment sharing starts. Anyone who joins (or rejoins
+// after leaving) AFTER that point never gets that toggle message — but
+// their peer connection still receives the screen track via ontrack
+// (createGroupPeerConnection adds it to every new pc). Since
+// GC.screenSharers[peerId] never got set for them, ontrack just parks
+// the incoming screen stream in peer._pendingScreenStream and nothing
+// ever promotes it to peer.screenStream / renders it — screen share
+// silently never shows no matter how long they wait. Fix: whenever a
+// NEW peer connection is set up (either side of the offer/answer),
+// if I'm currently sharing, tell that ONE peer directly.
+function gcSyncScreenStateToPeer(pid) {
+  if (!GC.isScreenSharing || !S.globalWs || S.globalWs.readyState !== 1) return;
+  S.globalWs.send(
+    JSON.stringify({
+      type: "gc_screen_toggle",
+      group_call_id: GC.groupCallId,
+      target_user_id: parseInt(pid),
+      sharing: true,
+      stream_id: GC.screenStream ? GC.screenStream.id : null,
+    }),
+  );
+}
+
 function handleGcScreenToggle(data) {
   var fromId = data.from_user_id;
   var sharing = data.sharing;
+  var streamId = data.stream_id;
   var peer = GC.peers[fromId];
 
   if (sharing) {
     GC.screenSharers[fromId] = true;
-    if (peer) {
-      // Rebuild camera thumb (removes screen badge, keeps camera)
-      buildGcThumb(fromId, peer);
-      // Build separate screen thumb
-      buildGcScreenThumb(fromId, peer);
-      // Auto-focus screen in main view
-      focusGcParticipant(fromId + "_screen");
+    showRCButton();
+    console.log("[GC] Screen toggle ON from", fromId, "stream_id:", streamId);
+
+    if (!peer) return;
+
+    function tryResolveByStreamId() {
+      if (streamId && peer._streamsById && peer._streamsById[streamId]) {
+        peer.screenStream = peer._streamsById[streamId];
+        _applyGcScreenShare(fromId, peer);
+        return true;
+      }
+      return false;
     }
+    if (tryResolveByStreamId()) return;
+
+    if (peer._pendingScreenStream && peer._pendingScreenStream.id === streamId) {
+      peer.screenStream = peer._pendingScreenStream;
+      peer._pendingScreenStream = null;
+      _applyGcScreenShare(fromId, peer);
+      return;
+    }
+
+    var attempts = 0;
+    var maxAttempts = 40;
+    var poll = setInterval(function () {
+      attempts++;
+      var p = GC.peers[fromId];
+      if (!p) {
+        clearInterval(poll);
+        return;
+      }
+
+      if (streamId && p._streamsById && p._streamsById[streamId]) {
+        clearInterval(poll);
+        p.screenStream = p._streamsById[streamId];
+        _applyGcScreenShare(fromId, p);
+        return;
+      }
+
+      if (p._pendingScreenStream && (!streamId || p._pendingScreenStream.id === streamId)) {
+        clearInterval(poll);
+        p.screenStream = p._pendingScreenStream;
+        p._pendingScreenStream = null;
+        _applyGcScreenShare(fromId, p);
+        return;
+      }
+
+      if (!streamId && p.pc) {
+        var receivers = p.pc.getReceivers();
+        var videoReceivers = receivers.filter(function (r) {
+          return (
+            r.track && r.track.kind === "video" && r.track.readyState === "live"
+          );
+        });
+        var camTrackIds = p.stream
+          ? p.stream.getVideoTracks().map(function (t) {
+              return t.id;
+            })
+          : [];
+        var screenReceiver = null;
+        for (var i = 0; i < videoReceivers.length; i++) {
+          if (camTrackIds.indexOf(videoReceivers[i].track.id) === -1) {
+            screenReceiver = videoReceivers[i];
+            break;
+          }
+        }
+        if (screenReceiver) {
+          clearInterval(poll);
+          p.screenStream = new MediaStream([screenReceiver.track]);
+          _applyGcScreenShare(fromId, p);
+          return;
+        }
+      }
+
+      if (attempts >= maxAttempts) {
+        clearInterval(poll);
+        console.warn("[GC] Screen stream nahi mila peer ke liye:", fromId);
+        toast("Screen share load nahi ho raha, dobara try karo", "e");
+      }
+    }, 300);
   } else {
     delete GC.screenSharers[fromId];
+    if (Object.keys(GC.screenSharers).length === 0) hideRCButton();
     if (peer) {
+      if (streamId && peer._streamsById) delete peer._streamsById[streamId];
       peer.screenStream = null;
-      // Remove screen thumb
+      peer._pendingScreenStream = null;
       var sThumb = document.getElementById("gc-thumb-" + fromId + "_screen");
       if (sThumb) sThumb.remove();
-      // Rebuild camera thumb
       buildGcThumb(fromId, peer);
-      if (gcFocusedId == fromId + "_screen") focusGcParticipant(fromId);
+      if (
+        gcFocusedId === fromId + "_screen" ||
+        gcFocusedId == String(fromId) + "_screen"
+      ) {
+        focusGcParticipant(String(fromId));
+      }
     }
+    refreshDualScreenView();
   }
 }
 
+function _applyGcScreenShare(fromId, peer) {
+  buildGcThumb(fromId, peer);
+  if (peer.screenStream) {
+    buildGcScreenThumb(fromId, peer);
+    // Auto-focus the screen share
+    focusGcParticipant(fromId + "_screen");
+  }
+  refreshDualScreenView();
+}
+
+function _tryExtractScreenTrack(fromId, peer) {
+  if (!peer || !peer.pc) return;
+  var receivers = peer.pc.getReceivers();
+  var videoReceivers = receivers.filter(function (r) {
+    return r.track && r.track.kind === "video" && r.track.readyState === "live";
+  });
+  if (videoReceivers.length >= 2) {
+    // First is camera, second is screen
+    var screenTrack = videoReceivers[1].track;
+    var screenStream = new MediaStream([screenTrack]);
+    peer.screenStream = screenStream;
+    console.log(
+      "[GC] Screen track extracted from RTCPeerConnection receiver for peer",
+      fromId,
+    );
+    _applyGcScreenShare(fromId, peer);
+  } else if (videoReceivers.length === 1 && !peer.stream) {
+    // Only one track and no camera stream — treat as screen
+    var screenTrack = videoReceivers[0].track;
+    peer.screenStream = new MediaStream([screenTrack]);
+    _applyGcScreenShare(fromId, peer);
+  } else {
+    console.warn(
+      "[GC] Could not find screen track for peer",
+      fromId,
+      "- receivers:",
+      videoReceivers.length,
+    );
+  }
+}
 // ═══ SCREEN SHARE ZOOM/FULLSCREEN ═══
 function gcOpenScreenZoom(stream) {
   if (!stream) return;
-  // Create zoom overlay if not exists
   var overlay = document.getElementById("gc-screen-zoom-overlay");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -9260,18 +9904,78 @@ function gcOpenScreenZoom(stream) {
     closeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
     closeBtn.onclick = gcCloseScreenZoom;
     overlay.appendChild(closeBtn);
+
+    // 8 control buttons
+    var bar = document.createElement("div");
+    bar.className = "gc-zoom-ctrl-bar";
+    bar.id = "gc-zoom-ctrl-bar";
+    bar.innerHTML = `
+      <button class="ctrl-btn" id="gz-mic" onclick="gcToggleMic();gzSync()">
+        <i class="fa-solid fa-microphone"></i></button>
+      <button class="ctrl-btn" id="gz-cam" onclick="gcToggleCam();setTimeout(gzSync,200)">
+        <i class="fa-solid fa-video"></i></button>
+      <button class="ctrl-btn" id="gz-fx" onclick="closeCamFxPicker();toggleCamFxPicker('gc')">
+        <i class="fa-solid fa-wand-magic-sparkles"></i></button>
+      <button class="ctrl-btn" id="gz-screen" onclick="gcToggleScreenShare();setTimeout(gzSync,200)">
+        <i class="fa-solid fa-display"></i></button>
+      <button class="ctrl-btn" id="gz-rec" onclick="toggleCallRecord();setTimeout(gzSync,200)">
+        <i class="fa-solid fa-circle" style="font-size:13px;"></i></button>
+      <button class="ctrl-btn" id="gz-add" onclick="openAddUserToCall()">
+        <i class="fa-solid fa-user-plus"></i></button>
+      <button class="ctrl-btn end" onclick="gcCloseScreenZoom();leaveGroupCall()">
+        <i class="fa-solid fa-phone-slash"></i></button>
+      <button class="ctrl-btn" onclick="gcCloseScreenZoom()" title="Exit Fullscreen">
+        <i class="fa-solid fa-compress"></i></button>
+    `;
+    overlay.appendChild(bar);
     document.body.appendChild(overlay);
   }
-  // Remove old video
+
   var oldVid = overlay.querySelector("video");
-  if (oldVid) oldVid.remove();
-  // Add video
+  if (oldVid) {
+    oldVid.srcObject = null;
+    oldVid.remove();
+  }
+
   var vid = document.createElement("video");
   vid.autoplay = true;
   vid.playsInline = true;
   vid.srcObject = stream;
   overlay.insertBefore(vid, overlay.firstChild);
   overlay.classList.add("active");
+  gzSync();
+}
+
+function gzSync() {
+  var m = document.getElementById("gz-mic");
+  var c = document.getElementById("gz-cam");
+  var s = document.getElementById("gz-screen");
+  var r = document.getElementById("gz-rec");
+  if (m) {
+    m.classList.toggle("muted", !!GC.isMuted);
+    m.innerHTML = GC.isMuted
+      ? '<i class="fa-solid fa-microphone-slash"></i>'
+      : '<i class="fa-solid fa-microphone"></i>';
+  }
+  if (c) {
+    var camOff =
+      GC.isCamOff ||
+      !GC.localStream ||
+      GC.localStream.getVideoTracks().length === 0;
+    c.classList.toggle("muted", camOff);
+    c.innerHTML = camOff
+      ? '<i class="fa-solid fa-video-slash"></i>'
+      : '<i class="fa-solid fa-video"></i>';
+  }
+  if (s) {
+    s.classList.toggle("screen-active", !!GC.isScreenSharing);
+    s.innerHTML = GC.isScreenSharing
+      ? '<i class="fa-solid fa-display"></i><span class="screen-dot"></span>'
+      : '<i class="fa-solid fa-display"></i>';
+  }
+  if (r) {
+    r.classList.toggle("rec-active", !!CallRec.isRecording);
+  }
 }
 function gcCloseScreenZoom() {
   var overlay = document.getElementById("gc-screen-zoom-overlay");
@@ -9635,199 +10339,216 @@ document.head.appendChild(notifStyle);
 // Initialize on load
 requestNotificationPermission();
 
-// ═══ SCREEN SHARE ZOOM/PAN ═══
+// ═══ SCREEN SHARE ZOOM CONTROLS (scroll / pinch / drag + buttons) ═══
+var ScreenZoom = { states: {}, MIN: 1, MAX: 5, STEP: 0.3 };
+
+function _szTargetVideos() {
+  var list = [];
+  var rsv = document.getElementById("remote-screen-video");
+  if (rsv && rsv.srcObject && getComputedStyle(rsv).display !== "none") list.push(rsv);
+  var mainView = document.getElementById("gc-main-view");
+  if (mainView && mainView.classList.contains("screen-share")) {
+    var v = mainView.querySelector("video");
+    if (v) list.push(v);
+  }
+  document.querySelectorAll(".gc-split-panel video").forEach(function (v) {
+    list.push(v);
+  });
+  return list;
+}
+
+function _szGetState(vid) {
+  if (!vid.id) vid.id = "sz-" + Date.now() + Math.random().toString(36).slice(2, 6);
+  if (!ScreenZoom.states[vid.id]) ScreenZoom.states[vid.id] = { scale: 1, panX: 0, panY: 0 };
+  return ScreenZoom.states[vid.id];
+}
+
+function _szClampPan(vid, st) {
+  var maxOffset = (st.scale - 1) * 300;
+  st.panX = Math.max(-maxOffset, Math.min(maxOffset, st.panX));
+  st.panY = Math.max(-maxOffset, Math.min(maxOffset, st.panY));
+}
+
+function _szApply(vid) {
+  var st = _szGetState(vid);
+  vid.style.transformOrigin = "center center";
+  vid.style.transition = "transform 0.15s ease-out";
+  vid.style.transform = "scale(" + st.scale + ") translate(" + st.panX + "px," + st.panY + "px)";
+  vid.style.cursor = st.scale > 1 ? "grab" : "";
+  document.querySelectorAll('[id^="sz-badge-"]').forEach(function (b) {
+    b.textContent = Math.round(st.scale * 100) + "%";
+  });
+}
+
+function _szActiveVideo() {
+  var vids = _szTargetVideos();
+  return vids.length ? vids[0] : null;
+}
+
+function szZoomIn(vid) {
+  vid = vid || _szActiveVideo();
+  if (!vid) return;
+  var st = _szGetState(vid);
+  st.scale = Math.min(ScreenZoom.MAX, +(st.scale + ScreenZoom.STEP).toFixed(2));
+  if (st.scale <= 1) { st.panX = 0; st.panY = 0; }
+  _szClampPan(vid, st);
+  _szApply(vid);
+}
+
+function szZoomOut(vid) {
+  vid = vid || _szActiveVideo();
+  if (!vid) return;
+  var st = _szGetState(vid);
+  st.scale = Math.max(ScreenZoom.MIN, +(st.scale - ScreenZoom.STEP).toFixed(2));
+  if (st.scale <= 1) { st.panX = 0; st.panY = 0; }
+  _szClampPan(vid, st);
+  _szApply(vid);
+}
+
+function szZoomReset(vid) {
+  vid = vid || _szActiveVideo();
+  if (!vid) return;
+  var st = _szGetState(vid);
+  st.scale = 1; st.panX = 0; st.panY = 0;
+  _szApply(vid);
+}
+
+function _szEnsureControls(overlayId) {
+  var overlay = document.getElementById(overlayId);
+  var barId = "sz-controls-" + overlayId;
+  var existing = document.getElementById(barId);
+  var visible = overlay && overlay.classList.contains("active");
+  var vid = visible ? _szActiveVideo() : null;
+
+  if (!vid) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing) return;
+
+  var bar = document.createElement("div");
+  bar.id = barId;
+  bar.style.cssText =
+    "position:fixed;bottom:140px;right:20px;display:flex;flex-direction:column;gap:6px;z-index:999999;";
+  bar.innerHTML =
+    '<button style="width:42px;height:42px;border-radius:10px;background:rgba(0,0,0,0.75);color:#fff;border:none;font-size:18px;cursor:pointer;" onclick="szZoomIn()"><i class="fa-solid fa-plus"></i></button>' +
+    '<button style="width:42px;height:42px;border-radius:10px;background:rgba(0,0,0,0.75);color:#fff;border:none;font-size:18px;cursor:pointer;" onclick="szZoomOut()"><i class="fa-solid fa-minus"></i></button>' +
+    '<button style="width:42px;height:42px;border-radius:10px;background:rgba(0,0,0,0.75);color:#fff;border:none;font-size:14px;cursor:pointer;" onclick="szZoomReset()" title="Reset"><i class="fa-solid fa-compress"></i></button>' +
+    '<div id="sz-badge-' + overlayId + '" style="text-align:center;color:#fff;font-size:11px;background:rgba(0,0,0,0.65);border-radius:8px;padding:3px 4px;">100%</div>';
+  document.body.appendChild(bar);
+}
+
 (function initScreenShareZoom() {
-  var zoomState = {};
-
-  function getState(el) {
-    if (!zoomState[el.id])
-      zoomState[el.id] = {
-        scale: 1,
-        panX: 0,
-        panY: 0,
-        dragging: false,
-        startX: 0,
-        startY: 0,
-      };
-    return zoomState[el.id];
+  function isTargetVideo(el) {
+    if (!el || el.tagName !== "VIDEO") return false;
+    if (typeof RemoteCtrl !== "undefined" && RemoteCtrl.isControlling) return false;
+    if (el.id === "remote-screen-video") return true;
+    var mv = document.getElementById("gc-main-view");
+    if (mv && mv.contains(el) && mv.classList.contains("screen-share")) return true;
+    if (el.closest(".gc-split-panel")) return true;
+    return false;
   }
 
-  function applyTransform(el, st) {
-    el.style.transform =
-      "scale(" + st.scale + ") translate(" + st.panX + "px, " + st.panY + "px)";
-  }
-
-  function resetZoom(el) {
-    var st = getState(el);
-    st.scale = 1;
-    st.panX = 0;
-    st.panY = 0;
-    el.style.transform = "";
-  }
-
-  // Wheel zoom on any screen-share video
+  // Wheel zoom
   document.addEventListener(
     "wheel",
     function (e) {
       var el = e.target.closest("video");
-      if (!el) return;
-      // Only zoom on screen share videos
-      var isScreenShare =
-        el.id === "remote-video" && el.classList.contains("screen-share");
-      var isGcScreenShare = el.closest(".gc-peer-tile.screen-share");
-      if (!isScreenShare && !isGcScreenShare) return;
-
+      if (!isTargetVideo(el)) return;
       e.preventDefault();
-      if (!el.id) el.id = "zv-" + Date.now();
-      var st = getState(el);
-      var delta = e.deltaY > 0 ? -0.15 : 0.15;
-      st.scale = Math.max(1, Math.min(5, st.scale + delta));
-      if (st.scale <= 1) {
-        st.panX = 0;
-        st.panY = 0;
-      }
-      applyTransform(el, st);
+      var st = _szGetState(el);
+      var delta = e.deltaY > 0 ? -ScreenZoom.STEP : ScreenZoom.STEP;
+      st.scale = Math.max(ScreenZoom.MIN, Math.min(ScreenZoom.MAX, st.scale + delta));
+      if (st.scale <= 1) { st.panX = 0; st.panY = 0; }
+      _szClampPan(el, st);
+      _szApply(el);
     },
     { passive: false },
   );
 
-  // Touch pinch-to-zoom
-  var pinchDist = 0;
-  document.addEventListener(
-    "touchstart",
-    function (e) {
-      if (e.touches.length !== 2) return;
-      var el = e.target.closest("video");
-      if (!el) return;
-      var isScreenShare =
-        el.id === "remote-video" && el.classList.contains("screen-share");
-      var isGcScreenShare = el.closest(".gc-peer-tile.screen-share");
-      if (!isScreenShare && !isGcScreenShare) return;
-      pinchDist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY,
-      );
-    },
-    { passive: true },
-  );
+  // Pinch zoom (touch)
+  var pinchDist = 0, pinchEl = null;
+  document.addEventListener("touchstart", function (e) {
+    if (e.touches.length !== 2) return;
+    var el = e.target.closest("video");
+    if (!isTargetVideo(el)) return;
+    pinchEl = el;
+    pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  }, { passive: true });
 
-  document.addEventListener(
-    "touchmove",
-    function (e) {
-      if (e.touches.length !== 2 || !pinchDist) return;
-      var el = e.target.closest("video");
-      if (!el) return;
-      var isScreenShare =
-        el.id === "remote-video" && el.classList.contains("screen-share");
-      var isGcScreenShare = el.closest(".gc-peer-tile.screen-share");
-      if (!isScreenShare && !isGcScreenShare) return;
+  document.addEventListener("touchmove", function (e) {
+    if (e.touches.length !== 2 || !pinchDist || !pinchEl) return;
+    e.preventDefault();
+    var st = _szGetState(pinchEl);
+    var newDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    var ratio = newDist / pinchDist;
+    st.scale = Math.max(ScreenZoom.MIN, Math.min(ScreenZoom.MAX, st.scale * ratio));
+    if (st.scale <= 1) { st.panX = 0; st.panY = 0; }
+    pinchDist = newDist;
+    _szClampPan(pinchEl, st);
+    _szApply(pinchEl);
+  }, { passive: false });
 
-      e.preventDefault();
-      if (!el.id) el.id = "zv-" + Date.now();
-      var st = getState(el);
-      var newDist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY,
-      );
-      var ratio = newDist / pinchDist;
-      st.scale = Math.max(1, Math.min(5, st.scale * ratio));
-      if (st.scale <= 1) {
-        st.panX = 0;
-        st.panY = 0;
-      }
-      pinchDist = newDist;
-      applyTransform(el, st);
-    },
-    { passive: false },
-  );
+  document.addEventListener("touchend", function () { pinchDist = 0; pinchEl = null; });
 
-  document.addEventListener("touchend", function () {
-    pinchDist = 0;
-  });
-
-  // Mouse drag to pan when zoomed
+  // Mouse drag pan
+  var dragEl = null, dragging = false, startX, startY;
   document.addEventListener("mousedown", function (e) {
     var el = e.target.closest("video");
-    if (!el) return;
-    var isScreenShare =
-      el.id === "remote-video" && el.classList.contains("screen-share");
-    var isGcScreenShare = el.closest(".gc-peer-tile.screen-share");
-    if (!isScreenShare && !isGcScreenShare) return;
-    if (!el.id) el.id = "zv-" + Date.now();
-    var st = getState(el);
+    if (!isTargetVideo(el)) return;
+    var st = _szGetState(el);
     if (st.scale <= 1) return;
-    st.dragging = true;
-    st.startX = e.clientX - st.panX;
-    st.startY = e.clientY - st.panY;
+    dragEl = el; dragging = true;
+    startX = e.clientX - st.panX;
+    startY = e.clientY - st.panY;
     e.preventDefault();
   });
-
   document.addEventListener("mousemove", function (e) {
+    if (!dragging || !dragEl) return;
+    var st = _szGetState(dragEl);
+    st.panX = e.clientX - startX;
+    st.panY = e.clientY - startY;
+    _szClampPan(dragEl, st);
+    _szApply(dragEl);
+  });
+  document.addEventListener("mouseup", function () { dragging = false; dragEl = null; });
+
+  // Touch drag pan (1 finger)
+  var touchPanEl = null;
+  document.addEventListener("touchstart", function (e) {
+    if (e.touches.length !== 1) return;
     var el = e.target.closest("video");
-    if (!el || !el.id) return;
-    var st = zoomState[el.id];
-    if (!st || !st.dragging) return;
-    st.panX = e.clientX - st.startX;
-    st.panY = e.clientY - st.startY;
-    applyTransform(el, st);
-  });
+    if (!isTargetVideo(el)) return;
+    var st = _szGetState(el);
+    if (st.scale <= 1) return;
+    touchPanEl = el;
+    st.startX = e.touches[0].clientX - st.panX;
+    st.startY = e.touches[0].clientY - st.panY;
+  }, { passive: true });
+  document.addEventListener("touchmove", function (e) {
+    if (!touchPanEl || e.touches.length !== 1) return;
+    var st = _szGetState(touchPanEl);
+    if (st.scale <= 1) return;
+    e.preventDefault();
+    st.panX = e.touches[0].clientX - st.startX;
+    st.panY = e.touches[0].clientY - st.startY;
+    _szClampPan(touchPanEl, st);
+    _szApply(touchPanEl);
+  }, { passive: false });
+  document.addEventListener("touchend", function () { touchPanEl = null; });
 
-  document.addEventListener("mouseup", function () {
-    Object.keys(zoomState).forEach(function (k) {
-      zoomState[k].dragging = false;
-    });
-  });
-
-  // Double-click to reset zoom
+  // Double-click reset
   document.addEventListener("dblclick", function (e) {
     var el = e.target.closest("video");
-    if (!el) return;
-    var isScreenShare =
-      el.id === "remote-video" && el.classList.contains("screen-share");
-    var isGcScreenShare = el.closest(".gc-peer-tile.screen-share");
-    if (!isScreenShare && !isGcScreenShare) return;
-    resetZoom(el);
+    if (!isTargetVideo(el)) return;
+    szZoomReset(el);
   });
 
-  // Touch pan (single finger when zoomed)
-  var touchPanEl = null;
-  document.addEventListener(
-    "touchstart",
-    function (e) {
-      if (e.touches.length !== 1) return;
-      var el = e.target.closest("video");
-      if (!el) return;
-      var isScreenShare =
-        el.id === "remote-video" && el.classList.contains("screen-share");
-      var isGcScreenShare = el.closest(".gc-peer-tile.screen-share");
-      if (!isScreenShare && !isGcScreenShare) return;
-      if (!el.id) el.id = "zv-" + Date.now();
-      var st = getState(el);
-      if (st.scale <= 1) return;
-      touchPanEl = el;
-      st.startX = e.touches[0].clientX - st.panX;
-      st.startY = e.touches[0].clientY - st.panY;
-    },
-    { passive: true },
-  );
-
-  document.addEventListener(
-    "touchmove",
-    function (e) {
-      if (!touchPanEl || e.touches.length !== 1) return;
-      var st = zoomState[touchPanEl.id];
-      if (!st || st.scale <= 1) return;
-      e.preventDefault();
-      st.panX = e.touches[0].clientX - st.startX;
-      st.panY = e.touches[0].clientY - st.panY;
-      applyTransform(touchPanEl, st);
-    },
-    { passive: false },
-  );
-
-  document.addEventListener("touchend", function () {
-    touchPanEl = null;
-  });
+  // Auto show/hide floating +/- buttons
+  setInterval(function () {
+    _szEnsureControls("ongoing-call");
+    _szEnsureControls("gc-ongoing-call");
+  }, 800);
 })();
 
 // ═══ ANDROID WEBVIEW SCREEN SHARE POLYFILL ═══
@@ -10586,6 +11307,1079 @@ function downloadRecording(chunks, prefix, durationMs) {
     fixWebmDuration(blob, durationMs).then(doDownload);
   } else {
     doDownload(blob);
+  }
+}
+// ═══ GC SPEAKER ═══
+var gcSpeakerOff = false;
+function gcToggleSpeaker() {
+  gcSpeakerOff = !gcSpeakerOff;
+  document.querySelectorAll("#gc-thumb-strip audio").forEach(function (a) {
+    a.muted = gcSpeakerOff;
+  });
+  var remoteAudio = document.getElementById("remote-audio");
+  if (remoteAudio) remoteAudio.muted = gcSpeakerOff;
+
+  ["gc-speaker-btn", "dm-speaker-btn"].forEach(function (id) {
+    var btn = document.getElementById(id);
+    if (!btn) return;
+    btn.classList.toggle("muted", gcSpeakerOff);
+  });
+  toast(gcSpeakerOff ? "Speaker off" : "Speaker on", "s");
+}
+
+// ═══ NOISE CANCELLATION ═══
+var NoiseCancelState = { enabled: true };
+
+function toggleNoiseCancellation() {
+  NoiseCancelState.enabled = !NoiseCancelState.enabled;
+
+  var stream = GC.active ? GC.localStream : CallState.localStream;
+  if (!stream) {
+    updateNoiseCancelBtns();
+    toast(
+      NoiseCancelState.enabled ? "Noise cancel ON" : "Noise cancel OFF",
+      "s",
+    );
+    return;
+  }
+
+  var oldTrack = stream.getAudioTracks()[0];
+  if (!oldTrack) {
+    updateNoiseCancelBtns();
+    return;
+  }
+
+  navigator.mediaDevices
+    .getUserMedia({
+      audio: {
+        echoCancellation: NoiseCancelState.enabled,
+        noiseSuppression: NoiseCancelState.enabled,
+        autoGainControl: NoiseCancelState.enabled,
+      },
+    })
+    .then(function (newStream) {
+      var newTrack = newStream.getAudioTracks()[0];
+      if (!newTrack) return;
+
+      stream.removeTrack(oldTrack);
+      oldTrack.stop();
+      stream.addTrack(newTrack);
+
+      var peers = {};
+      if (GC.active) {
+        peers = GC.peers;
+      } else if (CallState.pc) {
+        peers = { _dm: { pc: CallState.pc } };
+      }
+
+      Object.keys(peers).forEach(function (pid) {
+        var pc = peers[pid] && peers[pid].pc;
+        if (!pc) return;
+        pc.getSenders().forEach(function (s) {
+          if (s.track && s.track.kind === "audio") {
+            s.replaceTrack(newTrack).catch(function (e) {
+              console.warn("replaceTrack error:", e);
+            });
+          }
+        });
+      });
+
+      updateNoiseCancelBtns();
+      toast(
+        NoiseCancelState.enabled
+          ? "Noise cancellation ON"
+          : "Noise cancellation OFF",
+        "s",
+      );
+    })
+    .catch(function (e) {
+      console.error("Noise cancel error:", e);
+      NoiseCancelState.enabled = !NoiseCancelState.enabled; // revert
+      updateNoiseCancelBtns();
+      toast("Could not change audio settings", "e");
+    });
+}
+function restartAudioWithNoiseCancel() {
+  navigator.mediaDevices
+    .getUserMedia({
+      audio: {
+        noiseSuppression: NoiseCancelState.enabled,
+        echoCancellation: NoiseCancelState.enabled,
+        autoGainControl: NoiseCancelState.enabled,
+      },
+    })
+    .then(function (newStream) {
+      var newTrack = newStream.getAudioTracks()[0];
+      var stream = GC.active ? GC.localStream : CallState.localStream;
+      stream.getAudioTracks().forEach(function (t) {
+        t.stop();
+        stream.removeTrack(t);
+      });
+      stream.addTrack(newTrack);
+      // Peer connections mein replace
+      var peers = GC.active
+        ? GC.peers
+        : CallState.pc
+          ? { 0: { pc: CallState.pc } }
+          : {};
+      Object.keys(peers).forEach(function (pid) {
+        var pc = peers[pid].pc;
+        if (!pc) return;
+        pc.getSenders().forEach(function (s) {
+          if (s.track && s.track.kind === "audio") s.replaceTrack(newTrack);
+        });
+      });
+      updateNoiseCancelBtns();
+      toast(
+        NoiseCancelState.enabled
+          ? "Noise cancellation ON"
+          : "Noise cancellation OFF",
+        "s",
+      );
+    })
+    .catch(function () {
+      toast("Could not change noise settings", "e");
+    });
+}
+
+function updateNoiseCancelBtns() {
+  ["gc-noise-btn", "dm-noise-btn"].forEach(function (id) {
+    var btn = document.getElementById(id);
+    if (!btn) return;
+    if (NoiseCancelState.enabled) {
+      btn.classList.remove("muted");
+      btn.title = "Noise cancel ON";
+    } else {
+      btn.classList.add("muted");
+      btn.title = "Noise cancel OFF";
+    }
+  });
+}
+//remote access
+
+// ═══ REMOTE CONTROL ═══
+var RemoteCtrl = {
+  isControlling: false,
+  isBeingControlled: false,
+  controlledBy: null,
+  targetUserId: null,
+  remoteCursorEl: null,
+  videoEl: null,
+};
+
+function requestRemoteControl() {
+  // In group call — target the currently focused peer
+  if (GC.active) {
+    var targetId = null;
+    var targetName = "";
+
+    // Get focused participant (not local, not screen)
+    var focusedId = gcFocusedId;
+    if (focusedId && focusedId !== "local" && focusedId !== "local_screen") {
+      var realId = focusedId.toString().replace("_screen", "");
+      targetId = parseInt(realId);
+      var peer = GC.peers[targetId];
+      targetName = peer ? peer.name || "User" : "User";
+    }
+
+    if (!targetId) {
+      // No focused peer — show picker if multiple peers
+      var peerIds = Object.keys(GC.peers);
+      if (peerIds.length === 0) {
+        toast("No other participants in the call", "e");
+        return;
+      }
+      if (peerIds.length === 1) {
+        targetId = parseInt(peerIds[0]);
+        var peer = GC.peers[targetId];
+        targetName = peer ? peer.name || "User" : "User";
+      } else {
+        // Show a simple picker overlay
+        _showRemoteControlPicker();
+        return;
+      }
+    }
+
+    RemoteCtrl.targetUserId = targetId;
+    var ws = S.globalWs || S.ws;
+    if (ws && ws.readyState === 1) {
+      ws.send(
+        JSON.stringify({
+          type: "remote_control_request",
+          target_user_id: targetId,
+          caller_name: S.user.first_name || S.user.username,
+        }),
+      );
+    }
+    toast("Remote control request sent to " + targetName + "...", "i");
+
+    // Show waiting indicator on group call overlay
+    var overlay = $("gc-ongoing-call");
+    if (overlay) {
+      var old = document.getElementById("rc-wait");
+      if (old) old.remove();
+      var el = document.createElement("div");
+      el.id = "rc-wait";
+      el.style.cssText =
+        "position:absolute;top:16px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;display:flex;align-items:center;gap:10px;z-index:10010;";
+      el.innerHTML =
+        '<i class="fa-solid fa-spinner fa-spin"></i> Waiting for ' +
+        esc(targetName) +
+        '... <button onclick="stopRemoteControl()" style="background:#ef4444;border:none;color:#fff;padding:3px 10px;border-radius:8px;cursor:pointer;">Cancel</button>';
+      overlay.appendChild(el);
+    }
+    return;
+  }
+
+  // 1-on-1 call — original logic
+  if (!CallState.isInCall) {
+    toast("Start a call first", "e");
+    return;
+  }
+  RemoteCtrl.targetUserId = CallState.remoteUserId;
+  var ws = S.globalWs || S.ws;
+  if (ws && ws.readyState === 1) {
+    ws.send(
+      JSON.stringify({
+        type: "remote_control_request",
+        target_user_id: RemoteCtrl.targetUserId,
+        caller_name: S.user.first_name || S.user.username,
+      }),
+    );
+  }
+  toast("Remote control request sent...", "i");
+
+  var overlay = $("ongoing-call");
+  if (!overlay) return;
+  var old = document.getElementById("rc-wait");
+  if (old) old.remove();
+  var el = document.createElement("div");
+  el.id = "rc-wait";
+  el.style.cssText =
+    "position:absolute;top:16px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;display:flex;align-items:center;gap:10px;z-index:10010;";
+  el.innerHTML =
+    '<i class="fa-solid fa-spinner fa-spin"></i> Request sent... <button onclick="stopRemoteControl()" style="background:#ef4444;border:none;color:#fff;padding:3px 10px;border-radius:8px;cursor:pointer;">Cancel</button>';
+  overlay.appendChild(el);
+}
+
+function _showRemoteControlPicker() {
+  var overlay = $("gc-ongoing-call") || $("ongoing-call");
+  if (!overlay) return;
+
+  var old = document.getElementById("rc-picker");
+  if (old) old.remove();
+
+  var html =
+    '<div id="rc-picker" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#1f2937;color:#fff;padding:20px 24px;border-radius:16px;z-index:10010;min-width:240px;box-shadow:0 20px 60px rgba(0,0,0,0.6);">';
+  html +=
+    '<div style="font-size:15px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;">';
+  html += "<span> Choose participant</span>";
+  html +=
+    '<button onclick="document.getElementById(\'rc-picker\').remove()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:18px;"><i class="fa-solid fa-xmark"></i></button>';
+  html += "</div>";
+
+  Object.keys(GC.peers).forEach(function (pid) {
+    var peer = GC.peers[pid];
+    var name = peer ? peer.name || "User" : "User";
+    var pic = peer ? peer.pic || seed(name) : seed("User");
+    html +=
+      '<div onclick="_pickRemoteControlTarget(' +
+      pid +
+      ",'" +
+      esc(name) +
+      '\')" style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background=\'rgba(255,255,255,0.1)\'" onmouseout="this.style.background=\'transparent\'">';
+    html +=
+      '<img src="' +
+      esc(pic) +
+      '" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">';
+    html += '<span style="font-size:14px;">' + esc(name) + "</span>";
+    html += "</div>";
+  });
+
+  html += "</div>";
+  overlay.insertAdjacentHTML("beforeend", html);
+}
+
+function _pickRemoteControlTarget(userId, name) {
+  var picker = document.getElementById("rc-picker");
+  if (picker) picker.remove();
+
+  RemoteCtrl.targetUserId = userId;
+  var ws = S.globalWs || S.ws;
+  if (ws && ws.readyState === 1) {
+    ws.send(
+      JSON.stringify({
+        type: "remote_control_request",
+        target_user_id: userId,
+        caller_name: S.user.first_name || S.user.username,
+      }),
+    );
+  }
+  toast("Remote control request sent to " + name, "i");
+
+  var overlay = $("gc-ongoing-call") || $("ongoing-call");
+  if (overlay) {
+    var el = document.createElement("div");
+    el.id = "rc-wait";
+    el.style.cssText =
+      "position:absolute;top:16px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;display:flex;align-items:center;gap:10px;z-index:10010;";
+    el.innerHTML =
+      '<i class="fa-solid fa-spinner fa-spin"></i> Waiting for ' +
+      esc(name) +
+      '... <button onclick="stopRemoteControl()" style="background:#ef4444;border:none;color:#fff;padding:3px 10px;border-radius:8px;cursor:pointer;">Cancel</button>';
+    overlay.appendChild(el);
+  }
+}
+function handleRemoteControlRequest(data) {
+  var fromName = data.requester_name || "Koi user";
+  var fromId = data.requester_id;
+
+  // Native OS notification — .exe minimized ho ya doosri tab pe ho, tab bhi dikhega
+  if (window.DesktopBridge && window.DesktopBridge.showRCNotification) {
+    window.DesktopBridge.showRCNotification(fromName, fromId);
+  }
+  var overlay = $("ongoing-call") || $("gc-ongoing-call");
+  if (!overlay) {
+    toast(fromName + " asked for remote control", "i");
+    return;
+  }
+  var el = document.createElement("div");
+  el.id = "rc-incoming";
+  el.setAttribute("data-name", fromName);
+  el.setAttribute("data-name", fromName);
+  el.style.cssText =
+    "position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#1f2937;color:#fff;padding:28px 32px;border-radius:20px;text-align:center;z-index:10010;min-width:270px;box-shadow:0 20px 60px rgba(0,0,0,0.6);";
+  el.innerHTML =
+    '<div style="font-size:32px;margin-bottom:10px">🖱️</div>' +
+    '<div style="font-size:15px;font-weight:600;margin-bottom:8px">Remote Control Request</div>' +
+    '<div style="font-size:13px;color:rgba(255,255,255,0.7);margin-bottom:20px"><b>' +
+    esc(fromName) +
+    "</b>They want to control your screen.</div>" +
+    '<div style="display:flex;gap:12px;justify-content:center">' +
+    '<button onclick="rejectRemoteControl(' +
+    fromId +
+    ')" style="background:#ef4444;border:none;color:#fff;padding:10px 22px;border-radius:12px;cursor:pointer;font-size:14px;font-weight:600">❌ Decline</button>' +
+    '<button onclick="acceptRemoteControl(' +
+    fromId +
+    ')" style="background:#22c55e;border:none;color:#fff;padding:10px 22px;border-radius:12px;cursor:pointer;font-size:14px;font-weight:600">✅ Allow</button>' +
+    "</div>";
+  overlay.appendChild(el);
+}
+
+function acceptRemoteControl(fromId) {
+  if (window.DesktopBridge && window.DesktopBridge.cancelRCNotification) {
+    window.DesktopBridge.cancelRCNotification();
+  }
+
+  var el = document.getElementById("rc-incoming");
+
+  
+  RemoteCtrl.controllerName = el ? (el.getAttribute("data-name") || "Controller") : "Controller";
+  if (el) el.remove();
+  RemoteCtrl.isBeingControlled = true;
+  RemoteCtrl.controlledBy = fromId;
+  if (window.DesktopBridge && window.DesktopBridge.startCursorOverlay) {
+    var _mySelfName = (S.user && (S.user.first_name || S.user.username)) || "Me";
+    window.DesktopBridge.startCursorOverlay(RemoteCtrl.controllerName, _mySelfName);
+  }
+  var ws = S.globalWs || S.ws;
+  if (ws && ws.readyState === 1)
+    ws.send(
+      JSON.stringify({ type: "remote_control_accept", target_user_id: fromId }),
+    );
+  // Indicator
+  var overlay = $("ongoing-call") || $("gc-ongoing-call");
+  if (overlay) {
+    var ind = document.createElement("div");
+    ind.id = "rc-indicator";
+    ind.style.cssText =
+      "position:absolute;top:12px;right:80px;background:rgba(239,68,68,0.9);color:#fff;padding:5px 12px;border-radius:16px;font-size:12px;font-weight:600;z-index:10010;display:flex;align-items:center;gap:6px;";
+    ind.innerHTML =
+      '<span style="width:7px;height:7px;background:#fff;border-radius:50%;display:inline-block;"></span> Remote Active <i class="fa-solid fa-xmark" onclick="stopRemoteControl()" style="cursor:pointer;margin-left:4px;"></i>';
+    overlay.appendChild(ind);
+  }
+  toast("Remote control has been allowed!", "s");
+}
+
+function rejectRemoteControl(fromId) {
+  if (window.DesktopBridge && window.DesktopBridge.cancelRCNotification) {
+    window.DesktopBridge.cancelRCNotification();
+  }
+  var el = document.getElementById("rc-incoming");
+  if (el) el.remove();
+  var ws = S.globalWs || S.ws;
+  if (ws && ws.readyState === 1)
+    ws.send(
+      JSON.stringify({ type: "remote_control_reject", target_user_id: fromId }),
+    );
+  toast("Decline kar di", "i");
+}
+
+function handleRemoteControlAccepted(data) {
+  var waitEl = document.getElementById("rc-wait");
+  if (waitEl) waitEl.remove();
+  RemoteCtrl.isControlling = true;
+  if(RemoteCtrl._keepaliveTimer)clearInterval(RemoteCtrl._keepaliveTimer);
+  RemoteCtrl._keepaliveTimer=setInterval(function(){if(!RemoteCtrl.isControlling){clearInterval(RemoteCtrl._keepaliveTimer);return;}var ws=S.globalWs||S.ws;if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:"ping"}));},15000);
+  if (RemoteCtrl._keepaliveTimer) clearInterval(RemoteCtrl._keepaliveTimer);
+  RemoteCtrl._keepaliveTimer = setInterval(function(){
+    if(!RemoteCtrl.isControlling){clearInterval(RemoteCtrl._keepaliveTimer);return;}
+    var ws=S.globalWs||S.ws; if(ws&&ws.readyState===1) ws.send(JSON.stringify({type:"ping"}));
+  }, 15000);
+  enableRCKeyboard();
+
+  function findAndAttach(attempt) {
+    if (attempt > 40) { toast("Remote screen not found","e"); RemoteCtrl.isControlling=false; updateRCButton(); return; }
+    var vid = null;
+    if (RemoteCtrl._pendingVideoEl && RemoteCtrl._pendingVideoEl.srcObject) vid = RemoteCtrl._pendingVideoEl;
+    if (!vid) { var ssv=document.getElementById("remote-screen-video"); if(ssv&&ssv.srcObject) vid=ssv; }
+    if (!vid) { var rv=document.getElementById("remote-video"); if(rv&&rv.srcObject) vid=rv; }
+    if (!vid) { setTimeout(function(){findAndAttach(attempt+1);},500); return; }
+    if (vid.tagName==="VIDEO"&&(!vid.videoWidth||!vid.videoHeight)) {
+      vid.addEventListener("loadedmetadata",function onM(){vid.removeEventListener("loadedmetadata",onM);attachRCToVideo(vid);});
+      setTimeout(function(){if(!RemoteCtrl.videoEl)attachRCToVideo(vid);},2000); return;
+    }
+    attachRCToVideo(vid);
+  }
+
+  findAndAttach(0);
+}
+
+function attachRCToVideo(vid) {
+  if (RemoteCtrl.videoEl && RemoteCtrl.videoEl !== vid) {
+    var old = RemoteCtrl.videoEl;
+    if (old._rcMove) document.removeEventListener("mousemove", old._rcMove);  // <-- fix: document
+    if (old._rcClick) old.removeEventListener("click", old._rcClick);
+    if (old._rcRightClick)
+      old.removeEventListener("contextmenu", old._rcRightClick);
+    if (old._rcScroll) old.removeEventListener("wheel", old._rcScroll);
+    if (old._rcKeydown) document.removeEventListener("keydown", old._rcKeydown);
+    old.style.cursor = "";
+  }
+  RemoteCtrl.videoEl = vid;
+  if (vid.tagName === "VIDEO") { vid.style.display = "block"; vid.play().catch(function(){}); }
+
+  // Hide Tuba's own real cursor while hovering the video. Without this,
+  // her instant local mouse and the video's blue controller badge (which
+  // has natural WebRTC/network latency before it catches up) visually
+  // "race" each other — confusing and distracting. Hiding the local
+  // cursor makes the blue badge the single, unambiguous thing to look at.
+  // (We do NOT recreate a local "_myCur" badge here — see below — since
+  // that duplicated the video's own controller badge and caused the
+  // earlier "2 mice" bug.)
+  vid.style.cursor = "none";
+
+  // NOTE: we intentionally do NOT create a local "_myCur" green badge here
+  // anymore. It used to duplicate the controller badge that's already
+  // baked into the shared video (rendered on the screen-owner's side via
+  // main.js's overlay window) — since both were driven by Tuba's same
+  // real mouse position, they'd visually overlap/appear as "2 mice" right
+  // on top of each other. The video's own blue controller badge is now
+  // the single source of truth for where Tuba is pointing.
+
+  function getVideoContentRect(v) {
+    var r = v.getBoundingClientRect();
+    if (v.tagName !== "VIDEO" || !v.videoWidth || !v.videoHeight) return r;
+    var vAR = v.videoWidth / v.videoHeight, eAR = r.width / r.height, cW, cH, oX, oY;
+    if (vAR > eAR) { cW=r.width; cH=r.width/vAR; oX=0; oY=(r.height-cH)/2; }
+    else { cH=r.height; cW=r.height*vAR; oX=(r.width-cW)/2; oY=0; }
+    var b=10;
+    return {left:r.left+oX+b, top:r.top+oY+b, width:Math.max(1,cW-b*2), height:Math.max(1,cH-b*2)};
+  }
+
+  var throttleTimer = null;
+  vid._rcMove = function (e) {
+  if (!RemoteCtrl.isControlling) return;
+  if (throttleTimer) return;
+  throttleTimer = setTimeout(function(){throttleTimer=null;}, 50);
+  var cr = getVideoContentRect(vid);
+  // sirf jab mouse video ke andar ho tabhi remote command bhejo
+  if (e.clientX >= cr.left && e.clientX <= cr.left+cr.width && e.clientY >= cr.top && e.clientY <= cr.top+cr.height) {
+    sendRCEvent("mousemove",
+      Math.max(0,Math.min(1,(e.clientX-cr.left)/cr.width)),
+      Math.max(0,Math.min(1,(e.clientY-cr.top)/cr.height)));
+  }
+};
+document.addEventListener("mousemove", vid._rcMove);
+  vid._rcClick = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    e.preventDefault(); e.stopPropagation(); vid.focus();
+    var cr = getVideoContentRect(vid);
+    var normX = Math.max(0,Math.min(1,(e.clientX-cr.left)/cr.width));
+    var normY = Math.max(0,Math.min(1,(e.clientY-cr.top)/cr.height));
+
+    sendRCEvent("click", normX, normY);
+
+    // Ripple effect
+    var ripple = document.createElement("div");
+    ripple.style.cssText =
+      "position:fixed;width:20px;height:20px;border:2px solid #3b82f6;" +
+      "border-radius:50%;pointer-events:none;z-index:99999;left:" +
+      (e.clientX - 10) +
+      "px;top:" +
+      (e.clientY - 10) +
+      "px;animation:rcRipple 0.4s ease-out forwards;";
+    document.body.appendChild(ripple);
+    setTimeout(function () {
+      ripple.remove();
+    }, 400);
+  };
+
+  vid._rcRightClick = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    e.preventDefault();
+    var cr = getVideoContentRect(vid);
+    sendRCEvent("rightclick",
+      Math.max(0,Math.min(1,(e.clientX-cr.left)/cr.width)),
+      Math.max(0,Math.min(1,(e.clientY-cr.top)/cr.height)));
+  };
+
+  vid._rcScroll = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    e.preventDefault();
+    sendRCEvent("scroll", 0, 0, {
+      direction: e.deltaY > 0 ? "down" : "up",
+      delta: Math.abs(e.deltaY),
+    });
+  };
+
+  vid._rcKeydown = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    var activeEl = document.activeElement;
+    var activeTag = activeEl ? activeEl.tagName.toLowerCase() : "";
+    // Sirf apna message box block karo, baaki sab allow
+    if (
+      (activeTag === "input" || activeTag === "textarea") &&
+      activeEl !== vid
+    ) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    sendRCEvent("keypress", 0, 0, {
+      key: e.key,
+      code: e.code,
+      ctrl: e.ctrlKey,
+      shift: e.shiftKey,
+      alt: e.altKey,
+    });
+  };
+
+  vid._rcTouchEnd = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    e.preventDefault();
+    e.stopPropagation();
+    vid.focus();
+    var touch = e.changedTouches && e.changedTouches[0];
+    if (!touch) return;
+    var cr = getVideoContentRect(vid);
+    var normX = Math.max(0, Math.min(1, (touch.clientX - cr.left) / cr.width));
+    var normY = Math.max(0, Math.min(1, (touch.clientY - cr.top) / cr.height));
+    sendRCEvent("click", normX, normY);
+    var ripple = document.createElement("div");
+    ripple.style.cssText =
+      "position:fixed;width:20px;height:20px;border:2px solid #3b82f6;" +
+      "border-radius:50%;pointer-events:none;z-index:99999;left:" +
+      (touch.clientX - 10) +
+      "px;top:" +
+      (touch.clientY - 10) +
+      "px;animation:rcRipple 0.4s ease-out forwards;";
+    document.body.appendChild(ripple);
+    setTimeout(function () {
+      ripple.remove();
+    }, 400);
+  };
+
+  vid.addEventListener("mousemove", vid._rcMove);
+  vid.addEventListener("click", vid._rcClick);
+  vid.addEventListener("contextmenu", vid._rcRightClick);
+  vid.addEventListener("wheel", vid._rcScroll, { passive: false });
+
+  document.addEventListener("keydown", vid._rcKeydown);
+  // ── TOUCH SUPPORT (mobile se control karne ke liye) ──
+  var touchLongPressTimer = null;
+  var touchMoved = false;
+
+  vid._rcTouchStart = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    e.preventDefault();
+    if (e.touches.length > 1) return; // doosri ungli = scroll, click/rightclick nahi
+    if (touchLongPressTimer) { clearTimeout(touchLongPressTimer); touchLongPressTimer = null; }
+    touchMoved = false;
+    var t = e.touches[0];
+    var cr = getVideoContentRect(vid);
+    var nx = Math.max(0, Math.min(1, (t.clientX - cr.left) / cr.width));
+    var ny = Math.max(0, Math.min(1, (t.clientY - cr.top) / cr.height));
+    sendRCEvent("mousemove", nx, ny);
+
+    touchLongPressTimer = setTimeout(function () {
+      sendRCEvent("rightclick", nx, ny);
+      touchLongPressTimer = null;
+    }, 500);
+  };
+
+  vid._rcTouchMove = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    e.preventDefault();
+    if (e.touches.length > 1) return; // do ungli = scroll, mouse move nahi
+    touchMoved = true;
+    if (touchLongPressTimer) {
+      clearTimeout(touchLongPressTimer);
+      touchLongPressTimer = null;
+    }
+    var t = e.touches[0];
+    var cr = getVideoContentRect(vid);
+    sendRCEvent(
+      "mousemove",
+      Math.max(0, Math.min(1, (t.clientX - cr.left) / cr.width)),
+      Math.max(0, Math.min(1, (t.clientY - cr.top) / cr.height)),
+    );
+  };
+
+  vid._rcTouchEnd = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    if (touchLongPressTimer) {
+      clearTimeout(touchLongPressTimer);
+      touchLongPressTimer = null;
+    }
+    if (!touchMoved && !vid._rcMulti) {
+      var t = e.changedTouches[0];
+      var cr = getVideoContentRect(vid);
+      sendRCEvent(
+        "click",
+        Math.max(0, Math.min(1, (t.clientX - cr.left) / cr.width)),
+        Math.max(0, Math.min(1, (t.clientY - cr.top) / cr.height)),
+      );
+    }
+    touchMoved = false;
+  };
+
+  vid.addEventListener("touchstart", vid._rcTouchStart, { passive: false });
+  vid.addEventListener("touchmove", vid._rcTouchMove, { passive: false });
+  vid.addEventListener("touchend", vid._rcTouchEnd);
+
+
+  // Two-finger scroll support (smooth)
+  var scrollLastY = null;
+  var scrollAccum = 0;
+  var scrollTimer = null;
+
+  vid._rcTouchStart2 = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    if (e.touches.length === 2) {
+      scrollLastY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      scrollAccum = 0;
+      vid._rcMulti = true;
+      touchMoved = true;
+      if (touchLongPressTimer) {
+        clearTimeout(touchLongPressTimer);
+        touchLongPressTimer = null;
+      }
+    }
+  };
+
+  vid._rcTouchMove2 = function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    if (e.touches.length === 2 && scrollLastY !== null) {
+      e.preventDefault();
+      var y = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      scrollAccum += scrollLastY - y; // positive = neeche scroll
+      scrollLastY = y;
+      if (!scrollTimer) {
+        scrollTimer = setTimeout(function () {
+          scrollTimer = null;
+          // main.js har event par kam az kam 120 scroll karta hai,
+          // isliye chhoti harkat jama hone do, jab kaafi ho tab bhejo
+          if (Math.abs(scrollAccum) < 15) return;
+          sendRCEvent("scroll", 0, 0, {
+            direction: scrollAccum > 0 ? "down" : "up",
+            delta: Math.abs(scrollAccum) * 3,
+          });
+          scrollAccum = 0;
+        }, 50);
+      }
+    }
+  };
+
+  vid._rcTouchEnd2 = function (e) {
+    if (e.touches.length === 0) {
+      scrollLastY = null;
+      scrollAccum = 0;
+      setTimeout(function () { vid._rcMulti = false; }, 150);
+    }
+  };
+
+  vid.addEventListener("touchstart", vid._rcTouchStart2, { passive: false });
+  vid.addEventListener("touchmove", vid._rcTouchMove2, { passive: false });
+  vid.addEventListener("touchend", vid._rcTouchEnd2);
+  vid.setAttribute("tabindex", "0");
+  vid.focus();
+  setTimeout(function () {
+    // Agar user ne meanwhile apna msg-ta ya koi input focus kar liya ho,
+    // to usay disturb mat karo
+    var activeTag = document.activeElement && document.activeElement.tagName;
+    if (activeTag === "INPUT" || activeTag === "TEXTAREA") return;
+    if (document.activeElement !== vid) {
+      document.body.setAttribute("tabindex", "0");
+      document.body.focus();
+    }
+  }, 100);
+
+  var overlay = document.getElementById("ongoing-call");
+  if (overlay) {
+    var existing = document.getElementById("rc-indicator");
+    if (existing) existing.remove();
+    var indicator = document.createElement("div");
+    indicator.id = "rc-indicator";
+    indicator.style.cssText =
+      "position:absolute;top:12px;right:80px;background:rgba(239,68,68,0.9);color:#fff;padding:5px 12px;border-radius:16px;font-size:12px;font-weight:600;z-index:10010;display:flex;align-items:center;gap:6px;";
+    indicator.innerHTML =
+      '<span style="width:7px;height:7px;background:#fff;border-radius:50%;display:inline-block;animation:pulse 1s infinite;"></span> Remote Active <i class="fa-solid fa-xmark" onclick="stopRemoteControl()" style="cursor:pointer;margin-left:6px;"></i>';
+    overlay.appendChild(indicator);
+  }
+    // Keyboard toggle button (mobile ke liye)
+  if (overlay) {
+    var oldKb = document.getElementById("rc-kb-btn");
+    if (oldKb) oldKb.remove();
+    var kbBtn = document.createElement("button");
+    kbBtn.id = "rc-kb-btn";
+    kbBtn.onclick = toggleRCKeyboard;
+    kbBtn.style.cssText =
+      "position:absolute;top:56px;right:16px;width:44px;height:44px;border-radius:50%;" +
+      "background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:18px;z-index:10010;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.4);";
+    kbBtn.innerHTML = '<i class="fa-solid fa-keyboard"></i>';
+    overlay.appendChild(kbBtn);
+  }
+  updateRCButton();
+  toast("Remote control active. Mouse, keyboard and scroll are synced.", "s");
+}
+function handleRemoteControlRejected() {
+  var el = document.getElementById("rc-wait");
+  if (el) el.remove();
+  toast("Remote control request was rejected.", "e");
+}
+
+function handleRemoteControlEvent(data) {
+  // Ignore cursor_sync (removed — not needed)
+  if (data.event === "cursor_sync") return;
+  if (!RemoteCtrl.isBeingControlled) return;
+
+  // ACTUAL PC CONTROL - Desktop app pe robotjs se
+  if (window.DesktopBridge && window.DesktopBridge.sendRCEvent) {
+    DesktopBridge.sendRCEvent(
+      JSON.stringify({
+        event: data.event,
+        x: data.x,
+        y: data.y,
+        remoteScreenW: window.screen.width,
+        remoteScreenH: window.screen.height,
+        key: data.key || "",
+        code: data.code || "",
+        ctrl: data.ctrl || false,
+        shift: data.shift || false,
+        alt: data.alt || false,
+        meta: data.meta || false,
+        direction: data.direction || "down",
+        delta: data.delta || 0,
+      }),
+    );
+  } else if (window.AndroidBridge && window.AndroidBridge.sendRCEvent) {
+    // Android APK - AccessibilityService se taps/swipes inject honge
+    AndroidBridge.sendRCEvent(
+      JSON.stringify({
+        event: data.event,
+        x: data.x,
+        y: data.y,
+        direction: data.direction || "down",
+        delta: data.delta || 0,
+        key: data.key || "",
+      }),
+    );
+  }
+}
+
+function stopRemoteControl() {
+  var ws = S.globalWs || S.ws;
+  var tid = RemoteCtrl.targetUserId || RemoteCtrl.controlledBy;
+  if (ws && ws.readyState === 1 && tid)
+    ws.send(
+      JSON.stringify({ type: "remote_control_stop", target_user_id: tid }),
+    );
+  cleanupRC();
+  toast("Remote control has been closed", "i");
+}
+
+function handleRemoteControlStopped() {
+  cleanupRC();
+  toast("Remote control session Ended", "i");
+}
+
+function cleanupRC() {
+  if (window.DesktopBridge && window.DesktopBridge.stopCursorOverlay) {
+    window.DesktopBridge.stopCursorOverlay();
+  }
+  const el = RemoteCtrl.videoEl;
+  if (el) {
+    if (el._rcMove) document.removeEventListener("mousemove", el._rcMove); // fix: document
+    if (el._rcClick) el.removeEventListener("click", el._rcClick);
+    if (el._rcRightClick) el.removeEventListener("contextmenu", el._rcRightClick); // ADD THIS
+    if (el._rcKeydown) document.removeEventListener("keydown", el._rcKeydown);
+    if (el._rcScroll) el.removeEventListener("wheel", el._rcScroll);
+    if (el._rcTouchEnd) el.removeEventListener("touchend", el._rcTouchEnd);
+        if (el._rcTouchStart) el.removeEventListener("touchstart", el._rcTouchStart);
+    if (el._rcTouchMove) el.removeEventListener("touchmove", el._rcTouchMove);
+    if (el._rcTouchEnd) el.removeEventListener("touchend", el._rcTouchEnd);
+    if (el._rcTouchStart2) el.removeEventListener("touchstart", el._rcTouchStart2);
+    if (el._rcTouchMove2) el.removeEventListener("touchmove", el._rcTouchMove2);
+    if (el._rcTouchEnd2) el.removeEventListener("touchend", el._rcTouchEnd2);
+    el.style.cursor = "";
+    RemoteCtrl.videoEl = null;
+  }
+
+  // Use a more generic selector or loop to ensure clean state
+  const ids = ["rc-wait", "rc-incoming", "rc-indicator", "rc-cursor", "rc-my-cursor", "rc-kb-btn", "rc-kb-input"];
+  ids.forEach((id) => {
+    const node = document.getElementById(id);
+    if (node) node.remove();
+  });
+
+  // Reset all state flags
+  Object.assign(RemoteCtrl, {
+    isControlling: false,
+    isBeingControlled: false,
+    targetUserId: null,
+    controlledBy: null,
+  });
+
+  updateRCButton();
+}
+function sendRCEvent(ev, x, y, extra) {
+  var ws = S.globalWs || S.ws;
+  if (ws && ws.readyState === 1)
+    ws.send(
+      JSON.stringify(
+        Object.assign(
+          {
+            type: "remote_control_event",
+            target_user_id: RemoteCtrl.targetUserId,
+            event: ev,
+            x: x,
+            y: y,
+            // Apni screen ka size bhi bhejo
+            myScreenW: window.screen.width,
+            myScreenH: window.screen.height,
+          },
+          extra || {},
+        ),
+      ),
+    );
+}
+
+// ─── RC Keyboard Control ───────────────────────────────────────
+var _rcKeyHandler = null;
+
+function enableRCKeyboard() {
+  if (_rcKeyHandler) return; // already attached
+  _rcKeyHandler = function (e) {
+    // Local input fields mein type karte waqt ignore karo
+    var tag = document.activeElement && document.activeElement.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+    sendRCEvent("keypress", 0, 0, {
+      key: e.key,
+      ctrl: e.ctrlKey,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      meta: e.metaKey,
+    });
+
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  document.addEventListener("keydown", _rcKeyHandler, true);
+}
+
+function disableRCKeyboard() {
+  if (_rcKeyHandler) {
+    document.removeEventListener("keydown", _rcKeyHandler, true);
+    _rcKeyHandler = null;
+  }
+}
+
+
+// ─── GC Health Check ──────────────────────────
+var _gcHealthTimer = null;
+function gcStartHealthCheck() {
+  if (_gcHealthTimer) clearInterval(_gcHealthTimer);
+  _gcHealthTimer = setInterval(function () {
+    if (!GC.active) { clearInterval(_gcHealthTimer); _gcHealthTimer = null; return; }
+    Object.keys(GC.peers).forEach(function (pid) {
+      var peer = GC.peers[pid];
+      if (!peer || !peer.pc) return;
+      if (peer.pc.connectionState === "failed" || peer.pc.connectionState === "closed") {
+        try { peer.pc.close(); } catch(e) {}
+        createGroupPeer(parseInt(pid), peer.name, peer.pic, true);
+      }
+    });
+  }, 10000);
+}
+function gcStopHealthCheck() { if (_gcHealthTimer) { clearInterval(_gcHealthTimer); _gcHealthTimer = null; } }
+
+// ─── Pin/Unpin + Draggable (1:1 + GC) ─────────
+var _ctrlBarPinned=true,_ctrlHideTimer=null,_ctrlHoverZone=null,_ctrlDragging=false,_ctrlDragOffset={x:0,y:0};
+function toggleCallBarPin(){
+  _ctrlBarPinned=!_ctrlBarPinned;
+  var overlay=document.getElementById("ongoing-call")||document.getElementById("gc-ongoing-call");
+  var c=overlay&&overlay.querySelector(".call-controls");
+  var p=document.getElementById("pin-btn");
+  if(!c)return;
+  if(_ctrlBarPinned){c.classList.remove("ctrl-unpinned","ctrl-show");if(overlay)overlay.classList.remove("ctrl-bar-unpinned");if(p){p.classList.add("pinned");p.title="Unpin";}
+    _removeCtrlHZ();c.style.left="50%";c.style.top="";c.style.bottom="48px";c.style.transform="translateX(-50%)";}
+  else{c.classList.add("ctrl-unpinned");c.classList.remove("ctrl-show");if(overlay)overlay.classList.add("ctrl-bar-unpinned");if(p){p.classList.remove("pinned");p.title="Pin";}
+    _createCtrlHZ(overlay,c);}
+}
+function _createCtrlHZ(o,c){if(_ctrlHoverZone)return;if(!o||!c)return;_ctrlHoverZone=document.createElement("div");_ctrlHoverZone.className="ctrl-hover-zone";
+  _ctrlHoverZone.addEventListener("mouseenter",function(){c.classList.add("ctrl-show");if(_ctrlHideTimer)clearTimeout(_ctrlHideTimer);});
+  _ctrlHoverZone.addEventListener("mouseleave",function(){_schH(c);});o.appendChild(_ctrlHoverZone);
+  c.addEventListener("mouseenter",function(){if(_ctrlHideTimer)clearTimeout(_ctrlHideTimer);});
+  c.addEventListener("mouseleave",function(){if(!_ctrlBarPinned)_schH(c);});}
+function _removeCtrlHZ(){if(_ctrlHoverZone){_ctrlHoverZone.remove();_ctrlHoverZone=null;}if(_ctrlHideTimer){clearTimeout(_ctrlHideTimer);_ctrlHideTimer=null;}}
+function _schH(c){if(_ctrlHideTimer)clearTimeout(_ctrlHideTimer);_ctrlHideTimer=setTimeout(function(){if(!_ctrlBarPinned)c.classList.remove("ctrl-show");},2000);}
+function resetCallBarPin(){_ctrlBarPinned=true;_ctrlDragging=false;_removeCtrlHZ();
+  ["ongoing-call","gc-ongoing-call"].forEach(function(id){var o=document.getElementById(id);if(o){o.classList.remove("ctrl-bar-unpinned");var c=o.querySelector(".call-controls");if(c){c.classList.remove("ctrl-unpinned","ctrl-show");c.style.left="50%";c.style.top="";c.style.bottom="48px";c.style.transform="translateX(-50%)";}}});}
+function initDraggableControls(overlayId){
+  var o=document.getElementById(overlayId||"ongoing-call");var c=o&&o.querySelector(".call-controls");
+  if(!c||c._dragInit)return;c._dragInit=true;
+  c.addEventListener("mousedown",function(e){if(e.target.closest(".ctrl-btn")||e.target.closest("button"))return;_ctrlDragging=true;var r=c.getBoundingClientRect();_ctrlDragOffset.x=e.clientX-r.left;_ctrlDragOffset.y=e.clientY-r.top;c.style.transition="none";c.style.cursor="grabbing";e.preventDefault();});
+  document.addEventListener("mousemove",function(e){if(!_ctrlDragging)return;c.style.left=Math.max(0,Math.min(window.innerWidth-200,e.clientX-_ctrlDragOffset.x))+"px";c.style.top=Math.max(0,Math.min(window.innerHeight-80,e.clientY-_ctrlDragOffset.y))+"px";c.style.bottom="auto";c.style.transform="none";});
+  document.addEventListener("mouseup",function(){if(_ctrlDragging){_ctrlDragging=false;c.style.transition="";c.style.cursor="";}});}
+// RC button only on Electron
+function updateRCButton() {
+  var btn = document.getElementById("rc-btn");
+  if (!btn) return;
+  btn.style.background = RemoteCtrl.isControlling
+    ? "rgba(34,197,94,0.4)"
+    : "rgba(255,255,255,0.15)";
+  btn.title = RemoteCtrl.isControlling
+    ? "Remote Control Active — Click to stop"
+    : "Request Remote Control";
+}
+
+function showRCButton() {
+  var btn = document.getElementById("rc-btn");
+  if (btn) btn.style.display = "";
+}
+
+function hideRCButton() {
+  var btn = document.getElementById("rc-btn");
+  if (btn) btn.style.display = "none";
+  // Agar control chal raha tha to band karo
+  if (RemoteCtrl.isControlling) {
+    stopRemoteControl();
+  }
+}
+function keepAudioContextAlive() {
+  try {
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    gain.gain.value = 0; // completely silent
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    console.log("Audio context alive");
+  } catch (e) {
+    console.log("Audio keepalive skip:", e);
+  }
+}
+
+// Native RC notification button actions (Allow/Decline from OS notification)
+if (window.DesktopBridge && window.DesktopBridge.onRCNotificationAction) {
+  window.DesktopBridge.onRCNotificationAction(function (data) {
+    if (data.action === "accept") {
+      acceptRemoteControl(data.requesterId);
+    } else {
+      rejectRemoteControl(data.requesterId);
+    }
+  });
+}
+
+// ─── Mobile virtual keyboard support for Remote Control ───
+var RCKeyboard = { input: null, visible: false };
+
+function ensureRCKeyboardInput() {
+  if (RCKeyboard.input) return RCKeyboard.input;
+  var inp = document.createElement("input");
+  inp.type = "text";
+  inp.id = "rc-kb-input";
+  inp.autocomplete = "off";
+  inp.autocapitalize = "off";
+  inp.spellcheck = false;
+  inp.style.cssText =
+    "position:fixed;bottom:-100px;left:50%;transform:translateX(-50%);width:80%;max-width:300px;height:40px;opacity:0.01;z-index:99998;border:none;font-size:16px;";
+  document.body.appendChild(inp);
+
+  inp.addEventListener("keydown", function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    var k = e.key;
+    if (k === "Unidentified" || k === "Process") return; // let input-event fallback handle it
+    sendRCEvent("keypress", 0, 0, {
+      key: k,
+      code: e.code || "",
+      ctrl: e.ctrlKey,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      meta: e.metaKey,
+    });
+    if (k.length === 1 || k === "Backspace" || k === "Enter" || k === " ") {
+      e.preventDefault();
+    }
+  });
+
+  // Fallback — kuch mobile keyboards keydown mein asal key nahi dete,
+  // is case mein 'input' event se character nikaalte hain.
+  inp.addEventListener("input", function (e) {
+    if (!RemoteCtrl.isControlling) return;
+    var it = e.inputType || "";
+    if (it === "insertText" && e.data) {
+      for (var i = 0; i < e.data.length; i++) {
+        sendRCEvent("keypress", 0, 0, { key: e.data[i] });
+      }
+    } else if (it === "insertLineBreak") {
+      sendRCEvent("keypress", 0, 0, { key: "Enter" });
+    } else if (
+      it === "deleteContentBackward" ||
+      it === "deleteContentForward"
+    ) {
+      sendRCEvent("keypress", 0, 0, { key: "Backspace" });
+    }
+    inp.value = "";
+  });
+
+  RCKeyboard.input = inp;
+  return inp;
+}
+
+function toggleRCKeyboard() {
+  if (!RemoteCtrl.isControlling) {
+    toast("Remote control active nahi hai", "e");
+    return;
+  }
+  var inp = ensureRCKeyboardInput();
+  RCKeyboard.visible = !RCKeyboard.visible;
+  if (RCKeyboard.visible) {
+    inp.style.bottom = "10px";
+    inp.value = "";
+    inp.focus();
+  } else {
+    inp.blur();
+    inp.style.bottom = "-100px";
+  }
+  var btn = document.getElementById("rc-kb-btn");
+  if (btn) {
+    btn.style.background = RCKeyboard.visible
+      ? "rgba(59,130,246,0.9)"
+      : "rgba(255,255,255,0.15)";
   }
 }
 

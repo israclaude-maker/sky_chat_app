@@ -1315,6 +1315,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             gc.status = "ended"
             gc.ended_at = djtz.now()
             gc.save()
+
+            # Meeting summary generate karo
+            from calls.views import generate_meeting_summary
+            generate_meeting_summary(group_call=gc)
         except GroupCall.DoesNotExist:
             pass
 
@@ -1556,12 +1560,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
             call = Call.objects.get(id=call_id)
             call.status = "completed"
             call.ended_at = djtz.now()
-            # Use client duration if provided, otherwise calculate from started_at
             if duration and duration > 0:
                 call.duration = duration
             elif call.started_at:
                 call.duration = int((call.ended_at - call.started_at).total_seconds())
             call.save()
+
+            # Meeting summary generate karo (agar transcript fragments hain)
+            from calls.views import generate_meeting_summary
+            generate_meeting_summary(call=call)
         except Call.DoesNotExist:
             pass
 

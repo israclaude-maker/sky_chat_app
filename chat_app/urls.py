@@ -67,6 +67,7 @@ urlpatterns = [
     path("api/auth/", include("accounts.urls")),
     path("api/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/call_history/", call_history, name="call_history"),
+    path("api/calls/", include("calls.urls")),   # <-- yeh naya add karein
     path("api/remote/action/", remote_control_action),
     path("api/remote/screen-size/", get_screen_size),
 ]

@@ -4733,7 +4733,95 @@ var CallState = {
 // ═══════════════════════════════════════════════════════════════
 // CAMERA EFFECTS (Background Blur / Virtual Background)
 // ═══════════════════════════════════════════════════════════════
+//summarize meeting points modoule
+// ═══ MEETING TRANSCRIPT (Claude AI Summary) ═══
+var TranscriptState = {
+  recognition: null,
+  fullText: "",
+  active: false,
+};
 
+function startTranscriptCapture() {
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    console.warn("Speech recognition not supported in this browser.");
+    return;
+  }
+
+  TranscriptState.fullText = "";
+  TranscriptState.active = true;
+
+  var recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = false;
+  recognition.lang = "en-US";
+
+  recognition.onresult = function (event) {
+    for (var i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) {
+        TranscriptState.fullText += event.results[i][0].transcript + " ";
+      }
+    }
+  };
+
+  recognition.onerror = function (e) {
+    console.warn("Speech recognition error:", e.error);
+  };
+
+  recognition.onend = function () {
+    if (TranscriptState.active) {
+      try {
+        recognition.start();
+      } catch (e) {}
+    }
+  };
+
+  try {
+    recognition.start();
+    TranscriptState.recognition = recognition;
+  } catch (e) {
+    console.warn("Could not start speech recognition:", e);
+  }
+}
+
+function stopAndSendTranscript(callId, groupCallId) {
+  TranscriptState.active = false;
+
+  if (TranscriptState.recognition) {
+    try {
+      TranscriptState.recognition.stop();
+    } catch (e) {}
+    TranscriptState.recognition = null;
+  }
+
+  var text = TranscriptState.fullText.trim();
+  TranscriptState.fullText = "";
+
+  if (!text) return;
+
+  var body = { text: text };
+  if (callId) body.call_id = callId;
+  if (groupCallId) body.group_call_id = groupCallId;
+
+  fetch("/api/calls/save-transcript-fragment/", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + S.token,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  })
+    .then(function (r) {
+      return r.json();
+    })
+    .then(function (data) {
+      console.log("Transcript fragment saved:", data);
+    })
+    .catch(function (err) {
+      console.warn("Failed to save transcript fragment:", err);
+    });
+}
+//end summarize meeting points modoule 
 var CamFx = {
   active: false,
   mode: "none", // 'none','blur-light','blur-heavy','bg-beach','bg-mountain','bg-city','bg-space','bg-sunset','bg-forest','bg-custom'
@@ -5919,6 +6007,7 @@ function endCall() {
 function _doEndCall() {
   stopAllRingtones();
   if (CallRec.isRecording) stopCallRecord();
+  stopAndSendTranscript(CallState.callId, null);
 
   // Calculate duration in seconds
   var duration = 0;
@@ -5989,6 +6078,7 @@ function handleCallRejected(data) {
 function handleCallEnded(data) {
   stopAllRingtones();
   if (CallRec.isRecording) stopCallRecord();
+  stopAndSendTranscript(CallState.callId, null);
   if (window.AndroidBridge) AndroidBridge.cancelCallNotification();
   if (window.DesktopBridge) DesktopBridge.cancelCallNotification();
   hideAllCallOverlays();
@@ -6242,6 +6332,7 @@ if (remoteScreenVideo && CallState.remoteScreenStream) {
   }
 }
 function showOngoingCall() {
+  startTranscriptCapture();
   if (window.AndroidBridge && AndroidBridge.showOngoingCallNotification) {
     try {
       AndroidBridge.showOngoingCallNotification(
@@ -7806,6 +7897,7 @@ function handleGroupCallEnded(data) {
     ((data.group_call_id && data.group_call_id === GC.groupCallId) ||
       (data.group_id && data.group_id === GC.groupId));
   if (wasMyActiveCall) {
+    stopAndSendTranscript(null, GC.groupCallId);
     cleanupGroupCall();
     hideAllCallOverlays();
     toast("Call ended", "i");
@@ -9202,6 +9294,7 @@ function refreshDualScreenView() {
 }
 
 function showGroupCallUI() {
+  startTranscriptCapture();
   hideAllCallOverlays();
   gcFocusedId = "local";
 
@@ -9320,6 +9413,7 @@ function updateGcWaiting() {
 function leaveGroupCall() {
   if (!GC.active) return;
   if (CallRec.isRecording) stopCallRecord();
+  stopAndSendTranscript(null, GC.groupCallId);
 
   // Save call info BEFORE cleanup so we can restore the banner
   var savedGroupCallId = GC.groupCallId;

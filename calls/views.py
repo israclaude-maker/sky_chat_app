@@ -3,6 +3,11 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import Call, GroupCall, GroupCallParticipant
+import os
+import json
+import anthropic
+from django.conf import settings
+from .models import Call, GroupCall, GroupCallParticipant, TranscriptFragment, MeetingSummary
 
 
 @api_view(['GET'])
@@ -78,3 +83,90 @@ def call_history(request):
     # Sort combined by created_at descending
     results.sort(key=lambda x: x['created_at'], reverse=True)
     return Response(results[:50])
+
+client = anthropic.Anthropic(api_key=settings.CLAUDE_API_KEY)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def save_transcript_fragment(request):
+    """Ek user ka transcript fragment save karta hai (jo usne khud bola)."""
+    text = (request.data.get("text") or "").strip()
+    call_id = request.data.get("call_id")
+    group_call_id = request.data.get("group_call_id")
+
+    if not text:
+        return Response({"status": "skipped", "reason": "empty text"})
+
+    call_obj = Call.objects.filter(id=call_id).first() if call_id else None
+    group_call_obj = GroupCall.objects.filter(id=group_call_id).first() if group_call_id else None
+
+    if not call_obj and not group_call_obj:
+        return Response({"error": "call_id or group_call_id required"}, status=400)
+
+    TranscriptFragment.objects.create(
+        call=call_obj,
+        group_call=group_call_obj,
+        user=request.user,
+        text=text,
+    )
+
+    return Response({"status": "saved"})
+
+
+def generate_meeting_summary(call=None, group_call=None):
+    """
+    Sab TranscriptFragments ko time-order mein merge karke Claude ko bhejta hai,
+    aur MeetingSummary save karta hai. call ya group_call mein se koi ek dena zaroori hai.
+    """
+    if call:
+        fragments = TranscriptFragment.objects.filter(call=call).select_related("user").order_by("created_at")
+    elif group_call:
+        fragments = TranscriptFragment.objects.filter(group_call=group_call).select_related("user").order_by("created_at")
+    else:
+        return None
+
+    if not fragments.exists():
+        return None
+
+    # Speaker name ke sath merge karna
+    lines = []
+    for f in fragments:
+        speaker = f.user.first_name or f.user.username
+        lines.append(f"{speaker}: {f.text}")
+    merged_transcript = "\n".join(lines)
+
+    prompt = f"""Yeh ek meeting/call ka transcript hai, jisme har line ke shuru mein speaker ka naam hai. Isse analyze karke sirf valid JSON return karein, koi extra text nahi, format:
+
+{{
+  "summary": "2-3 line ka short summary",
+  "key_points": ["point 1", "point 2"],
+  "action_items": ["action 1", "action 2"]
+}}
+
+Transcript:
+{merged_transcript}
+"""
+
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw_reply = message.content[0].text.strip()
+        raw_reply = raw_reply.replace("```json", "").replace("```", "").strip()
+        parsed = json.loads(raw_reply)
+    except Exception as e:
+        print(f"[MeetingSummary] Claude API error: {e}")
+        parsed = {"summary": "", "key_points": [], "action_items": []}
+
+    meeting = MeetingSummary.objects.create(
+        call=call,
+        group_call=group_call,
+        raw_transcript=merged_transcript,
+        summary=parsed.get("summary", ""),
+        key_points=parsed.get("key_points", []),
+        action_items=parsed.get("action_items", []),
+    )
+    return meeting
