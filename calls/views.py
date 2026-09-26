@@ -90,29 +90,35 @@ client = anthropic.Anthropic(api_key=settings.CLAUDE_API_KEY)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def save_transcript_fragment(request):
-    """Ek user ka transcript fragment save karta hai (jo usne khud bola)."""
     text = (request.data.get("text") or "").strip()
     call_id = request.data.get("call_id")
     group_call_id = request.data.get("group_call_id")
 
+    print(f"[TRANSCRIPT] Received: call_id={call_id}, group_call_id={group_call_id}, text_len={len(text)}")
+
     if not text:
+        print("[TRANSCRIPT] Empty text, skipping")
         return Response({"status": "skipped", "reason": "empty text"})
 
     call_obj = Call.objects.filter(id=call_id).first() if call_id else None
     group_call_obj = GroupCall.objects.filter(id=group_call_id).first() if group_call_id else None
 
+    print(f"[TRANSCRIPT] call_obj={call_obj}, group_call_obj={group_call_obj}")
+
     if not call_obj and not group_call_obj:
+        print("[TRANSCRIPT] Neither call nor group_call found — returning 400")
         return Response({"error": "call_id or group_call_id required"}, status=400)
 
-    TranscriptFragment.objects.create(
+    fragment = TranscriptFragment.objects.create(
         call=call_obj,
         group_call=group_call_obj,
         user=request.user,
         text=text,
     )
 
-    return Response({"status": "saved"})
+    print(f"[TRANSCRIPT] Saved fragment id={fragment.id}")
 
+    return Response({"status": "saved"})
 
 def generate_meeting_summary(call=None, group_call=None):
     """

@@ -4754,11 +4754,12 @@ function startTranscriptCapture() {
   var recognition = new SpeechRecognition();
   recognition.continuous = true;
   recognition.interimResults = false;
-  recognition.lang = "en-US";
+    recognition.lang = "ur-PK";
 
   recognition.onresult = function (event) {
     for (var i = event.resultIndex; i < event.results.length; i++) {
       if (event.results[i].isFinal) {
+        console.log("[SPEECH] captured:", event.results[i][0].transcript); // temp debug
         TranscriptState.fullText += event.results[i][0].transcript + " ";
       }
     }
