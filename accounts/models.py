@@ -51,3 +51,26 @@ class FCMDevice(models.Model):
         return (
             f"{self.user.username} - {self.device_type} - {self.registration_id[:30]}"
         )
+
+class LoginLog(models.Model):
+    PLATFORM_CHOICES = [
+        ("android", "Android APK"),
+        ("electron", "PC (Electron)"),
+        ("web", "Web Browser"),
+        ("unknown", "Unknown"),
+    ]
+    user = models.ForeignKey(
+        CustomUser, on_delete=models.CASCADE, related_name="login_logs"
+    )
+    platform = models.CharField(
+        max_length=20, choices=PLATFORM_CHOICES, default="unknown"
+    )
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    logged_in_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-logged_in_at"]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.platform} - {self.logged_in_at}"

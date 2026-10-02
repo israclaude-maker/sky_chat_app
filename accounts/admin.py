@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from accounts.models import CustomUser
+from accounts.models import CustomUser, LoginLog
 
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
@@ -12,3 +12,9 @@ class CustomUserAdmin(UserAdmin):
     fieldsets = UserAdmin.fieldsets + (
         ('Profile Info', {'fields': ('is_online', 'last_seen', 'profile_picture')}),
     )
+
+@admin.register(LoginLog)
+class LoginLogAdmin(admin.ModelAdmin):
+    list_display = ('user', 'platform', 'ip_address', 'logged_in_at')
+    list_filter = ('platform',)
+    search_fields = ('user__username',)

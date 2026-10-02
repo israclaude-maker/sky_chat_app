@@ -9,7 +9,8 @@ from django.db.models import Q
 from django.utils import timezone
 from datetime import timedelta
 
-from accounts.models import CustomUser, PushSubscription, FCMDevice
+from accounts.models import CustomUser, PushSubscription, FCMDevice, LoginLog
+from accounts.utils import detect_platform, get_client_ip
 from accounts.serializers import UserSerializer, RegisterSerializer, LoginSerializer
 from chat.models import (
     Conversation,
@@ -149,6 +150,12 @@ class UserViewSet(viewsets.ModelViewSet):
 
             if user is not None:
                 refresh = RefreshToken.for_user(user)
+                LoginLog.objects.create(
+                    user=user,
+                    platform=detect_platform(request),
+                    ip_address=get_client_ip(request),
+                    user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                )
                 return Response(
                     {
                         "user": UserSerializer(user).data,
@@ -305,7 +312,7 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(
         detail=False,
         methods=["get"],
-        url_path="messages/(?P<user_id>\d+)",
+        url_path=r"messages/(?P<user_id>\d+)",
         permission_classes=[IsAuthenticated],
     )
     def get_messages(self, request, user_id=None):
@@ -1528,7 +1535,7 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(
         detail=False,
         methods=["delete"],
-        url_path="messages/(?P<message_id>\d+)/unreact",
+        url_path=r"messages/(?P<message_id>\d+)/unreact",
         permission_classes=[IsAuthenticated],
     )
     def remove_reaction(self, request, message_id=None):
@@ -1545,7 +1552,7 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(
         detail=False,
         methods=["post"],
-        url_path="messages/(?P<message_id>\d+)/read",
+        url_path=r"messages/(?P<message_id>\d+)/read",
         permission_classes=[IsAuthenticated],
     )
     def mark_message_read(self, request, message_id=None):
@@ -1666,7 +1673,7 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(
         detail=False,
         methods=["get"],
-        url_path="messages/(?P<message_id>\d+)/info",
+        url_path=r"messages/(?P<message_id>\d+)/info",
         permission_classes=[IsAuthenticated],
     )
     def message_info(self, request, message_id=None):
