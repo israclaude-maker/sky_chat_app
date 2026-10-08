@@ -20,3 +20,17 @@ class CallAdmin(admin.ModelAdmin):
         return f"{sec}s"
     formatted_duration.short_description = 'Duration'
     formatted_duration.admin_order_field = 'duration'
+
+
+from django.contrib import admin as _admin
+from .models import TranscriptFragment, MeetingSummary
+
+
+@_admin.register(TranscriptFragment)
+class TranscriptFragmentAdmin(_admin.ModelAdmin):
+    list_display = ("id", "user", "call", "group_call", "text")
+
+
+@_admin.register(MeetingSummary)
+class MeetingSummaryAdmin(_admin.ModelAdmin):
+    list_display = ("id", "call", "group_call", "summary")
