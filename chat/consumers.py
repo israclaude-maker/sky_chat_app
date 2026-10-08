@@ -1,3 +1,4 @@
+import asyncio
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
@@ -17,6 +18,49 @@ User = get_user_model()
 # user_id -> set of channel_names. Ek user ke kai sockets hote hain
 # (global signaling socket + per-chat socket), isliye set.
 connected_users = {}
+
+_summary_tasks = set()
+_summary_scheduled = set()
+
+
+def _make_summary_sync(call_id=None, group_call_id=None):
+    from calls.models import MeetingSummary
+    from calls.views import generate_meeting_summary
+
+    if call_id:
+        call = Call.objects.filter(id=call_id).first()
+        if call and not MeetingSummary.objects.filter(call=call).exists():
+            generate_meeting_summary(call=call)
+    elif group_call_id:
+        gc = GroupCall.objects.filter(id=group_call_id).first()
+        if gc and not MeetingSummary.objects.filter(group_call=gc).exists():
+            generate_meeting_summary(group_call=gc)
+
+
+async def _delayed_summary(call_id, group_call_id, delay):
+    key = ("c", call_id) if call_id else ("g", group_call_id)
+    try:
+        await asyncio.sleep(delay)
+        await database_sync_to_async(_make_summary_sync, thread_sensitive=False)(
+            call_id, group_call_id
+        )
+    except Exception as e:
+        print(f"[MeetingSummary] auto-trigger error: {e}")
+    finally:
+        _summary_scheduled.discard(key)
+
+
+def schedule_summary(call_id=None, group_call_id=None, delay=10):
+    if not call_id and not group_call_id:
+        return
+    key = ("c", call_id) if call_id else ("g", group_call_id)
+    if key in _summary_scheduled:
+        return
+    _summary_scheduled.add(key)
+    task = asyncio.create_task(_delayed_summary(call_id, group_call_id, delay))
+    _summary_tasks.add(task)
+    task.add_done_callback(_summary_tasks.discard)
+
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -539,6 +583,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         duration = data.get("duration", 0)
 
         await self.end_call(call_id, duration)
+        schedule_summary(call_id=call_id)
 
         # Notify the other party via WebSocket
         await self.channel_layer.group_send(
