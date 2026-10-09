@@ -71,7 +71,7 @@ class GroupCall(models.Model):
         ordering = ["-started_at"]
 
     def __str__(self):
-        return f"GroupCall {self.id} in {self.group.name} ({self.call_type})"
+        return f"GroupCall {self.id} in {self.group.name if self.group else 'deleted group'} ({self.call_type})"
 
 
 class GroupCallParticipant(models.Model):
