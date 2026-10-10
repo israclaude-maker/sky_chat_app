@@ -902,6 +902,8 @@ function connectGlobalWS() {
         handleScreenOffer(data);
       } else if (data.type === "screen_answer") {
         handleScreenAnswer(data);
+      } else if (data.type === "transcript_toggle") {
+        handleTranscriptToggle(data);
       } else if (data.type === "screen_toggle") {
         handleScreenToggle(data);
       }
@@ -8097,6 +8099,7 @@ function handleGroupCallUserJoined(data) {
     data.user_name,
   );
   createGroupPeer(data.user_id, data.user_name, data.user_pic, true);
+  transcriptSyncToPeer(data.user_id);
   updateGroupCallParticipantCount();
 }
 
@@ -12478,65 +12481,138 @@ function toggleRCKeyboard() {
   }
 }
 
-// ??? TRANSCRIPT TOGGLE (button se on/off, default OFF) ???
+// === TRANSCRIPT (shared on/off - sab participants ko notify) ===
 TranscriptState.enabled = false;
+TranscriptState.startedBy = "";
+
+function _tcInjectStyle() {
+  if (document.getElementById("tc-style")) return;
+  var s = document.createElement("style");
+  s.id = "tc-style";
+  s.textContent =
+    ".tc-side-btn{position:absolute;right:16px;top:50%;transform:translateY(-50%);width:58px;padding:10px 0;border:none;border-radius:18px;background:rgba(255,255,255,0.16);color:#fff;display:flex;flex-direction:column;align-items:center;gap:5px;font-size:10px;font-weight:600;cursor:pointer;z-index:10005;backdrop-filter:blur(6px);box-shadow:0 4px 14px rgba(0,0,0,0.35);}" +
+    ".tc-side-btn i{font-size:20px;}" +
+    ".tc-side-btn.on{background:linear-gradient(135deg,#22c55e,#16a34a);animation:tcPulse 1.8s infinite;}" +
+    "@keyframes tcPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,0.6);}70%{box-shadow:0 0 0 14px rgba(34,197,94,0);}100%{box-shadow:0 0 0 0 rgba(34,197,94,0);}}" +
+    ".tc-banner{position:absolute;top:12px;left:16px;background:rgba(0,0,0,0.7);color:#fff;padding:7px 12px;border-radius:20px;font-size:12px;display:flex;align-items:center;gap:8px;z-index:10005;}" +
+    ".tc-banner .tc-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;}" +
+    ".tc-banner button{background:#ef4444;border:none;color:#fff;border-radius:10px;padding:2px 10px;font-size:11px;cursor:pointer;}";
+  document.head.appendChild(s);
+}
+
+function _tcOverlays() {
+  return ["ongoing-call", "gc-ongoing-call"];
+}
 
 function transcriptCallStarted() {
   TranscriptState.enabled = false;
+  TranscriptState.startedBy = "";
   TranscriptState.active = false;
   TranscriptState.fullText = "";
   if (TranscriptState.recognition) {
     try { TranscriptState.recognition.stop(); } catch (e) {}
     TranscriptState.recognition = null;
   }
-  ["ongoing-call", "gc-ongoing-call"].forEach(function (oid) {
+  _tcInjectStyle();
+  _tcOverlays().forEach(function (oid) {
     var overlay = document.getElementById(oid);
-    var bar = overlay && overlay.querySelector(".call-controls");
-    if (!bar) return;
-    var btnId = oid + "-transcript-btn";
-    if (!document.getElementById(btnId)) {
-      var btn = document.createElement("button");
-      btn.id = btnId;
-      btn.className = "ctrl-btn";
-      btn.onclick = toggleTranscript;
-      bar.appendChild(btn);
-    }
+    if (!overlay) return;
+    var old = document.getElementById(oid + "-transcript-btn");
+    if (old) old.remove();
+    var oldBn = document.getElementById(oid + "-transcript-banner");
+    if (oldBn) oldBn.remove();
+    var btn = document.createElement("button");
+    btn.id = oid + "-transcript-btn";
+    btn.className = "tc-side-btn";
+    btn.onclick = toggleTranscript;
+    overlay.appendChild(btn);
   });
-  updateTranscriptBtn();
+  updateTranscriptUI();
+}
+
+function _tcSend(targetId, enabled) {
+  var ws = S.globalWs || S.ws;
+  if (!ws || ws.readyState !== 1 || !targetId) return;
+  ws.send(JSON.stringify({
+    type: "transcript_toggle",
+    target_user_id: parseInt(targetId),
+    enabled: !!enabled
+  }));
+}
+
+function _tcBroadcast(enabled) {
+  if (GC.active) {
+    Object.keys(GC.peers).forEach(function (pid) { _tcSend(pid, enabled); });
+  } else if (CallState.isInCall) {
+    _tcSend(CallState.remoteUserId, enabled);
+  }
+}
+
+function transcriptSyncToPeer(pid) {
+  if (TranscriptState.enabled) _tcSend(pid, true);
 }
 
 function toggleTranscript() {
   if (!(CallState.isInCall || GC.active)) return;
-  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) {
-    toast("Is browser mein transcript supported nahi hai", "e");
-    return;
-  }
-  if (TranscriptState.enabled) {
-    TranscriptState.enabled = false;
-    TranscriptState.active = false;
-    if (TranscriptState.recognition) {
-      try { TranscriptState.recognition.stop(); } catch (e) {}
-      TranscriptState.recognition = null;
-    }
-    toast("Transcript off", "i");
-  } else {
-    var saved = TranscriptState.fullText;
-    TranscriptState.enabled = true;
-    startTranscriptCapture();
-    TranscriptState.fullText = saved;
-    toast("Transcript on - sirf aapki awaaz likhi jayegi", "s");
-  }
-  updateTranscriptBtn();
+  var next = !TranscriptState.enabled;
+  var myName = (S.user && (S.user.first_name || S.user.username)) || "Someone";
+  applyTranscriptState(next, myName, true);
+  _tcBroadcast(next);
 }
 
-function updateTranscriptBtn() {
-  ["ongoing-call-transcript-btn", "gc-ongoing-call-transcript-btn"].forEach(function (id) {
-    var b = document.getElementById(id);
-    if (!b) return;
-    b.innerHTML = '<i class="fa-solid fa-closed-captioning"></i>';
-    b.title = TranscriptState.enabled ? "Transcript ON - click to stop" : "Transcript OFF - click to start";
-    b.style.background = TranscriptState.enabled ? "rgba(34,197,94,0.55)" : "";
+function handleTranscriptToggle(data) {
+  applyTranscriptState(!!data.enabled, data.from_name || "Someone", false);
+}
+
+function applyTranscriptState(enabled, byName, isMine) {
+  if (!(CallState.isInCall || GC.active)) return;
+  if (enabled === TranscriptState.enabled) return;
+  TranscriptState.enabled = enabled;
+  var callId = GC.active ? null : CallState.callId;
+  var gcId = GC.active ? GC.groupCallId : null;
+  if (enabled) {
+    TranscriptState.startedBy = isMine ? "You" : byName;
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SR) {
+      startTranscriptCapture();
+    } else {
+      toast("This device cannot transcribe voice, only other participants will be recorded.", "e");
+    }
+    toast(
+      isMine
+        ? "Transcript is ON. Everyone in the call has been notified."
+        : byName + " turned on the transcript. A meeting summary will be generated after the call.",
+      "s"
+    );
+  } else {
+    stopAndSendTranscript(callId, gcId);
+    TranscriptState.startedBy = "";
+    toast(isMine ? "Transcript turned off for everyone." : byName + " turned off the transcript.", "i");
+  }
+  updateTranscriptUI();
+}
+
+function updateTranscriptUI() {
+  _tcOverlays().forEach(function (oid) {
+    var b = document.getElementById(oid + "-transcript-btn");
+    if (b) {
+      b.classList.toggle("on", TranscriptState.enabled);
+      b.title = TranscriptState.enabled ? "Transcript ON - click to stop for everyone" : "Start transcript for everyone";
+      b.innerHTML = '<i class="fa-solid fa-closed-captioning"></i><span>' + (TranscriptState.enabled ? "Transcript ON" : "Transcript") + '</span>';
+    }
+    var overlay = document.getElementById(oid);
+    var bn = document.getElementById(oid + "-transcript-banner");
+    if (TranscriptState.enabled && overlay) {
+      if (!bn) {
+        bn = document.createElement("div");
+        bn.id = oid + "-transcript-banner";
+        bn.className = "tc-banner";
+        overlay.appendChild(bn);
+      }
+      bn.innerHTML = '<span class="tc-dot"></span> Transcript ON - started by ' + esc(TranscriptState.startedBy) + ' <button onclick="toggleTranscript()">Stop</button>';
+    } else if (bn) {
+      bn.remove();
+    }
   });
 }
 

@@ -167,6 +167,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.handle_call_accept(data)
         elif message_type == "call_reject":
             await self.handle_call_reject(data)
+        elif message_type == "transcript_toggle":
+            await self.handle_transcript_toggle(data)
         elif message_type == "call_end":
             await self.handle_call_end(data)
         elif message_type == "call_cancel":
@@ -576,6 +578,32 @@ class ChatConsumer(AsyncWebsocketConsumer):
         # Also send FCM cancel to BOTH parties to dismiss any lingering notification
         await database_sync_to_async(send_fcm_call_cancel)(caller_id, call_id)
         await database_sync_to_async(send_fcm_call_cancel)(self.user.id, call_id)
+
+    async def handle_transcript_toggle(self, data):
+        target_user_id = data.get("target_user_id")
+        if not target_user_id:
+            return
+        await self.channel_layer.group_send(
+            f"user_{target_user_id}",
+            {
+                "type": "transcript_toggled",
+                "enabled": bool(data.get("enabled")),
+                "from_user_id": self.user.id,
+                "from_name": self.user.first_name or self.user.username,
+            },
+        )
+
+    async def transcript_toggled(self, event):
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "transcript_toggle",
+                    "enabled": event["enabled"],
+                    "from_user_id": event["from_user_id"],
+                    "from_name": event["from_name"],
+                }
+            )
+        )
 
     async def handle_call_end(self, data):
         call_id = data.get("call_id")
