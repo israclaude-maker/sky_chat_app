@@ -6333,7 +6333,7 @@ if (remoteScreenVideo && CallState.remoteScreenStream) {
   }
 }
 function showOngoingCall() {
-  startTranscriptCapture();
+  transcriptCallStarted();
   if (window.AndroidBridge && AndroidBridge.showOngoingCallNotification) {
     try {
       AndroidBridge.showOngoingCallNotification(
@@ -9295,7 +9295,7 @@ function refreshDualScreenView() {
 }
 
 function showGroupCallUI() {
-  startTranscriptCapture();
+  transcriptCallStarted();
   hideAllCallOverlays();
   gcFocusedId = "local";
 
@@ -12476,6 +12476,68 @@ function toggleRCKeyboard() {
       ? "rgba(59,130,246,0.9)"
       : "rgba(255,255,255,0.15)";
   }
+}
+
+// ??? TRANSCRIPT TOGGLE (button se on/off, default OFF) ???
+TranscriptState.enabled = false;
+
+function transcriptCallStarted() {
+  TranscriptState.enabled = false;
+  TranscriptState.active = false;
+  TranscriptState.fullText = "";
+  if (TranscriptState.recognition) {
+    try { TranscriptState.recognition.stop(); } catch (e) {}
+    TranscriptState.recognition = null;
+  }
+  ["ongoing-call", "gc-ongoing-call"].forEach(function (oid) {
+    var overlay = document.getElementById(oid);
+    var bar = overlay && overlay.querySelector(".call-controls");
+    if (!bar) return;
+    var btnId = oid + "-transcript-btn";
+    if (!document.getElementById(btnId)) {
+      var btn = document.createElement("button");
+      btn.id = btnId;
+      btn.className = "ctrl-btn";
+      btn.onclick = toggleTranscript;
+      bar.appendChild(btn);
+    }
+  });
+  updateTranscriptBtn();
+}
+
+function toggleTranscript() {
+  if (!(CallState.isInCall || GC.active)) return;
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    toast("Is browser mein transcript supported nahi hai", "e");
+    return;
+  }
+  if (TranscriptState.enabled) {
+    TranscriptState.enabled = false;
+    TranscriptState.active = false;
+    if (TranscriptState.recognition) {
+      try { TranscriptState.recognition.stop(); } catch (e) {}
+      TranscriptState.recognition = null;
+    }
+    toast("Transcript off", "i");
+  } else {
+    var saved = TranscriptState.fullText;
+    TranscriptState.enabled = true;
+    startTranscriptCapture();
+    TranscriptState.fullText = saved;
+    toast("Transcript on - sirf aapki awaaz likhi jayegi", "s");
+  }
+  updateTranscriptBtn();
+}
+
+function updateTranscriptBtn() {
+  ["ongoing-call-transcript-btn", "gc-ongoing-call-transcript-btn"].forEach(function (id) {
+    var b = document.getElementById(id);
+    if (!b) return;
+    b.innerHTML = '<i class="fa-solid fa-closed-captioning"></i>';
+    b.title = TranscriptState.enabled ? "Transcript ON - click to stop" : "Transcript OFF - click to start";
+    b.style.background = TranscriptState.enabled ? "rgba(34,197,94,0.55)" : "";
+  });
 }
 
 init();
