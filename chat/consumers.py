@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from chat.models import Conversation, Message, MessageReadReceipt, Group
 from calls.models import Call, GroupCall, GroupCallParticipant
 from chat.push import send_push_notification
+from channels.layers import get_channel_layer
 from chat.fcm import (
     send_fcm_notification,
     send_fcm_call_notification,
@@ -23,27 +24,114 @@ _summary_tasks = set()
 _summary_scheduled = set()
 
 
+def _format_summary(m):
+    lines = ["📝 Meeting Summary", "", m.summary or ""]
+    if m.key_points:
+        lines += ["", "Key Points:"] + [f"• {p}" for p in m.key_points]
+    if m.action_items:
+        lines += ["", "Action Items:"] + [f"• {p}" for p in m.action_items]
+    return "\n".join(lines)
+
+
 def _make_summary_sync(call_id=None, group_call_id=None):
+    """Summary banata hai, chat mein Message save karta hai, broadcast ka data lautata hai."""
     from calls.models import MeetingSummary
     from calls.views import generate_meeting_summary
 
     if call_id:
-        call = Call.objects.filter(id=call_id).first()
-        if call and not MeetingSummary.objects.filter(call=call).exists():
-            generate_meeting_summary(call=call)
+        call = Call.objects.filter(id=call_id).select_related("caller", "receiver").first()
+        if not call or MeetingSummary.objects.filter(call=call).exists():
+            return None
+        meeting = generate_meeting_summary(call=call)
+        if not meeting:
+            return None
+        text = _format_summary(meeting)
+        ids = sorted([call.caller_id, call.receiver_id])
+        conv, _ = Conversation.objects.get_or_create(
+            participant1_id=ids[0], participant2_id=ids[1]
+        )
+        msg = Message.objects.create(conversation=conv, sender=call.caller, content=text)
+        sender = call.caller
+        room = "chat_" + "_".join(sorted(str(i) for i in ids))
+        group_id, group_name, member_ids = None, None, ids
+
     elif group_call_id:
-        gc = GroupCall.objects.filter(id=group_call_id).first()
-        if gc and not MeetingSummary.objects.filter(group_call=gc).exists():
-            generate_meeting_summary(group_call=gc)
+        gc = GroupCall.objects.filter(id=group_call_id).select_related("group", "initiator").first()
+        if not gc or MeetingSummary.objects.filter(group_call=gc).exists():
+            return None
+        if not gc.group:
+            return None
+        meeting = generate_meeting_summary(group_call=gc)
+        if not meeting:
+            return None
+        text = _format_summary(meeting)
+        msg = Message.objects.create(group=gc.group, sender=gc.initiator, content=text)
+        sender = gc.initiator
+        room = f"chat_group_{gc.group_id}"
+        group_id, group_name = gc.group_id, gc.group.name
+        member_ids = list(gc.group.members.values_list("id", flat=True))
+    else:
+        return None
+
+    return {
+        "room": room,
+        "text": text,
+        "message_id": msg.id,
+        "username": sender.username,
+        "sender_id": sender.id,
+        "display_name": f"{sender.first_name} {sender.last_name}".strip() or sender.username,
+        "group_id": group_id,
+        "group_name": group_name,
+        "member_ids": member_ids,
+    }
+
+
+async def _broadcast_summary(r):
+    layer = get_channel_layer()
+    now = djtz.now().isoformat()
+    await layer.group_send(
+        r["room"],
+        {
+            "type": "chat_message",
+            "message": r["text"],
+            "username": r["username"],
+            "display_name": r["display_name"],
+            "profile_picture": None,
+            "timestamp": now,
+            "message_id": r["message_id"],
+            "reply_to": None,
+            "reply_data": None,
+            "is_forwarded": False,
+            "group_id": r["group_id"],
+        },
+    )
+    for uid in r["member_ids"]:
+        if uid == r["sender_id"]:
+            continue
+        await layer.group_send(
+            f"user_{uid}",
+            {
+                "type": "new_message_notify",
+                "sender_id": r["sender_id"],
+                "sender_name": "Meeting Summary",
+                "sender_pic": None,
+                "message": "📝 Meeting summary ready",
+                "group_id": r["group_id"],
+                "group_name": r["group_name"],
+                "timestamp": now,
+            },
+        )
 
 
 async def _delayed_summary(call_id, group_call_id, delay):
     key = ("c", call_id) if call_id else ("g", group_call_id)
     try:
         await asyncio.sleep(delay)
-        await database_sync_to_async(_make_summary_sync, thread_sensitive=False)(
+        result = await database_sync_to_async(_make_summary_sync, thread_sensitive=False)(
             call_id, group_call_id
         )
+        if result:
+            await _broadcast_summary(result)
     except Exception as e:
         print(f"[MeetingSummary] auto-trigger error: {e}")
     finally:
@@ -60,7 +148,6 @@ def schedule_summary(call_id=None, group_call_id=None, delay=10):
     task = asyncio.create_task(_delayed_summary(call_id, group_call_id, delay))
     _summary_tasks.add(task)
     task.add_done_callback(_summary_tasks.discard)
-
 
 
 class ChatConsumer(AsyncWebsocketConsumer):

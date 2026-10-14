@@ -4132,13 +4132,9 @@ function renderCallHistory(calls) {
   }
   el.innerHTML = calls
     .map(function (call) {
-      var html =
-        call.type === "group"
-          ? renderGroupCallItem(call)
-          : renderDmCallItem(call);
-      var btn = summaryBtnHtml(call);
-      if (btn && html) html = html.trim().replace(/<\/div>$/, btn + "</div>");
-      return html;
+      return call.type === "group"
+        ? renderGroupCallItem(call)
+        : renderDmCallItem(call);
     })
     .join("");
 }
