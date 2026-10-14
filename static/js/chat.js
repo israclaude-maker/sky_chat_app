@@ -4130,11 +4130,15 @@ function renderCallHistory(calls) {
       </div>`;
     return;
   }
-
   el.innerHTML = calls
     .map(function (call) {
-      if (call.type === "group") return renderGroupCallItem(call);
-      return renderDmCallItem(call);
+      var html =
+        call.type === "group"
+          ? renderGroupCallItem(call)
+          : renderDmCallItem(call);
+      var btn = summaryBtnHtml(call);
+      if (btn && html) html = html.trim().replace(/<\/div>$/, btn + "</div>");
+      return html;
     })
     .join("");
 }
@@ -12615,5 +12619,88 @@ function updateTranscriptUI() {
     }
   });
 }
+
+// ═══ MEETING SUMMARY UI ═══
+function summaryBtnHtml(call) {
+  if (!call.has_transcript) return "";
+  var cid = call.type === "group" ? "null" : call.id;
+  var gid = call.type === "group" ? call.group_call_id : "null";
+  return (
+    '<button class="call-summary-btn" title="Meeting summary" ' +
+    'onclick="event.stopPropagation(); openMeetingSummary(' + cid + "," + gid + ')">' +
+    '<i class="fa-solid fa-wand-magic-sparkles"></i> Summary</button>'
+  );
+}
+
+function openMeetingSummary(callId, groupCallId) {
+  var old = document.getElementById("meeting-summary-overlay");
+  if (old) old.remove();
+
+  var overlay = document.createElement("div");
+  overlay.id = "meeting-summary-overlay";
+  overlay.className = "ms-overlay";
+  overlay.onclick = function (e) {
+    if (e.target === overlay) overlay.remove();
+  };
+
+  var box = document.createElement("div");
+  box.className = "ms-box";
+  box.innerHTML =
+    '<div class="ms-head"><span><i class="fa-solid fa-wand-magic-sparkles"></i> Meeting Summary</span>' +
+    '<button class="ms-close" onclick="document.getElementById(\'meeting-summary-overlay\').remove()">' +
+    '<i class="fa-solid fa-xmark"></i></button></div>' +
+    '<div class="ms-body" id="ms-body"><div class="ms-loading">' +
+    '<i class="fa-solid fa-spinner fa-spin"></i> Summary ban rahi hai...</div></div>';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  var qs = callId ? "call_id=" + callId : "group_call_id=" + groupCallId;
+  fetch("/api/calls/summary/?" + qs, {
+    headers: { Authorization: "Bearer " + S.token },
+  })
+    .then(function (r) {
+      return r.json().then(function (d) {
+        return { ok: r.ok, data: d };
+      });
+    })
+    .then(function (res) {
+      var body = document.getElementById("ms-body");
+      if (!body) return;
+      if (!res.ok || !res.data.found) {
+        body.innerHTML = '<div class="ms-empty">Is call ki summary nahi mili.</div>';
+        return;
+      }
+      var d = res.data;
+      var html = "";
+      if (d.summary) html += "<h4>Summary</h4><p>" + esc(d.summary) + "</p>";
+      if (d.key_points && d.key_points.length) {
+        html += "<h4>Key Points</h4><ul>" +
+          d.key_points.map(function (p) { return "<li>" + esc(p) + "</li>"; }).join("") + "</ul>";
+      }
+      if (d.action_items && d.action_items.length) {
+        html += "<h4>Action Items</h4><ul>" +
+          d.action_items.map(function (p) { return "<li>" + esc(p) + "</li>"; }).join("") + "</ul>";
+      }
+      body.innerHTML = html || '<div class="ms-empty">Summary khali hai.</div>';
+    })
+    .catch(function () {
+      var body = document.getElementById("ms-body");
+      if (body) body.innerHTML = '<div class="ms-empty">Summary load nahi ho saki.</div>';
+    });
+}
+
+var msStyle = document.createElement("style");
+msStyle.textContent =
+  ".call-summary-btn{margin-left:8px;flex-shrink:0;background:#e8f0fe;color:#1a73e8;border:none;border-radius:14px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;}" +
+  ".ms-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px;}" +
+  ".ms-box{background:#fff;color:#1f2937;border-radius:16px;width:100%;max-width:460px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4);}" +
+  ".ms-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e5e7eb;font-weight:700;}" +
+  ".ms-close{background:none;border:none;font-size:18px;cursor:pointer;color:#6b7280;}" +
+  ".ms-body{padding:16px 18px;overflow-y:auto;font-size:14px;line-height:1.5;}" +
+  ".ms-body h4{margin:14px 0 6px;font-size:13px;color:#1a73e8;text-transform:uppercase;}" +
+  ".ms-body h4:first-child{margin-top:0;}" +
+  ".ms-body ul{margin:0;padding-left:20px;}" +
+  ".ms-loading,.ms-empty{text-align:center;color:#6b7280;padding:24px 0;}";
+document.head.appendChild(msStyle);
 
 init();

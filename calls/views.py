@@ -1,13 +1,15 @@
+import json
+import anthropic
+from django.conf import settings
 from django.db.models import Q
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from .models import Call, GroupCall, GroupCallParticipant
-import os
-import json
-import anthropic
-from django.conf import settings
 from .models import Call, GroupCall, GroupCallParticipant, TranscriptFragment, MeetingSummary
+
+
+def _claude_client():
+    return anthropic.Anthropic(api_key=settings.CLAUDE_API_KEY)
 
 
 @api_view(['GET'])
@@ -21,6 +23,11 @@ def call_history(request):
         Q(caller=user) | Q(receiver=user)
     ).select_related('caller', 'receiver').order_by('-created_at')[:50]
 
+    dm_call_ids = [c.id for c in dm_calls]
+    transcript_call_ids = set(
+        TranscriptFragment.objects.filter(call_id__in=dm_call_ids).values_list('call_id', flat=True)
+    )
+
     for call in dm_calls:
         is_outgoing = call.caller_id == user.id
         other = call.receiver if is_outgoing else call.caller
@@ -31,6 +38,7 @@ def call_history(request):
             'status': call.status,
             'is_outgoing': is_outgoing,
             'duration': call.duration,
+            'has_transcript': call.id in transcript_call_ids,
             'created_at': call.created_at.isoformat(),
             'other_user': {
                 'id': other.id,
@@ -45,6 +53,11 @@ def call_history(request):
     gc_participations = GroupCallParticipant.objects.filter(
         user=user
     ).select_related('group_call', 'group_call__group', 'group_call__initiator').order_by('-group_call__started_at')[:30]
+
+    gc_ids = [g.group_call_id for g in gc_participations]
+    transcript_gc_ids = set(
+        TranscriptFragment.objects.filter(group_call_id__in=gc_ids).values_list('group_call_id', flat=True)
+    )
 
     for gcp in gc_participations:
         gc = gcp.group_call
@@ -75,16 +88,15 @@ def call_history(request):
             'status': gc.status,
             'is_outgoing': gc.initiator_id == user.id,
             'duration': 0,
+            'group_call_id': gc.id,
+            'has_transcript': gc.id in transcript_gc_ids,
             'created_at': gc.started_at.isoformat(),
             'group': group_data,
             'participants': parts,
         })
 
-    # Sort combined by created_at descending
     results.sort(key=lambda x: x['created_at'], reverse=True)
     return Response(results[:50])
-
-client = anthropic.Anthropic(api_key=settings.CLAUDE_API_KEY)
 
 
 @api_view(['POST'])
@@ -97,16 +109,13 @@ def save_transcript_fragment(request):
     print(f"[TRANSCRIPT] Received: call_id={call_id}, group_call_id={group_call_id}, text_len={len(text)}")
 
     if not text:
-        print("[TRANSCRIPT] Empty text, skipping")
         return Response({"status": "skipped", "reason": "empty text"})
 
     call_obj = Call.objects.filter(id=call_id).first() if call_id else None
     group_call_obj = GroupCall.objects.filter(id=group_call_id).first() if group_call_id else None
 
-    print(f"[TRANSCRIPT] call_obj={call_obj}, group_call_obj={group_call_obj}")
-
     if not call_obj and not group_call_obj:
-        print("[TRANSCRIPT] Neither call nor group_call found — returning 400")
+        print("[TRANSCRIPT] Neither call nor group_call found")
         return Response({"error": "call_id or group_call_id required"}, status=400)
 
     fragment = TranscriptFragment.objects.create(
@@ -115,15 +124,14 @@ def save_transcript_fragment(request):
         user=request.user,
         text=text,
     )
-
     print(f"[TRANSCRIPT] Saved fragment id={fragment.id}")
-
     return Response({"status": "saved"})
+
 
 def generate_meeting_summary(call=None, group_call=None):
     """
     Sab TranscriptFragments ko time-order mein merge karke Claude ko bhejta hai,
-    aur MeetingSummary save karta hai. call ya group_call mein se koi ek dena zaroori hai.
+    aur MeetingSummary save karta hai.
     """
     if call:
         fragments = TranscriptFragment.objects.filter(call=call).select_related("user").order_by("created_at")
@@ -135,7 +143,6 @@ def generate_meeting_summary(call=None, group_call=None):
     if not fragments.exists():
         return None
 
-    # Speaker name ke sath merge karna
     lines = []
     for f in fragments:
         speaker = f.user.first_name or f.user.username
@@ -155,7 +162,7 @@ Transcript:
 """
 
     try:
-        message = client.messages.create(
+        message = _claude_client().messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
@@ -165,7 +172,7 @@ Transcript:
         parsed = json.loads(raw_reply)
     except Exception as e:
         print(f"[MeetingSummary] Claude API error: {e}")
-        parsed = {"summary": "", "key_points": [], "action_items": []}
+        return None
 
     meeting = MeetingSummary.objects.create(
         call=call,
@@ -176,3 +183,53 @@ Transcript:
         action_items=parsed.get("action_items", []),
     )
     return meeting
+
+
+def _get_or_build_summary(call=None, group_call=None):
+    """Summary lautata hai. Nahi hai (ya naya transcript aaya hai) to Claude se banata hai."""
+    if call:
+        frags = TranscriptFragment.objects.filter(call=call)
+        summary = MeetingSummary.objects.filter(call=call).first()
+    else:
+        frags = TranscriptFragment.objects.filter(group_call=group_call)
+        summary = MeetingSummary.objects.filter(group_call=group_call).first()
+
+    if not frags.exists():
+        return None
+
+    latest = frags.order_by('-created_at').first().created_at
+    if summary and summary.summary and summary.created_at >= latest:
+        return summary
+
+    if summary:
+        summary.delete()
+    return generate_meeting_summary(call=call, group_call=group_call)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_meeting_summary(request):
+    user = request.user
+    call_id = request.GET.get('call_id')
+    group_call_id = request.GET.get('group_call_id')
+    summary = None
+
+    if call_id:
+        call = Call.objects.filter(id=call_id).filter(Q(caller=user) | Q(receiver=user)).first()
+        if call:
+            summary = _get_or_build_summary(call=call)
+    elif group_call_id:
+        gc = GroupCall.objects.filter(id=group_call_id, participants__user=user).first()
+        if gc:
+            summary = _get_or_build_summary(group_call=gc)
+
+    if not summary or not summary.summary:
+        return Response({'found': False}, status=404)
+
+    return Response({
+        'found': True,
+        'summary': summary.summary,
+        'key_points': summary.key_points or [],
+        'action_items': summary.action_items or [],
+        'created_at': summary.created_at.isoformat(),
+    })

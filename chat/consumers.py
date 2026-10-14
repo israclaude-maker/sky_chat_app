@@ -1041,6 +1041,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         active_count = await self.get_active_participant_count(gc_id)
         if active_count == 0:
             await self.end_group_call(gc_id)
+            schedule_summary(group_call_id=gc_id)
             # Notify all group members that call ended (remove join banner)
             group_id = await self.get_group_id_from_call(gc_id)
             if group_id:
@@ -1388,10 +1389,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             gc.status = "ended"
             gc.ended_at = djtz.now()
             gc.save()
-
-            # Meeting summary generate karo
-            from calls.views import generate_meeting_summary
-            generate_meeting_summary(group_call=gc)
         except GroupCall.DoesNotExist:
             pass
 
@@ -1456,6 +1453,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             active_count = await self.get_active_participant_count(gc_id)
             if active_count == 0:
                 await self.end_group_call(gc_id)
+                schedule_summary(group_call_id=gc_id)
                 group_id = await self.get_group_id_from_call(gc_id)
                 if group_id:
                     member_ids = await self.get_group_member_ids(group_id)
@@ -1638,10 +1636,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             elif call.started_at:
                 call.duration = int((call.ended_at - call.started_at).total_seconds())
             call.save()
-
-            # Meeting summary generate karo (agar transcript fragments hain)
-            from calls.views import generate_meeting_summary
-            generate_meeting_summary(call=call)
         except Call.DoesNotExist:
             pass
 

@@ -64,6 +64,7 @@ urlpatterns = [
     path("sw.js", service_worker, name="service_worker"),
     path("manifest.json", manifest, name="manifest"),
     path("admin/", admin.site.urls),
+    path("api/auth/users/call_history/", call_history, name="call_history_users"),
     path("api/auth/", include("accounts.urls")),
     path("api/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/call_history/", call_history, name="call_history"),
