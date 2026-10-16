@@ -692,6 +692,19 @@ function init() {
           openGroup(parseInt(openGroupId));
         }, 800);
       }
+
+      // Handle join_call URL parameter (from a shared group-call link)
+      var joinGid = urlParams.get("gid");
+      var joinCallId = urlParams.get("join_call");
+      if (joinGid && joinCallId) {
+        history.replaceState(null, "", "/chat/");
+        setTimeout(function () {
+          openGroup(parseInt(joinGid));
+          setTimeout(function () {
+            attemptJoinFromLink();
+          }, 900);
+        }, 800);
+      }
     })
     .catch(function (err) {
       // Do not force-login on generic runtime errors; prevents redirect loops.
@@ -902,6 +915,8 @@ function connectGlobalWS() {
         handleScreenOffer(data);
       } else if (data.type === "screen_answer") {
         handleScreenAnswer(data);
+      } else if (data.type === "transcript_toggle") {
+        handleTranscriptToggle(data);
       } else if (data.type === "screen_toggle") {
         handleScreenToggle(data);
       }
@@ -4128,11 +4143,11 @@ function renderCallHistory(calls) {
       </div>`;
     return;
   }
-
   el.innerHTML = calls
     .map(function (call) {
-      if (call.type === "group") return renderGroupCallItem(call);
-      return renderDmCallItem(call);
+      return call.type === "group"
+        ? renderGroupCallItem(call)
+        : renderDmCallItem(call);
     })
     .join("");
 }
@@ -4733,7 +4748,96 @@ var CallState = {
 // ═══════════════════════════════════════════════════════════════
 // CAMERA EFFECTS (Background Blur / Virtual Background)
 // ═══════════════════════════════════════════════════════════════
+//summarize meeting points modoule
+// ═══ MEETING TRANSCRIPT (Claude AI Summary) ═══
+var TranscriptState = {
+  recognition: null,
+  fullText: "",
+  active: false,
+};
 
+function startTranscriptCapture() {
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    console.warn("Speech recognition not supported in this browser.");
+    return;
+  }
+
+  TranscriptState.fullText = "";
+  TranscriptState.active = true;
+
+  var recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = false;
+    recognition.lang = "ur-PK";
+
+  recognition.onresult = function (event) {
+    for (var i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) {
+        console.log("[SPEECH] captured:", event.results[i][0].transcript); // temp debug
+        TranscriptState.fullText += event.results[i][0].transcript + " ";
+      }
+    }
+  };
+
+  recognition.onerror = function (e) {
+    console.warn("Speech recognition error:", e.error);
+  };
+
+  recognition.onend = function () {
+    if (TranscriptState.active) {
+      try {
+        recognition.start();
+      } catch (e) {}
+    }
+  };
+
+  try {
+    recognition.start();
+    TranscriptState.recognition = recognition;
+  } catch (e) {
+    console.warn("Could not start speech recognition:", e);
+  }
+}
+
+function stopAndSendTranscript(callId, groupCallId) {
+  TranscriptState.active = false;
+
+  if (TranscriptState.recognition) {
+    try {
+      TranscriptState.recognition.stop();
+    } catch (e) {}
+    TranscriptState.recognition = null;
+  }
+
+  var text = TranscriptState.fullText.trim();
+  TranscriptState.fullText = "";
+
+  if (!text) return;
+
+  var body = { text: text };
+  if (callId) body.call_id = callId;
+  if (groupCallId) body.group_call_id = groupCallId;
+
+  fetch("/api/calls/save-transcript-fragment/", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + S.token,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  })
+    .then(function (r) {
+      return r.json();
+    })
+    .then(function (data) {
+      console.log("Transcript fragment saved:", data);
+    })
+    .catch(function (err) {
+      console.warn("Failed to save transcript fragment:", err);
+    });
+}
+//end summarize meeting points modoule 
 var CamFx = {
   active: false,
   mode: "none", // 'none','blur-light','blur-heavy','bg-beach','bg-mountain','bg-city','bg-space','bg-sunset','bg-forest','bg-custom'
@@ -5919,6 +6023,7 @@ function endCall() {
 function _doEndCall() {
   stopAllRingtones();
   if (CallRec.isRecording) stopCallRecord();
+  stopAndSendTranscript(CallState.callId, null);
 
   // Calculate duration in seconds
   var duration = 0;
@@ -5989,6 +6094,7 @@ function handleCallRejected(data) {
 function handleCallEnded(data) {
   stopAllRingtones();
   if (CallRec.isRecording) stopCallRecord();
+  stopAndSendTranscript(CallState.callId, null);
   if (window.AndroidBridge) AndroidBridge.cancelCallNotification();
   if (window.DesktopBridge) DesktopBridge.cancelCallNotification();
   hideAllCallOverlays();
@@ -6242,6 +6348,7 @@ if (remoteScreenVideo && CallState.remoteScreenStream) {
   }
 }
 function showOngoingCall() {
+  transcriptCallStarted();
   if (window.AndroidBridge && AndroidBridge.showOngoingCallNotification) {
     try {
       AndroidBridge.showOngoingCallNotification(
@@ -7806,6 +7913,7 @@ function handleGroupCallEnded(data) {
     ((data.group_call_id && data.group_call_id === GC.groupCallId) ||
       (data.group_id && data.group_id === GC.groupId));
   if (wasMyActiveCall) {
+    stopAndSendTranscript(null, GC.groupCallId);
     cleanupGroupCall();
     hideAllCallOverlays();
     toast("Call ended", "i");
@@ -7894,7 +8002,52 @@ function fetchActiveGroupCalls() {
       console.log("Could not fetch active group calls:", e);
     });
 }
+// Copy a shareable link for the currently active group call
+function copyGroupCallLink() {
+  if (!GC.active || !GC.groupId || !GC.groupCallId) {
+    toast("No active call to share", "e");
+    return;
+  }
+  var link =
+    window.location.origin +
+    "/chat/?join_call=" +
+    GC.groupCallId +
+    "&gid=" +
+    GC.groupId;
+  navigator.clipboard
+    .writeText(link)
+    .then(function () {
+      toast("Call link copied!", "s");
+    })
+    .catch(function () {
+      toast("Could not copy link", "e");
+    });
+}
 
+// Called after opening the group from a shared link — checks if the
+// call is still active and joins it
+function attemptJoinFromLink() {
+  if (!S.activeGroup) return;
+  if (GC.active) return; // already in a call
+  api("/groups/" + S.activeGroup.id + "/active_call/")
+    .then(function (data) {
+      if (data && data.active) {
+        GC.activeGroupCalls[S.activeGroup.id] = {
+          group_call_id: data.group_call_id,
+          call_type: data.call_type,
+          caller_name: data.caller_name,
+          group_name: data.group_name,
+          caller_pic: data.caller_pic,
+        };
+        joinGroupCallFromBanner();
+      } else {
+        toast("This call has ended", "e");
+      }
+    })
+    .catch(function () {
+      toast("Could not check call status", "e");
+    });
+}
 function joinGroupCallFromBanner() {
   var banner = $("gc-join-banner");
   var targetGroupId = banner ? banner.dataset.groupId : null;
@@ -8004,6 +8157,7 @@ function handleGroupCallUserJoined(data) {
     data.user_name,
   );
   createGroupPeer(data.user_id, data.user_name, data.user_pic, true);
+  transcriptSyncToPeer(data.user_id);
   updateGroupCallParticipantCount();
 }
 
@@ -9202,6 +9356,7 @@ function refreshDualScreenView() {
 }
 
 function showGroupCallUI() {
+  transcriptCallStarted();
   hideAllCallOverlays();
   gcFocusedId = "local";
 
@@ -9320,6 +9475,7 @@ function updateGcWaiting() {
 function leaveGroupCall() {
   if (!GC.active) return;
   if (CallRec.isRecording) stopCallRecord();
+  stopAndSendTranscript(null, GC.groupCallId);
 
   // Save call info BEFORE cleanup so we can restore the banner
   var savedGroupCallId = GC.groupCallId;
@@ -12382,5 +12538,223 @@ function toggleRCKeyboard() {
       : "rgba(255,255,255,0.15)";
   }
 }
+
+// === TRANSCRIPT (shared on/off - sab participants ko notify) ===
+TranscriptState.enabled = false;
+TranscriptState.startedBy = "";
+
+function _tcInjectStyle() {
+  if (document.getElementById("tc-style")) return;
+  var s = document.createElement("style");
+  s.id = "tc-style";
+  s.textContent =
+    ".tc-side-btn{position:absolute;right:16px;top:50%;transform:translateY(-50%);width:58px;padding:10px 0;border:none;border-radius:18px;background:rgba(255,255,255,0.16);color:#fff;display:flex;flex-direction:column;align-items:center;gap:5px;font-size:10px;font-weight:600;cursor:pointer;z-index:10005;backdrop-filter:blur(6px);box-shadow:0 4px 14px rgba(0,0,0,0.35);}" +
+    ".tc-side-btn i{font-size:20px;}" +
+    ".tc-side-btn.on{background:linear-gradient(135deg,#22c55e,#16a34a);animation:tcPulse 1.8s infinite;}" +
+    "@keyframes tcPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,0.6);}70%{box-shadow:0 0 0 14px rgba(34,197,94,0);}100%{box-shadow:0 0 0 0 rgba(34,197,94,0);}}" +
+    ".tc-banner{position:absolute;top:12px;left:16px;background:rgba(0,0,0,0.7);color:#fff;padding:7px 12px;border-radius:20px;font-size:12px;display:flex;align-items:center;gap:8px;z-index:10005;}" +
+    ".tc-banner .tc-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;}" +
+    ".tc-banner button{background:#ef4444;border:none;color:#fff;border-radius:10px;padding:2px 10px;font-size:11px;cursor:pointer;}";
+  document.head.appendChild(s);
+}
+
+function _tcOverlays() {
+  return ["ongoing-call", "gc-ongoing-call"];
+}
+
+function transcriptCallStarted() {
+  TranscriptState.enabled = false;
+  TranscriptState.startedBy = "";
+  TranscriptState.active = false;
+  TranscriptState.fullText = "";
+  if (TranscriptState.recognition) {
+    try { TranscriptState.recognition.stop(); } catch (e) {}
+    TranscriptState.recognition = null;
+  }
+  _tcInjectStyle();
+  _tcOverlays().forEach(function (oid) {
+    var overlay = document.getElementById(oid);
+    if (!overlay) return;
+    var old = document.getElementById(oid + "-transcript-btn");
+    if (old) old.remove();
+    var oldBn = document.getElementById(oid + "-transcript-banner");
+    if (oldBn) oldBn.remove();
+    var btn = document.createElement("button");
+    btn.id = oid + "-transcript-btn";
+    btn.className = "tc-side-btn";
+    btn.onclick = toggleTranscript;
+    overlay.appendChild(btn);
+  });
+  updateTranscriptUI();
+}
+
+function _tcSend(targetId, enabled) {
+  var ws = S.globalWs || S.ws;
+  if (!ws || ws.readyState !== 1 || !targetId) return;
+  ws.send(JSON.stringify({
+    type: "transcript_toggle",
+    target_user_id: parseInt(targetId),
+    enabled: !!enabled
+  }));
+}
+
+function _tcBroadcast(enabled) {
+  if (GC.active) {
+    Object.keys(GC.peers).forEach(function (pid) { _tcSend(pid, enabled); });
+  } else if (CallState.isInCall) {
+    _tcSend(CallState.remoteUserId, enabled);
+  }
+}
+
+function transcriptSyncToPeer(pid) {
+  if (TranscriptState.enabled) _tcSend(pid, true);
+}
+
+function toggleTranscript() {
+  if (!(CallState.isInCall || GC.active)) return;
+  var next = !TranscriptState.enabled;
+  var myName = (S.user && (S.user.first_name || S.user.username)) || "Someone";
+  applyTranscriptState(next, myName, true);
+  _tcBroadcast(next);
+}
+
+function handleTranscriptToggle(data) {
+  applyTranscriptState(!!data.enabled, data.from_name || "Someone", false);
+}
+
+function applyTranscriptState(enabled, byName, isMine) {
+  if (!(CallState.isInCall || GC.active)) return;
+  if (enabled === TranscriptState.enabled) return;
+  TranscriptState.enabled = enabled;
+  var callId = GC.active ? null : CallState.callId;
+  var gcId = GC.active ? GC.groupCallId : null;
+  if (enabled) {
+    TranscriptState.startedBy = isMine ? "You" : byName;
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SR) {
+      startTranscriptCapture();
+    } else {
+      toast("This device cannot transcribe voice, only other participants will be recorded.", "e");
+    }
+    toast(
+      isMine
+        ? "Transcript is ON. Everyone in the call has been notified."
+        : byName + " turned on the transcript. A meeting summary will be generated after the call.",
+      "s"
+    );
+  } else {
+    stopAndSendTranscript(callId, gcId);
+    TranscriptState.startedBy = "";
+    toast(isMine ? "Transcript turned off for everyone." : byName + " turned off the transcript.", "i");
+  }
+  updateTranscriptUI();
+}
+
+function updateTranscriptUI() {
+  _tcOverlays().forEach(function (oid) {
+    var b = document.getElementById(oid + "-transcript-btn");
+    if (b) {
+      b.classList.toggle("on", TranscriptState.enabled);
+      b.title = TranscriptState.enabled ? "Transcript ON - click to stop for everyone" : "Start transcript for everyone";
+      b.innerHTML = '<i class="fa-solid fa-closed-captioning"></i><span>' + (TranscriptState.enabled ? "Transcript ON" : "Transcript") + '</span>';
+    }
+    var overlay = document.getElementById(oid);
+    var bn = document.getElementById(oid + "-transcript-banner");
+    if (TranscriptState.enabled && overlay) {
+      if (!bn) {
+        bn = document.createElement("div");
+        bn.id = oid + "-transcript-banner";
+        bn.className = "tc-banner";
+        overlay.appendChild(bn);
+      }
+      bn.innerHTML = '<span class="tc-dot"></span> Transcript ON - started by ' + esc(TranscriptState.startedBy) + ' <button onclick="toggleTranscript()">Stop</button>';
+    } else if (bn) {
+      bn.remove();
+    }
+  });
+}
+
+// ═══ MEETING SUMMARY UI ═══
+function summaryBtnHtml(call) {
+  if (!call.has_transcript) return "";
+  var cid = call.type === "group" ? "null" : call.id;
+  var gid = call.type === "group" ? call.group_call_id : "null";
+  return (
+    '<button class="call-summary-btn" title="Meeting summary" ' +
+    'onclick="event.stopPropagation(); openMeetingSummary(' + cid + "," + gid + ')">' +
+    '<i class="fa-solid fa-wand-magic-sparkles"></i> Summary</button>'
+  );
+}
+
+function openMeetingSummary(callId, groupCallId) {
+  var old = document.getElementById("meeting-summary-overlay");
+  if (old) old.remove();
+
+  var overlay = document.createElement("div");
+  overlay.id = "meeting-summary-overlay";
+  overlay.className = "ms-overlay";
+  overlay.onclick = function (e) {
+    if (e.target === overlay) overlay.remove();
+  };
+
+  var box = document.createElement("div");
+  box.className = "ms-box";
+  box.innerHTML =
+    '<div class="ms-head"><span><i class="fa-solid fa-wand-magic-sparkles"></i> Meeting Summary</span>' +
+    '<button class="ms-close" onclick="document.getElementById(\'meeting-summary-overlay\').remove()">' +
+    '<i class="fa-solid fa-xmark"></i></button></div>' +
+    '<div class="ms-body" id="ms-body"><div class="ms-loading">' +
+    '<i class="fa-solid fa-spinner fa-spin"></i> Summary ban rahi hai...</div></div>';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  var qs = callId ? "call_id=" + callId : "group_call_id=" + groupCallId;
+  fetch("/api/calls/summary/?" + qs, {
+    headers: { Authorization: "Bearer " + S.token },
+  })
+    .then(function (r) {
+      return r.json().then(function (d) {
+        return { ok: r.ok, data: d };
+      });
+    })
+    .then(function (res) {
+      var body = document.getElementById("ms-body");
+      if (!body) return;
+      if (!res.ok || !res.data.found) {
+        body.innerHTML = '<div class="ms-empty">Is call ki summary nahi mili.</div>';
+        return;
+      }
+      var d = res.data;
+      var html = "";
+      if (d.summary) html += "<h4>Summary</h4><p>" + esc(d.summary) + "</p>";
+      if (d.key_points && d.key_points.length) {
+        html += "<h4>Key Points</h4><ul>" +
+          d.key_points.map(function (p) { return "<li>" + esc(p) + "</li>"; }).join("") + "</ul>";
+      }
+      if (d.action_items && d.action_items.length) {
+        html += "<h4>Action Items</h4><ul>" +
+          d.action_items.map(function (p) { return "<li>" + esc(p) + "</li>"; }).join("") + "</ul>";
+      }
+      body.innerHTML = html || '<div class="ms-empty">Summary khali hai.</div>';
+    })
+    .catch(function () {
+      var body = document.getElementById("ms-body");
+      if (body) body.innerHTML = '<div class="ms-empty">Summary load nahi ho saki.</div>';
+    });
+}
+
+var msStyle = document.createElement("style");
+msStyle.textContent =
+  ".call-summary-btn{margin-left:8px;flex-shrink:0;background:#e8f0fe;color:#1a73e8;border:none;border-radius:14px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;}" +
+  ".ms-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px;}" +
+  ".ms-box{background:#fff;color:#1f2937;border-radius:16px;width:100%;max-width:460px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4);}" +
+  ".ms-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e5e7eb;font-weight:700;}" +
+  ".ms-close{background:none;border:none;font-size:18px;cursor:pointer;color:#6b7280;}" +
+  ".ms-body{padding:16px 18px;overflow-y:auto;font-size:14px;line-height:1.5;}" +
+  ".ms-body h4{margin:14px 0 6px;font-size:13px;color:#1a73e8;text-transform:uppercase;}" +
+  ".ms-body h4:first-child{margin-top:0;}" +
+  ".ms-body ul{margin:0;padding-left:20px;}" +
+  ".ms-loading,.ms-empty{text-align:center;color:#6b7280;padding:24px 0;}";
+document.head.appendChild(msStyle);
 
 init();

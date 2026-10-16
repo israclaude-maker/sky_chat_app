@@ -692,6 +692,19 @@ function init() {
           openGroup(parseInt(openGroupId));
         }, 800);
       }
+
+      // Handle join_call URL parameter (from a shared group-call link)
+      var joinGid = urlParams.get("gid");
+      var joinCallId = urlParams.get("join_call");
+      if (joinGid && joinCallId) {
+        history.replaceState(null, "", "/chat/");
+        setTimeout(function () {
+          openGroup(parseInt(joinGid));
+          setTimeout(function () {
+            attemptJoinFromLink();
+          }, 900);
+        }, 800);
+      }
     })
     .catch(function (err) {
       // Do not force-login on generic runtime errors; prevents redirect loops.
@@ -7989,7 +8002,52 @@ function fetchActiveGroupCalls() {
       console.log("Could not fetch active group calls:", e);
     });
 }
+// Copy a shareable link for the currently active group call
+function copyGroupCallLink() {
+  if (!GC.active || !GC.groupId || !GC.groupCallId) {
+    toast("No active call to share", "e");
+    return;
+  }
+  var link =
+    window.location.origin +
+    "/chat/?join_call=" +
+    GC.groupCallId +
+    "&gid=" +
+    GC.groupId;
+  navigator.clipboard
+    .writeText(link)
+    .then(function () {
+      toast("Call link copied!", "s");
+    })
+    .catch(function () {
+      toast("Could not copy link", "e");
+    });
+}
 
+// Called after opening the group from a shared link — checks if the
+// call is still active and joins it
+function attemptJoinFromLink() {
+  if (!S.activeGroup) return;
+  if (GC.active) return; // already in a call
+  api("/groups/" + S.activeGroup.id + "/active_call/")
+    .then(function (data) {
+      if (data && data.active) {
+        GC.activeGroupCalls[S.activeGroup.id] = {
+          group_call_id: data.group_call_id,
+          call_type: data.call_type,
+          caller_name: data.caller_name,
+          group_name: data.group_name,
+          caller_pic: data.caller_pic,
+        };
+        joinGroupCallFromBanner();
+      } else {
+        toast("This call has ended", "e");
+      }
+    })
+    .catch(function () {
+      toast("Could not check call status", "e");
+    });
+}
 function joinGroupCallFromBanner() {
   var banner = $("gc-join-banner");
   var targetGroupId = banner ? banner.dataset.groupId : null;
