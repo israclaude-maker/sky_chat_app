@@ -44,6 +44,22 @@ try {
 const SERVER_URL = config.serverUrl;
 const CHAT_URL = SERVER_URL + "/chat/";
 
+// Deep link: skychat://join?join_call=ID&gid=ID
+function extractDeepLink(argv) {
+  const a = (argv || []).find((x) => typeof x === "string" && x.startsWith("skychat://"));
+  if (!a) return null;
+  try {
+    const u = new URL(a);
+    const call = u.searchParams.get("join_call");
+    const gid = u.searchParams.get("gid");
+    if (call && gid && /^\d+$/.test(call) && /^\d+$/.test(gid)) {
+      return CHAT_URL + "?join_call=" + call + "&gid=" + gid;
+    }
+  } catch (e) {}
+  return null;
+}
+let pendingDeepLink = extractDeepLink(process.argv);
+
 // ─── Icon helper ──────────────────────────────────────────────
 function getIcon(size) {
   const iconPath = path.join(__dirname, "icon.png");
@@ -63,7 +79,14 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (event, argv) => {
+    const dl = extractDeepLink(argv);
+    if (dl && mainWindow) {
+      mainWindow.webContents
+        .executeJavaScript("(typeof GC!=='undefined'&&GC.active)||(typeof CallState!=='undefined'&&CallState.isInCall)")
+        .then((busy) => { if (!busy) mainWindow.loadURL(dl); })
+        .catch(() => mainWindow.loadURL(dl));
+    }
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
@@ -131,7 +154,7 @@ function createWindow() {
   });
 
   // ─── Load chat URL ───
-  mainWindow.loadURL(CHAT_URL).catch((err) => {
+  mainWindow.loadURL(pendingDeepLink || CHAT_URL).catch((err) => {
     console.error("Load failed:", err.message);
     showOfflinePage();
   });
@@ -480,6 +503,7 @@ function persistCookies() {
 app.whenReady().then(() => {
   // Set app user model ID for Windows notifications
   app.setAppUserModelId("com.skychat.desktop");
+  app.setAsDefaultProtocolClient("skychat");
 
   createWindow();
   persistCookies();
