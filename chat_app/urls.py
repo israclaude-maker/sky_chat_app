@@ -51,6 +51,20 @@ def manifest(request):
         content = f.read()
     return HttpResponse(content, content_type="application/manifest+json")
 
+def assetlinks(request):
+    """Android App Links verification"""
+    import json
+    data = [{
+        "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "com.skychat.app",
+            "sha256_cert_fingerprints": [
+                "79:D5:4A:FD:D3:4D:D0:5F:DF:93:FE:07:0D:63:0B:4B:BF:1A:49:29:59:39:4E:79:DB:ED:BC:DF:46:0B:AA:5D"
+            ],
+        },
+    }]
+    return HttpResponse(json.dumps(data), content_type="application/json")
 
 urlpatterns = [
     path("", accounts_index, name="home"),
@@ -63,6 +77,7 @@ urlpatterns = [
     ),
     path("sw.js", service_worker, name="service_worker"),
     path("manifest.json", manifest, name="manifest"),
+        path(".well-known/assetlinks.json", assetlinks, name="assetlinks"),
     path("admin/", admin.site.urls),
     path("api/auth/users/call_history/", call_history, name="call_history_users"),
     path("api/auth/", include("accounts.urls")),

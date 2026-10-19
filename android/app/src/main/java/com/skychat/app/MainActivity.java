@@ -266,7 +266,13 @@ public class MainActivity extends Activity {
             }
         });
 
-        webView.loadUrl(APP_URL);
+        String startUrl = APP_URL;
+        Intent li = getIntent();
+        if (li != null && li.getData() != null) {
+            String safe = safeChatUrl(li.getData());
+            if (safe != null) startUrl = safe;
+        }
+        webView.loadUrl(startUrl);
 
         // Handle call action if app was launched from notification
         Intent launchIntent = getIntent();
@@ -292,6 +298,16 @@ public class MainActivity extends Activity {
     }
 
     private int callActionRetryCount = 0;
+
+    // Sirf https://skyfinancia.com/chat/... links allow, baaki sab ignore
+    private String safeChatUrl(Uri u) {
+        if (u == null) return null;
+        if (!"https".equals(u.getScheme())) return null;
+        if (!"skyfinancia.com".equals(u.getHost())) return null;
+        String p = u.getPath();
+        if (p == null || !p.startsWith("/chat/")) return null;
+        return u.toString();
+    }
     private static final int MAX_CALL_RETRIES = 8;
 
     private void executeCallAction(String action) {
@@ -1024,6 +1040,21 @@ protected void onResume() {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        if (intent != null && intent.getData() != null && webView != null) {
+            final String linkUrl = safeChatUrl(intent.getData());
+            if (linkUrl != null) {
+                webView.evaluateJavascript(
+                    "(function(){return (typeof GC!=='undefined'&&GC.active)||(typeof CallState!=='undefined'&&CallState.isInCall);})()",
+                    new android.webkit.ValueCallback<String>() {
+                        @Override
+                        public void onReceiveValue(String busy) {
+                            if (!"true".equals(busy)) {
+                                webView.loadUrl(linkUrl);
+                            }
+                        }
+                    });
+            }
+        }
         // Handle call answer/decline from notification
         if (intent != null && intent.hasExtra("call_action")) {
             String action = intent.getStringExtra("call_action");
