@@ -2074,6 +2074,7 @@ function appendMsg(msg, consec) {
     !isSystem &&
     S.isGroup &&
     content &&
+    content.indexOf("Meeting Summary") < 0 &&
     (content.match(/ left the group$/) ||
       content.match(/ removed /) ||
       content.match(/ added /) ||
@@ -12704,7 +12705,7 @@ function openMeetingSummary(callId, groupCallId) {
     '<button class="ms-close" onclick="document.getElementById(\'meeting-summary-overlay\').remove()">' +
     '<i class="fa-solid fa-xmark"></i></button></div>' +
     '<div class="ms-body" id="ms-body"><div class="ms-loading">' +
-    '<i class="fa-solid fa-spinner fa-spin"></i> Summary ban rahi hai...</div></div>';
+    '<i class="fa-solid fa-spinner fa-spin"></i> Generating summary...</div></div>';
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 
@@ -12721,7 +12722,7 @@ function openMeetingSummary(callId, groupCallId) {
       var body = document.getElementById("ms-body");
       if (!body) return;
       if (!res.ok || !res.data.found) {
-        body.innerHTML = '<div class="ms-empty">Is call ki summary nahi mili.</div>';
+        body.innerHTML = '<div class="ms-empty">No summary found for this call.</div>';
         return;
       }
       var d = res.data;
@@ -12735,11 +12736,11 @@ function openMeetingSummary(callId, groupCallId) {
         html += "<h4>Action Items</h4><ul>" +
           d.action_items.map(function (p) { return "<li>" + esc(p) + "</li>"; }).join("") + "</ul>";
       }
-      body.innerHTML = html || '<div class="ms-empty">Summary khali hai.</div>';
+      body.innerHTML = html || '<div class="ms-empty">The summary is empty.</div>';
     })
     .catch(function () {
       var body = document.getElementById("ms-body");
-      if (body) body.innerHTML = '<div class="ms-empty">Summary load nahi ho saki.</div>';
+      if (body) body.innerHTML = '<div class="ms-empty">Could not load the summary.</div>';
     });
 }
 
