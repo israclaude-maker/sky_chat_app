@@ -130,8 +130,8 @@ def save_transcript_fragment(request):
 
 def generate_meeting_summary(call=None, group_call=None):
     """
-    Sab TranscriptFragments ko time-order mein merge karke Claude ko bhejta hai,
-    aur MeetingSummary save karta hai.
+    Merges all TranscriptFragments in time order, sends them to Claude,
+    and saves the MeetingSummary.
     """
     if call:
         fragments = TranscriptFragment.objects.filter(call=call).select_related("user").order_by("created_at")
@@ -149,13 +149,21 @@ def generate_meeting_summary(call=None, group_call=None):
         lines.append(f"{speaker}: {f.text}")
     merged_transcript = "\n".join(lines)
 
-    prompt = f"""Yeh ek meeting/call ka transcript hai, jisme har line ke shuru mein speaker ka naam hai. Isse analyze karke sirf valid JSON return karein, koi extra text nahi, format:
+    prompt = f"""The following is the transcript of a meeting/call. Each line begins with the speaker's name. The conversation may be in Urdu, Roman Urdu, English, or a mix of these.
+
+Analyze it and return ONLY valid JSON with no extra text, in this format:
 
 {{
-  "summary": "2-3 line ka short summary",
+  "summary": "A 2-3 sentence summary",
   "key_points": ["point 1", "point 2"],
   "action_items": ["action 1", "action 2"]
 }}
+
+Rules:
+- Write everything in formal, professional English.
+- Do NOT use Roman Urdu or Urdu script anywhere. Translate any Urdu content into English.
+- Refer to participants by their names.
+- If there are no action items, return an empty list.
 
 Transcript:
 {merged_transcript}
@@ -186,7 +194,7 @@ Transcript:
 
 
 def _get_or_build_summary(call=None, group_call=None):
-    """Summary lautata hai. Nahi hai (ya naya transcript aaya hai) to Claude se banata hai."""
+    """Returns the summary. If none exists (or a newer transcript arrived), builds it with Claude."""
     if call:
         frags = TranscriptFragment.objects.filter(call=call)
         summary = MeetingSummary.objects.filter(call=call).first()
