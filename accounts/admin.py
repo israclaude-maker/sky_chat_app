@@ -15,6 +15,7 @@ class CustomUserAdmin(UserAdmin):
 
 @admin.register(LoginLog)
 class LoginLogAdmin(admin.ModelAdmin):
-    list_display = ('user', 'platform', 'ip_address', 'logged_in_at')
+    list_display = ('user', 'platform', 'device_name', 'ip_address', 'logged_in_at')
     list_filter = ('platform',)
-    search_fields = ('user__username',)
+    search_fields = ('user__username', 'device_name', 'ip_address')
+    readonly_fields = ('user_agent',)

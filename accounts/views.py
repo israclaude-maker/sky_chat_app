@@ -10,7 +10,7 @@ from django.utils import timezone
 from datetime import timedelta
 
 from accounts.models import CustomUser, PushSubscription, FCMDevice, LoginLog
-from accounts.utils import detect_platform, get_client_ip
+from accounts.utils import detect_platform, get_client_ip, get_device_name
 from accounts.serializers import UserSerializer, RegisterSerializer, LoginSerializer
 from chat.models import (
     Conversation,
@@ -155,6 +155,7 @@ class UserViewSet(viewsets.ModelViewSet):
                     platform=detect_platform(request),
                     ip_address=get_client_ip(request),
                     user_agent=request.META.get("HTTP_USER_AGENT", ""),
+                    device_name=get_device_name(request),
                 )
                 return Response(
                     {

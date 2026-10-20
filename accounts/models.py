@@ -67,6 +67,7 @@ class LoginLog(models.Model):
     )
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.TextField(blank=True)
+    device_name = models.CharField(max_length=255, blank=True, default="")   # NEW
     logged_in_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
