@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require("electron");
+const os = require("os");
 
 // Expose a DesktopBridge to the web page (similar to AndroidBridge in APK)
 contextBridge.exposeInMainWorld("DesktopBridge", {
@@ -68,4 +69,5 @@ contextBridge.exposeInMainWorld("DesktopBridge", {
 contextBridge.exposeInMainWorld("ElectronBridge", {
   isElectron: true,
   platform: process.platform,
+  deviceName: os.hostname(),
 });

@@ -134,7 +134,12 @@ async function handleLogin(event) {
     const response = await fetch(API_URL + "/login/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({
+        username,
+        password,
+        device_name:
+          (window.ElectronBridge && window.ElectronBridge.deviceName) || "",
+      }),
     });
 
     const data = await response.json();
