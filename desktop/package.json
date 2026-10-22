@@ -1,6 +1,6 @@
 {
   "name": "skychat-desktop",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "SkyChat Desktop Application",
   "main": "main.js",
   "scripts": {
