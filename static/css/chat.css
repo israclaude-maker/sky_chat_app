@@ -5210,3 +5210,76 @@ body {
     right: -6px;
   }
 }
+
+/* LEFT ICON RAIL (WhatsApp style) */
+#icon-rail {
+  width: 64px;
+  min-width: 64px;
+  flex-shrink: 0;
+  height: 100vh;
+  background: #f7f5f3;
+  border-right: 1px solid #e9edef;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 0 12px;
+  gap: 8px;
+}
+.rail-btn {
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  color: #54656f;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.rail-btn:hover { background: #e9e6e2; }
+.rail-btn.on { background: #e9e6e2; color: #111b21; }
+.rail-spacer { flex: 1; }
+@media (max-width: 768px) {
+  #icon-rail { display: none; }
+}
+/* GROUP CALL: screen share ho to Zoom jaisa layout
+   (screen bari bich mein, participants upar ek patti mein) */
+.gc-video-grid:has(.gc-main-view.screen-share),
+.gc-video-grid:has(.gc-main-view.dual-screen) {
+  flex-direction: column;
+}
+.gc-video-grid:has(.gc-main-view.screen-share) .gc-sidebar,
+.gc-video-grid:has(.gc-main-view.dual-screen) .gc-sidebar {
+  order: -1;
+  width: 100%;
+  height: 120px;
+  flex-direction: row;
+  flex-shrink: 0;
+}
+.gc-video-grid:has(.gc-main-view.screen-share) .gc-talking-bar,
+.gc-video-grid:has(.gc-main-view.dual-screen) .gc-talking-bar {
+  display: none;
+}
+.gc-video-grid:has(.gc-main-view.screen-share) .gc-thumb-strip,
+.gc-video-grid:has(.gc-main-view.dual-screen) .gc-thumb-strip {
+  flex-direction: row;
+  overflow-x: auto;
+  overflow-y: hidden;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 12px;
+}
+.gc-video-grid:has(.gc-main-view.screen-share) .gc-thumb,
+.gc-video-grid:has(.gc-main-view.dual-screen) .gc-thumb {
+  width: 140px;
+  height: 100px;
+  min-height: 0;
+  aspect-ratio: auto;
+}
+/* screen wali alag thumbnail ki zaroorat nahi, screen bich mein hai */
+.gc-video-grid:has(.gc-main-view.screen-share) .gc-screen-thumb {
+  display: none;
+}

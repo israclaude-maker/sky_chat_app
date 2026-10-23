@@ -12757,4 +12757,56 @@ msStyle.textContent =
   ".ms-loading,.ms-empty{text-align:center;color:#6b7280;padding:24px 0;}";
 document.head.appendChild(msStyle);
 
+
+// ═══ LEFT ICON RAIL (WhatsApp style) — sirf side icons, baaki app same ═══
+(function () {
+  function buildIconRail() {
+    if (document.getElementById("icon-rail")) return;
+    var app = document.getElementById("app");
+    var sidebar = document.getElementById("sidebar");
+    if (!app || !sidebar) return;
+
+    var rail = document.createElement("div");
+    rail.id = "icon-rail";
+    rail.innerHTML =
+      '<button class="rail-btn on" data-tab="chats" title="Chats"><i class="fa-solid fa-message"></i></button>' +
+      '<button class="rail-btn" data-tab="calls" title="Calls"><i class="fa-solid fa-phone"></i></button>' +
+      '<button class="rail-btn" data-tab="groups" title="Groups"><i class="fa-solid fa-user-group"></i></button>' +
+      '<div class="rail-spacer"></div>' +
+      '<button class="rail-btn" id="rail-profile" title="Profile"><i class="fa-solid fa-user"></i></button>';
+    app.insertBefore(rail, sidebar);
+
+    rail.querySelectorAll(".rail-btn[data-tab]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var tab = b.getAttribute("data-tab");
+        var target = null;
+        document.querySelectorAll(".sb-tab").forEach(function (t) {
+          if (t.textContent.trim().toLowerCase() === tab) target = t;
+        });
+        swTab(tab, target);
+      });
+    });
+    document.getElementById("rail-profile").addEventListener("click", function () {
+      openProfile();
+    });
+  }
+
+  function railSync(tab) {
+    var t = tab === "unread" ? "chats" : tab;
+    document.querySelectorAll("#icon-rail .rail-btn[data-tab]").forEach(function (b) {
+      b.classList.toggle("on", b.getAttribute("data-tab") === t);
+    });
+  }
+
+  // jab bhi tab badle (rail ya upar ke chips se), rail highlight sync ho
+  var _swTab = window.swTab;
+  window.swTab = function (tab, btn) {
+    var r = _swTab.apply(this, arguments);
+    railSync(tab);
+    return r;
+  };
+
+  buildIconRail();
+})();
+
 init();
