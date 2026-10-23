@@ -12808,5 +12808,12 @@ document.head.appendChild(msStyle);
 
   buildIconRail();
 })();
-
+// Group call thumbs: jitne zyada log, utni chhoti thumbs (taake 2-3 rows mein fit hon)
+setInterval(function () {
+  var s = document.getElementById("gc-thumb-strip");
+  if (!s) return;
+  var n = s.children.length;
+  var w = n <= 6 ? 120 : n <= 12 ? 96 : n <= 20 ? 76 : 60;
+  s.style.setProperty("--gc-tw", w + "px");
+}, 700);
 init();

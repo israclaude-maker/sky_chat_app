@@ -5311,3 +5311,151 @@ body {
 #gc-ongoing-call .call-controls.ctrl-unpinned.ctrl-show {
   transform: none !important;
 }
+
+/* ═══ GROUP CALL: participants top, screens middle, compact call bar ═══ */
+#gc-ongoing-call .gc-video-grid {
+  flex-direction: column !important;
+}
+
+/* participants bar upar, wrap hoga, scroll nahi */
+#gc-ongoing-call .gc-sidebar {
+  order: -1;
+  width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  flex-direction: column;
+  overflow: visible !important;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+#gc-ongoing-call .gc-talking-bar {
+  padding: 4px 12px;
+  justify-content: center;
+}
+
+#gc-ongoing-call .gc-thumb-strip {
+  flex-direction: row !important;
+  flex-wrap: wrap;
+  justify-content: center;
+  overflow: visible !important;
+  flex: none;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+#gc-ongoing-call .gc-thumb {
+  width: var(--gc-tw, 120px) !important;
+  height: calc(var(--gc-tw, 120px) * 0.68) !important;
+  min-height: 0;
+  aspect-ratio: auto !important;
+  flex: 0 0 auto;
+}
+
+#gc-ongoing-call .gc-thumb .gc-thumb-av {
+  width: calc(var(--gc-tw, 120px) * 0.36);
+  height: calc(var(--gc-tw, 120px) * 0.36);
+}
+
+/* screens wala main area bachi hui jagah le */
+#gc-ongoing-call .gc-main-view {
+  flex: 1;
+  min-height: 0;
+}
+
+/* header chhota */
+#gc-ongoing-call .gc-header {
+  padding: 8px 16px 4px;
+}
+
+/* call bar chhota (sirf group call) */
+#gc-ongoing-call .gc-call-screen .call-controls {
+  padding: 6px 10px !important;
+  gap: 4px;
+  margin: 6px auto 10px !important;
+}
+
+#gc-ongoing-call .gc-call-screen .ctrl-btn {
+  width: 38px;
+  height: 38px;
+  font-size: 15px;
+}
+
+#gc-ongoing-call .gc-call-screen .ctrl-btn.end {
+  width: 44px;
+  height: 44px;
+  font-size: 17px;
+}
+
+/* ═══ GROUP CALL: participants top, screens middle, compact call bar ═══ */
+#gc-ongoing-call .gc-video-grid {
+  flex-direction: column !important;
+}
+
+/* participants bar upar, wrap hoga, scroll nahi */
+#gc-ongoing-call .gc-sidebar {
+  order: -1;
+  width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  flex-direction: column;
+  overflow: visible !important;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+#gc-ongoing-call .gc-talking-bar {
+  padding: 4px 12px;
+  justify-content: center;
+}
+
+#gc-ongoing-call .gc-thumb-strip {
+  flex-direction: row !important;
+  flex-wrap: wrap;
+  justify-content: center;
+  overflow: visible !important;
+  flex: none;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+#gc-ongoing-call .gc-thumb {
+  width: var(--gc-tw, 120px) !important;
+  height: calc(var(--gc-tw, 120px) * 0.68) !important;
+  min-height: 0;
+  aspect-ratio: auto !important;
+  flex: 0 0 auto;
+}
+
+#gc-ongoing-call .gc-thumb .gc-thumb-av {
+  width: calc(var(--gc-tw, 120px) * 0.36);
+  height: calc(var(--gc-tw, 120px) * 0.36);
+}
+
+/* screens wala main area bachi hui jagah le */
+#gc-ongoing-call .gc-main-view {
+  flex: 1;
+  min-height: 0;
+}
+
+/* header chhota */
+#gc-ongoing-call .gc-header {
+  padding: 8px 16px 4px;
+}
+
+/* call bar chhota (sirf group call) */
+#gc-ongoing-call .gc-call-screen .call-controls {
+  padding: 6px 10px !important;
+  gap: 4px;
+  margin: 6px auto 10px !important;
+}
+
+#gc-ongoing-call .gc-call-screen .ctrl-btn {
+  width: 38px;
+  height: 38px;
+  font-size: 15px;
+}
+
+#gc-ongoing-call .gc-call-screen .ctrl-btn.end {
+  width: 44px;
+  height: 44px;
+  font-size: 17px;
+}
