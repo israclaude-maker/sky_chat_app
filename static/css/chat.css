@@ -5296,3 +5296,18 @@ body {
   align-self: center;
   margin: 0 auto 16px;
 }
+
+/* GROUP CALL: call bar (mic, cam, screen, end...) bilkul bich mein rahe.
+   JS inline style se transform:translateX(-50%) laga deta hai, isliye !important zaroori hai */
+#gc-ongoing-call .call-controls {
+  transform: none !important;
+  left: auto !important;
+  align-self: center;
+  margin: 0 auto 16px;
+}
+#gc-ongoing-call .call-controls.ctrl-unpinned {
+  transform: translateY(30px) !important;
+}
+#gc-ongoing-call .call-controls.ctrl-unpinned.ctrl-show {
+  transform: none !important;
+}
