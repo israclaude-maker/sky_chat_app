@@ -5283,3 +5283,16 @@ body {
 .gc-video-grid:has(.gc-main-view.screen-share) .gc-screen-thumb {
   display: none;
 }
+/* GROUP CALL: call bar (mic, cam, screen, end...) bilkul bich mein rahe.
+   Pehle "unpinned" hone par translateX(-50%) lag jata tha jis se bar left khisak jati thi */
+#gc-ongoing-call .call-controls,
+#gc-ongoing-call .call-controls.ctrl-unpinned.ctrl-show {
+  transform: none;
+}
+#gc-ongoing-call .call-controls.ctrl-unpinned {
+  transform: translateY(30px);
+}
+#gc-ongoing-call .call-controls {
+  align-self: center;
+  margin: 0 auto 16px;
+}
